@@ -22,6 +22,8 @@ public sealed class FakeRegistry : IRegistry
     public RegistryValueKind? KindOf(Hive h, string key, string name) =>
         Values(h, key, create: false)?.TryGetValue(name, out var v) == true ? v.Kind : null;
 
+    public bool KeyExists(Hive h, string key) => Values(h, key, create: false) is not null;
+
     public IReadOnlyList<string> ValueNames(Hive h, string key) => Values(h, key, create: false)?.Keys.ToList() ?? [];
 
     public object? Get(Hive h, string key, string name) =>
@@ -43,6 +45,7 @@ public sealed class FakeRegistry : IRegistry
     public void Export(Hive h, string key, string file)
     {
         ExportCalls.Add((h, key, file));
+        if (!KeyExists(h, key)) throw new InvalidOperationException($"reg.exe export fehlgeschlagen: Schlüssel fehlt {h}\\{key}");
         var dir = Path.GetDirectoryName(Path.GetFullPath(file));
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         File.WriteAllText(file, $"Windows Registry Editor Version 5.00\r\n\r\n[{h}\\{key}]\r\n");

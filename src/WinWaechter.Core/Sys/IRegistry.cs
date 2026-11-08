@@ -6,6 +6,7 @@ public enum Hive { CurrentUser, LocalMachine }
 
 public interface IRegistry
 {
+    bool KeyExists(Hive h, string key);
     IReadOnlyList<string> ValueNames(Hive h, string key);
     object? Get(Hive h, string key, string name);
     void Set(Hive h, string key, string name, object value, RegistryValueKind kind);

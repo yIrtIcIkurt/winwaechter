@@ -11,6 +11,7 @@ namespace WinWaechter.Tests;
 public sealed class AutostartTests : IDisposable
 {
     const string Run = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    const string ApprovedRoot = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\";
     const string ApprovedRun = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
     const string ApprovedFolder = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder";
 
@@ -98,6 +99,31 @@ public sealed class AutostartTests : IDisposable
         _reg.Seed(Hive.LocalMachine, @"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run", "Steam", @"C:\Games\Steam\steam.exe");
         var f = Assert.Single(Scanner().Scan());
         Assert.Equal("autostart|HKLM|Run32|Steam", f.Id);
+        Assert.NotNull(f.Change);
+
+        _reg.Seed(Hive.LocalMachine, ApprovedRoot + "Run32", "Steam", Bytes(3), RegistryValueKind.Binary);
+        Assert.Null(Assert.Single(Scanner().Scan()).Change);
+    }
+
+    [Fact]
+    public void Folder_items_map_to_their_hive_and_approved_subkey()
+    {
+        Directory.CreateDirectory(_user.StartupDir);
+        Directory.CreateDirectory(_user.CommonStartupDir);
+        var mine = Path.Combine(_user.StartupDir, "Steam.lnk");
+        var common = Path.Combine(_user.CommonStartupDir, "Discord.lnk");
+        File.WriteAllText(mine, "x");
+        File.WriteAllText(common, "x");
+        _lnk.Set(mine, @"C:\Games\Steam\steam.exe").Set(common, @"C:\Apps\Discord.exe");
+        // Disable the common one in HKLM only; the user one must stay enabled.
+        _reg.Seed(Hive.LocalMachine, ApprovedRoot + "StartupFolder", "Discord.lnk", Bytes(3), RegistryValueKind.Binary);
+
+        var found = Scanner().Scan().ToDictionary(f => f.Id);
+        Assert.Equal(2, found.Count);
+        var mineFinding = found["autostart|HKCU|StartupFolder|Steam.lnk"];
+        Assert.NotNull(mineFinding.Change);
+        Assert.Equal(@"HKCU\" + ApprovedRoot + @"StartupFolder\Steam.lnk", mineFinding.Change!.Target);
+        Assert.Null(found["autostart|HKLM|StartupFolder|Discord.lnk"].Change);
     }
 
     [Fact]
@@ -124,6 +150,7 @@ public sealed class AutostartTests : IDisposable
     [Fact]
     public void Apply_writes_03_and_records_before()
     {
+        _reg.Seed(Hive.CurrentUser, ApprovedRun, "Other", Bytes(2), RegistryValueKind.Binary); // key exists, Steam absent
         var rec = Change().Apply(Ctx());
 
         Assert.Equal(ChangeStatus.Applied, rec.Status);
@@ -135,6 +162,26 @@ public sealed class AutostartTests : IDisposable
         Assert.Single(_reg.ExportCalls);
         Assert.Equal("autostart", rec.Kind);
         Assert.Contains("Steam", rec.Description);
+    }
+
+    [Fact]
+    public void Apply_works_when_approved_key_missing()
+    {
+        var change = new StartupApprovedChange(_reg, Hive.LocalMachine, ApprovedRoot + "Run32", "Steam");
+        var rec = change.Apply(Ctx());
+
+        Assert.Empty(_reg.ExportCalls);
+        Assert.Null(rec.Before["backup"]);
+        Assert.Equal(3, Assert.IsType<byte[]>(_reg.Get(Hive.LocalMachine, ApprovedRoot + "Run32", "Steam"))[0]);
+    }
+
+    [Fact]
+    public void Apply_exports_backup_when_key_exists()
+    {
+        _reg.Seed(Hive.CurrentUser, ApprovedRun, "Other", Bytes(2), RegistryValueKind.Binary);
+        var rec = Change().Apply(Ctx());
+        Assert.NotNull(rec.Before["backup"]);
+        Assert.True(File.Exists(rec.Before["backup"]));
     }
 
     [Fact]

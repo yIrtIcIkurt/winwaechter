@@ -33,9 +33,14 @@ public sealed class StartupApprovedChange : IChange
     public ChangeRecord Apply(SessionContext ctx)
     {
         var before = ReadHex();
-        Directory.CreateDirectory(ctx.BackupDir);
-        var file = Path.Combine(ctx.BackupDir, $"autostart-{Guid.NewGuid():N}.reg");
-        _reg.Export(_hive, _approvedKey, file);
+        // A missing approved key has nothing to back up (reg export would fail).
+        string? file = null;
+        if (_reg.KeyExists(_hive, _approvedKey))
+        {
+            Directory.CreateDirectory(ctx.BackupDir);
+            file = Path.Combine(ctx.BackupDir, $"autostart-{Guid.NewGuid():N}.reg");
+            _reg.Export(_hive, _approvedKey, file);
+        }
 
         var bytes = new byte[12];
         bytes[0] = 0x03;
@@ -43,7 +48,7 @@ public sealed class StartupApprovedChange : IChange
         _reg.Set(_hive, _approvedKey, _valueName, bytes, RegistryValueKind.Binary);
 
         return new ChangeRecord(Guid.NewGuid().ToString("N"), Kind, Target, Description,
-            State(before), State(Convert.ToHexString(bytes)), ChangeStatus.Applied, DateTimeOffset.Now);
+            State(before, file), State(Convert.ToHexString(bytes)), ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
     public void Undo(ChangeRecord record, SessionContext ctx)
@@ -63,12 +68,13 @@ public sealed class StartupApprovedChange : IChange
 
     string? ReadHex() => _reg.Get(_hive, _approvedKey, _valueName) is byte[] b ? Convert.ToHexString(b) : null;
 
-    Dictionary<string, string?> State(string? hex) => new()
+    Dictionary<string, string?> State(string? hex, string? backup = null) => new()
     {
         ["hive"] = _hive.ToString(),
         ["approvedKey"] = _approvedKey,
         ["valueName"] = _valueName,
         ["value"] = hex,
+        ["backup"] = backup,
     };
 
     static string HiveName(Hive h) => h == Hive.CurrentUser ? "HKCU" : "HKLM";

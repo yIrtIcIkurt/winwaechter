@@ -63,6 +63,17 @@ public sealed class SysSmokeTests : IDisposable
     }
 
     [Fact]
+    public void Registry_set_creates_missing_subkey_and_KeyExists_reports_it()
+    {
+        var reg = new WinRegistry(new FakeUserContext(_dir, CurrentSid));
+        var deep = _key + @"\a\b";
+        Assert.False(reg.KeyExists(Hive.CurrentUser, deep));
+        reg.Set(Hive.CurrentUser, deep, "v", new byte[] { 3 }, RegistryValueKind.Binary);
+        Assert.True(reg.KeyExists(Hive.CurrentUser, deep));
+        Assert.Equal(new byte[] { 3 }, reg.Get(Hive.CurrentUser, deep, "v"));
+    }
+
+    [Fact]
     public void Registry_missing_key_reads_empty()
     {
         var reg = new WinRegistry(new FakeUserContext(_dir, CurrentSid));

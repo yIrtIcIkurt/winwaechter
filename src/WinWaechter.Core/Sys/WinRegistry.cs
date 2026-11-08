@@ -9,6 +9,12 @@ namespace WinWaechter.Core.Sys;
 /// </summary>
 public sealed class WinRegistry(IUserContext user) : IRegistry
 {
+    public bool KeyExists(Hive h, string key)
+    {
+        using var k = Open(h, key, writable: false);
+        return k is not null;
+    }
+
     public IReadOnlyList<string> ValueNames(Hive h, string key)
     {
         using var k = Open(h, key, writable: false);
