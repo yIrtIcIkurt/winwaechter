@@ -470,7 +470,7 @@ public sealed class UpdateTests : IDisposable
         var path = Path.Combine(_root, "WinWaechter-Setup-0.1.1.exe");
         var psi = UpdateInstaller.BuildStartInfo(new VerifiedUpdate(path, V011, null));
         Assert.Equal(path, psi.FileName);
-        Assert.Equal("/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS", psi.Arguments);
+        Assert.Equal("/SILENT /CLOSEAPPLICATIONS", psi.Arguments);
         Assert.False(psi.UseShellExecute);
         Assert.Throws<ArgumentException>(() => UpdateInstaller.BuildStartInfo(new VerifiedUpdate("setup.exe", V011, null)));
         Assert.Throws<ArgumentException>(() => UpdateInstaller.BuildStartInfo(new VerifiedUpdate(@"\setup.exe", V011, null)));
@@ -504,6 +504,22 @@ public sealed class UpdateTests : IDisposable
         var f = Path.Combine(_root, "setup.exe");
         File.WriteAllText(f, "x");
         Assert.Throws<ArgumentException>(() => ReleaseSigner.Sign(_key, V011, f, Path.Combine(_root, "o")));
+    }
+
+    [Fact]
+    public void Cli_verify_embedded_rejects_release_signed_with_other_key()
+    {
+        var (sums, sig, setup, _) = MakeRelease(V011);
+        var pub = Path.Combine(_root, "test.pub.pem");
+        File.WriteAllText(pub, PubPem);
+        var o = new StringWriter();
+        var e = new StringWriter();
+
+        // the explicit test key verifies ...
+        Assert.Equal(0, ReleaseCli.Run(["verify", pub, "0.0.0", sums, sig, setup], o, e));
+        // ... but the key compiled into the app does not, so a wrong signing key fails the build
+        Assert.Equal(1, ReleaseCli.Run(["verify-embedded", "0.0.0", sums, sig, setup], o, e));
+        Assert.NotEmpty(e.ToString());
     }
 
     [Fact]

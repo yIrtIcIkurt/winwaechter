@@ -58,11 +58,12 @@ $tool = Join-Path $root 'tools\ReleaseTool\ReleaseTool.csproj'
 & $dotnet run --project $tool -c Release -- sign $KeyPath $Version $setup $dist
 Assert-Ok 'ReleaseTool sign'
 
-# 6. Self-check as if installed version were 0.0.0
+# 6. Self-check as if installed version were 0.0.0, against the public key compiled into the app
+#    (catches a signing key that does not match UpdateKeys.PublicKeyPem)
 $sums = Join-Path $dist 'SHA256SUMS'
 $sig = Join-Path $dist 'SHA256SUMS.sig'
-& $dotnet run --project $tool -c Release -- verify $PubKeyPath '0.0.0' $sums $sig $setup
-Assert-Ok 'ReleaseTool verify'
+& $dotnet run --project $tool -c Release -- verify-embedded '0.0.0' $sums $sig $setup
+Assert-Ok 'ReleaseTool verify-embedded'
 
 Write-Host "Fertig: $setup"
 

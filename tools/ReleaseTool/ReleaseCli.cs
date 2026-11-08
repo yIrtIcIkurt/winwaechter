@@ -3,6 +3,7 @@ using WinWaechter.Core.Update;
 namespace WinWaechter.ReleaseTool;
 
 // Commands: keygen <dir> | sign <keyPem> <version> <setupExe> <outDir> | verify <pubPem> <installed> <sums> <sig> <setup>
+// | verify-embedded <installed> <sums> <sig> <setup> (checks against the key compiled into the app)
 // Exit code 0 = success, 1 = failure (message on stderr). Never prints key material.
 public static class ReleaseCli
 {
@@ -26,11 +27,15 @@ public static class ReleaseCli
                     return 0;
 
                 case "verify" when args.Length == 6:
-                    return Verify(args, output, error);
+                    return Verify(File.ReadAllText(args[1]), args[2..], output, error);
+
+                case "verify-embedded" when args.Length == 5:
+                    return Verify(UpdateKeys.PublicKeyPem, args[1..], output, error);
 
                 default:
                     return Fail(error, "Verwendung:\n  ReleaseTool keygen <dir>\n  ReleaseTool sign <keyPem> <version> <setupExe> <outDir>\n"
-                        + "  ReleaseTool verify <pubPem> <installedVersion> <sumsPath> <sigPath> <setupPath>");
+                        + "  ReleaseTool verify <pubPem> <installedVersion> <sumsPath> <sigPath> <setupPath>\n"
+                        + "  ReleaseTool verify-embedded <installedVersion> <sumsPath> <sigPath> <setupPath>");
             }
         }
         catch (Exception e)
@@ -39,17 +44,17 @@ public static class ReleaseCli
         }
     }
 
-    static int Verify(string[] a, TextWriter output, TextWriter error)
+    // a = installed, sums, sig, setup
+    static int Verify(string pem, string[] a, TextWriter output, TextWriter error)
     {
-        if (!SemVer.TryParse(a[2], out var installed)) return Fail(error, "Ungültige installierte Version.");
-        var pem = File.ReadAllText(a[1]);
+        if (!SemVer.TryParse(a[0], out var installed)) return Fail(error, "Ungültige installierte Version.");
         // The version is read from the (still unverified) file only to build the info; Verify checks the signature first.
-        if (!SumsFile.TryParse(File.ReadAllBytes(a[3]), out var file) || file is null)
+        if (!SumsFile.TryParse(File.ReadAllBytes(a[1]), out var file) || file is null)
             return Fail(error, "Die Prüfsummen-Datei hat ein ungültiges Format.");
-        var name = Path.GetFileName(a[5]);
+        var name = Path.GetFileName(a[3]);
         var dummy = new Uri("https://github.com/");
         var info = new UpdateInfo(file.Version, "", dummy, dummy, dummy, name);
-        using var ok = new ReleaseVerifier(pem, installed).Verify(a[3], a[4], a[5], info);
+        using var ok = new ReleaseVerifier(pem, installed).Verify(a[1], a[2], a[3], info);
         output.WriteLine($"OK: Version {ok.Version} ist signiert und die Prüfsumme stimmt.");
         return 0;
     }
