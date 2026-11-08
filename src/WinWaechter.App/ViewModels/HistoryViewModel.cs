@@ -22,8 +22,12 @@ public sealed class RecordViewModel(ChangeRecord record, SessionViewModel sessio
     public string TimeText => Labels.Date(Record.At);
     public string? Error => Record.Error;
     public bool IsPurged => Record.After.TryGetValue("purged", out var p) && p == "true";
-    public bool CanUndo => Record.Status == ChangeStatus.Applied && !IsPurged;
-    public string? Hint => IsPurged && Record.Status == ChangeStatus.Applied ? "Ablage geleert" : null;
+    public bool MovedNothing => OptimizerEngine.MovedNothing(Record);
+    public bool CanUndo => OptimizerEngine.IsUndoable(Record) && !IsPurged;
+    public string? Hint =>
+        MovedNothing ? "Nichts verschoben"
+        : IsPurged && Record.Status == ChangeStatus.Applied ? "Ablage geleert"
+        : null;
 }
 
 /// <summary>One optimizer session with its records.</summary>
@@ -203,7 +207,7 @@ public sealed partial class HistoryViewModel : ObservableObject
         await RefreshAsync();
     }
 
-    bool CanPurge() => !IsBusy && !_gate.IsBusy && AblageBytes > 0;
+    bool CanPurge() => CanChange && !IsBusy && !_gate.IsBusy && AblageBytes > 0;
 
     [RelayCommand(CanExecute = nameof(CanPurge))]
     private async Task PurgeAblageAsync()

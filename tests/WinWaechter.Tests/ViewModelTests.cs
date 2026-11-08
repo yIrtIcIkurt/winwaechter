@@ -5,6 +5,7 @@ using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Storage;
+using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Update;
 using WinWaechter.Tests.Fakes;
 
@@ -305,6 +306,102 @@ public sealed class ViewModelTests : IDisposable
         Assert.Equal("Abgebrochen: 1 angewendet, 2 nicht ausgeführt.", vm.LastSummary);
         Assert.StartsWith("Abgebrochen: 1 angewendet, 2 nicht ausgeführt.", dialogs.LastMessage);
         Assert.Equal(2, vm.AllItems.Count);
+    }
+
+    // ---- final review fixes ----
+
+    [Fact]
+    public void Protected_vendor_finding_offers_only_the_defender_check()
+    {
+        var f = new Finding("heur|x", FindingArea.Prozess, "DellUpdate.exe", @"C:\x\DellUpdate.exe", ["Grund"],
+            Rating.Auffaellig, false, null, IsProtectedVendor: true);
+        var item = new HeuristicItemViewModel(f);
+        Assert.True(item.IsProcess);
+        Assert.False(item.CanKill);
+        Assert.False(item.CanDisable);
+
+        var p = Protect(true, Engine());
+        Assert.False(p.KillProcessCommand.CanExecute(item));
+        Assert.False(p.DisableCommand.CanExecute(item));
+        Assert.True(p.CheckWithDefenderCommand.CanExecute(item));
+        Assert.True(p.KillProcessCommand.CanExecute(new HeuristicItemViewModel(Heur("m"))));
+    }
+
+    [Fact]
+    public async Task Scans_update_signatures_first_and_continue_when_that_fails()
+    {
+        var d = new FakeDefender();
+        var p = new ProtectViewModel(d, (_, _) => Task.FromResult<IReadOnlyList<Finding>>([]), Engine(), _ => 0,
+            new YesDialogs(), true, _gate);
+
+        await p.QuickScanCommand.ExecuteAsync(null);
+        Assert.Equal(["update", "scan:Quick"], d.Calls);
+        Assert.DoesNotContain("Hinweis", p.DefenderResult);
+
+        d.Calls.Clear();
+        d.UpdateError = new IOException("kein Netz");
+        await p.FullScanCommand.ExecuteAsync(null);
+        Assert.Equal(["update", "scan:Full"], d.Calls);
+        Assert.StartsWith("Vollscan abgeschlossen.", p.DefenderResult);
+        Assert.Contains("Signaturen ließen sich nicht aktualisieren", p.DefenderResult);
+    }
+
+    [Fact]
+    public async Task Clean_shows_where_quarantined_files_can_be_restored()
+    {
+        var d = new FakeDefender();
+        d.Threats.Add(new DefenderThreat(1, "Trojan:X", 5, [@"file:C:\x.exe"], true, "Aktiv"));
+        var p = new ProtectViewModel(d, (_, _) => Task.FromResult<IReadOnlyList<Finding>>([]), Engine(), _ => 0,
+            new YesDialogs(), true, _gate);
+        await p.RefreshCommand.ExecuteAsync(null);
+        Assert.Null(p.CleanHint);
+
+        await p.CleanCommand.ExecuteAsync(null);
+
+        Assert.Contains("remove", d.Calls);
+        Assert.Equal(ProtectViewModel.RestoreHint, p.CleanHint);
+        Assert.Contains("Schutzverlauf", p.CleanHint);
+    }
+
+    [Fact]
+    public void Temp_record_that_moved_nothing_shows_hint_and_no_undo()
+    {
+        var j = new SessionStore(_root).Create("T");
+        j.Upsert(new ChangeRecord("1", "temp", "x", "Temp-Dateien", new(), new() { ["moved"] = "0" }, ChangeStatus.Applied, DateTimeOffset.Now));
+        var s = new SessionViewModel(j);
+        Assert.False(s.Records[0].CanUndo);
+        Assert.Equal("Nichts verschoben", s.Records[0].Hint);
+        Assert.False(s.CanUndoAll);
+    }
+
+    [Fact]
+    public async Task Purge_needs_admin_rights()
+    {
+        var store = new SessionStore(_root);
+        var j = store.Create("T");
+        File.WriteAllText(Path.Combine(j.Context.AblageDir, "x.tmp"), "12345");
+        foreach (var admin in new[] { false, true })
+        {
+            var h = new HistoryViewModel(store, Engine(), new AblageJanitor(store), new YesDialogs(), admin, _gate);
+            await h.RefreshCommand.ExecuteAsync(null);
+            Assert.Equal(5, h.AblageBytes);
+            Assert.Equal(admin, h.PurgeAblageCommand.CanExecute(null));
+        }
+    }
+
+    [Fact]
+    public void Old_update_downloads_are_removed_fresh_ones_kept()
+    {
+        var updates = Directory.CreateDirectory(Path.Combine(_root, "Updates")).FullName;
+        var old = Directory.CreateDirectory(Path.Combine(updates, "0.2.0-aaaa")).FullName;
+        File.WriteAllText(Path.Combine(old, "WinWaechter-Setup-0.2.0.exe"), "x");
+        Directory.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+        var fresh = Directory.CreateDirectory(Path.Combine(updates, "0.3.0-bbbb")).FullName;
+
+        Assert.Equal(1, UpdateCleanup.PurgeOld(updates, UpdateCleanup.DefaultMaxAge));
+        Assert.False(Directory.Exists(old));
+        Assert.True(Directory.Exists(fresh));
+        Assert.Equal(0, UpdateCleanup.PurgeOld(Path.Combine(_root, "missing"), UpdateCleanup.DefaultMaxAge));
     }
 
     sealed class CallbackChange(string target, Action onApply) : IChange

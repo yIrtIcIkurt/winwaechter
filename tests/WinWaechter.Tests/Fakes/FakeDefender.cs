@@ -10,13 +10,35 @@ public sealed class FakeDefender : IDefender
     public Task<DefenderStatus> GetStatusAsync() =>
         Task.FromResult(new DefenderStatus(true, true, true, PuaMode, null, 0, null, null, null));
 
-    public Task<IReadOnlyList<DefenderThreat>> GetThreatsAsync() =>
-        Task.FromResult<IReadOnlyList<DefenderThreat>>([]);
+    /// <summary>Order of operations, e.g. "update", "scan:Quick", "remove".</summary>
+    public List<string> Calls { get; } = [];
+    public List<DefenderThreat> Threats { get; } = [];
+    public Exception? UpdateError { get; set; }
 
-    public Task<int> UpdateSignaturesAsync(CancellationToken ct) => Task.FromResult(0);
-    public Task<int> ScanAsync(ScanKind kind, CancellationToken ct) => Task.FromResult(0);
+    public Task<IReadOnlyList<DefenderThreat>> GetThreatsAsync() =>
+        Task.FromResult<IReadOnlyList<DefenderThreat>>(Threats.ToList());
+
+    public Task<int> UpdateSignaturesAsync(CancellationToken ct)
+    {
+        Calls.Add("update");
+        return UpdateError is { } e ? Task.FromException<int>(e) : Task.FromResult(0);
+    }
+
+    public Task<int> ScanAsync(ScanKind kind, CancellationToken ct)
+    {
+        Calls.Add("scan:" + kind);
+        return Task.FromResult(0);
+    }
+
     public Task<int> ScanPathAsync(string path, CancellationToken ct) => Task.FromResult(0);
-    public Task<int> RemoveActiveThreatsAsync() => Task.FromResult(0);
+
+    public Task<int> RemoveActiveThreatsAsync()
+    {
+        Calls.Add("remove");
+        var n = Threats.Count(t => t.Active);
+        Threats.RemoveAll(t => t.Active);
+        return Task.FromResult(n);
+    }
 
     public Task SetPuaModeAsync(int mode)
     {

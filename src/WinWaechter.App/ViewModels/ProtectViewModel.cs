@@ -158,11 +158,35 @@ public sealed partial class ProtectViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(CanRunDefender))]
     private Task QuickScanAsync() => RunDefenderAsync("Schnellscan läuft", "Schnellscan abgeschlossen.",
-        ct => _defender.ScanAsync(ScanKind.Quick, ct));
+        ct => ScanWithFreshSignaturesAsync(ScanKind.Quick, "Schnellscan läuft", ct));
 
     [RelayCommand(CanExecute = nameof(CanRunDefender))]
     private Task FullScanAsync() => RunDefenderAsync("Vollscan läuft", "Vollscan abgeschlossen.",
-        ct => _defender.ScanAsync(ScanKind.Full, ct));
+        ct => ScanWithFreshSignaturesAsync(ScanKind.Full, "Vollscan läuft", ct));
+
+    // Note added to the next result line (e.g. signatures could not be updated before a scan).
+    string? _defenderNote;
+
+    // Signatures first; if that fails the scan still runs with the signatures Defender already has.
+    async Task<int> ScanWithFreshSignaturesAsync(ScanKind kind, string running, CancellationToken ct)
+    {
+        DefenderOperation = "Signaturen werden aktualisiert";
+        try
+        {
+            var code = await _defender.UpdateSignaturesAsync(ct);
+            if (code != 0)
+                _defenderNote = $"Hinweis: Die Signaturen ließen sich nicht aktualisieren (Code {code}), gescannt wurde mit den vorhandenen.";
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            FileLog.Warn("Signatur-Aktualisierung vor dem Scan fehlgeschlagen", ex);
+            _defenderNote = "Hinweis: Die Signaturen ließen sich nicht aktualisieren, gescannt wurde mit den vorhandenen.";
+        }
+        ct.ThrowIfCancellationRequested();
+        DefenderOperation = running;
+        return await _defender.ScanAsync(kind, ct);
+    }
 
     [RelayCommand(CanExecute = nameof(CanCancelDefender))]
     private void CancelDefender() => _defenderCts?.Cancel();
@@ -172,6 +196,7 @@ public sealed partial class ProtectViewModel : ObservableObject
         using var cts = _defenderCts = new CancellationTokenSource();
         DefenderOperation = running;
         DefenderResult = null;
+        _defenderNote = null;
         CanCancelDefender = true;
         Clock.Start();
         try
@@ -194,9 +219,17 @@ public sealed partial class ProtectViewModel : ObservableObject
             CanCancelDefender = false;
             DefenderOperation = null;
             _defenderCts = null;
+            if (_defenderNote is not null) DefenderResult = $"{DefenderResult} {_defenderNote}";
         }
         await RefreshAsync();
     }
+
+    public const string RestoreHint =
+        "Wiederherstellen ist über Windows-Sicherheit → Schutzverlauf möglich, sofern Defender die Datei in Quarantäne verschoben hat.";
+
+    /// <summary>Shown after a clean-up: where a quarantined file can be restored.</summary>
+    [ObservableProperty]
+    private string? _cleanHint;
 
     bool CanClean() => CanRunDefender() && !_gate.IsBusy && ActiveThreatCount > 0;
 
@@ -218,6 +251,7 @@ public sealed partial class ProtectViewModel : ObservableObject
         {
             var n = await _defender.RemoveActiveThreatsAsync();
             DefenderResult = n == 1 ? "1 Fund an Defender zur Bereinigung übergeben." : $"{n} Funde an Defender zur Bereinigung übergeben.";
+            CleanHint = RestoreHint;
         }
         catch (Exception ex)
         {
@@ -378,7 +412,7 @@ public sealed partial class ProtectViewModel : ObservableObject
         }
     }
 
-    bool CanKill(HeuristicItemViewModel? item) => item is { IsProcess: true } && CanChange && !IsApplying && !_gate.IsBusy;
+    bool CanKill(HeuristicItemViewModel? item) => item is { CanKill: true } && CanChange && !IsApplying && !_gate.IsBusy;
 
     [RelayCommand(CanExecute = nameof(CanKill))]
     private async Task KillProcessAsync(HeuristicItemViewModel? item)

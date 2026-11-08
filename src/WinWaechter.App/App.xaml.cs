@@ -7,6 +7,7 @@ using WinWaechter.App.Services;
 using WinWaechter.App.Views;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Sys;
+using WinWaechter.Core.Update;
 
 namespace WinWaechter.App;
 
@@ -74,16 +75,29 @@ public partial class App
         _ = StartBackgroundWorkAsync(_services);
     }
 
-    // Purge old Ablage files, read Defender state and the history, check for updates; never blocks the window.
+    // Purge old Ablage files and update downloads, read Defender state and the history, check for
+    // updates; never blocks the window.
     static async Task StartBackgroundWorkAsync(AppServices s)
     {
         try
         {
             var days = s.Settings.AblageDays;
-            var freed = await Task.Run(() => s.Janitor.Purge(TimeSpan.FromDays(days)));
-            if (freed > 0) FileLog.Info($"Ablage: {freed} Byte älter als {days} Tage gelöscht");
+            // through the change gate, so no undo or apply runs on the same sessions meanwhile
+            var ran = await s.Gate.RunAsync(s.Janitor, async () =>
+            {
+                var freed = await Task.Run(() => s.Janitor.Purge(TimeSpan.FromDays(days)));
+                if (freed > 0) FileLog.Info($"Ablage: {freed} Byte älter als {days} Tage gelöscht");
+            });
+            if (!ran) FileLog.Info("Ablage-Bereinigung beim Start übersprungen, eine andere Änderung lief");
         }
         catch (Exception ex) { FileLog.Warn("Ablage-Bereinigung beim Start fehlgeschlagen", ex); }
+
+        try
+        {
+            var removed = await Task.Run(() => UpdateCleanup.PurgeOld(s.Env.UpdatesDir, UpdateCleanup.DefaultMaxAge));
+            if (removed > 0) FileLog.Info($"Updates: {removed} alte Download-Ordner gelöscht");
+        }
+        catch (Exception ex) { FileLog.Warn("Bereinigung alter Update-Downloads fehlgeschlagen", ex); }
 
         var shell = s.Shell;
         var tasks = new List<Task>

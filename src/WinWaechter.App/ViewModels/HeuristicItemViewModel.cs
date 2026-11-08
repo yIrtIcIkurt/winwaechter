@@ -13,7 +13,9 @@ public sealed class HeuristicItemViewModel(Finding finding)
     public Tone RatingTone => Labels.RatingTone(Finding.Rating);
     public string? Publisher => Finding.Publisher;
     public bool IsProcess => Finding.Area is FindingArea.Prozess or FindingArea.Verbindung;
-    public bool CanDisable => Finding.Change is not null;
+    public bool IsProtectedVendor => Finding.IsProtectedVendor;
+    public bool CanKill => IsProcess && !IsProtectedVendor;
+    public bool CanDisable => Finding.Change is not null && !IsProtectedVendor;
 
     public string DisableText => Finding.Change?.Kind switch
     {

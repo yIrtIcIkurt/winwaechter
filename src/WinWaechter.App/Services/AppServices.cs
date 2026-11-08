@@ -17,17 +17,22 @@ namespace WinWaechter.App.Services;
 /// <summary>Composition root: wires Core services and view models with plain constructors.</summary>
 public sealed class AppServices
 {
-    AppServices(AppEnvironment env, AppSettings settings, AblageJanitor janitor, ShellViewModel shell)
+    AppServices(AppEnvironment env, AppSettings settings, AblageJanitor janitor, ChangeGate gate, ShellViewModel shell)
     {
         Env = env;
         Settings = settings;
         Janitor = janitor;
+        Gate = gate;
         Shell = shell;
     }
 
     public AppEnvironment Env { get; }
     public AppSettings Settings { get; }
     public AblageJanitor Janitor { get; }
+
+    /// <summary>App-wide lock for system changes; background work (Ablage purge) uses it too.</summary>
+    public ChangeGate Gate { get; }
+
     public ShellViewModel Shell { get; }
 
     public static AppServices Create(AppEnvironment env, AppSettings settings, IDialogService dialogs, ISystemShell shell, Action shutdown)
@@ -41,7 +46,8 @@ public sealed class AppServices
         var lnk = new WinShortcutResolver();
         var rules = RuleSet.Default;
 
-        var store = new SessionStore(env.DataRoot);
+        // elevated: only journals/sidecars owned by Administrators or SYSTEM may steer an undo
+        var store = new SessionStore(env.DataRoot, env.IsElevated ? FileOwner.IsAdminOrSystem : null);
         var defender = new DefenderClient(new ProcessRunner(), reg);
         var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo);
         DefenderRegistration.Register(factory, defender);
@@ -70,7 +76,7 @@ public sealed class AppServices
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
         var settingsVm = new SettingsViewModel(settings, env, update, shell);
 
-        return new AppServices(env, settings, janitor,
+        return new AppServices(env, settings, janitor, gate,
             new ShellViewModel(optimize, protect, history, settingsVm, update, env.IsElevated));
     }
 }
