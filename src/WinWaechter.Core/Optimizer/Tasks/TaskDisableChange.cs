@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
@@ -34,7 +36,7 @@ public sealed class TaskDisableChange : IChange
         // Backup first, then disable.
         Directory.CreateDirectory(ctx.BackupDir);
         var file = Path.Combine(ctx.BackupDir, $"task_{SafeFileName(_path)}.xml");
-        File.WriteAllText(file, xml);
+        File.WriteAllText(file, xml, Encoding.Unicode);   // UTF-16 LE with BOM, as the XML declares
 
         _store.SetEnabled(_path, false);
 
@@ -51,12 +53,14 @@ public sealed class TaskDisableChange : IChange
             var file = record.Before.GetValueOrDefault("xml");
             if (string.IsNullOrWhiteSpace(file) || !File.Exists(file))
                 throw new InvalidOperationException($"Aufgabe „{_path}“ existiert nicht mehr und die Sicherung fehlt.");
-            try { _store.RegisterXml(_path, File.ReadAllText(file)); }
+            var xml = File.ReadAllText(file);   // BOM detection
+            try { _store.RegisterXml(_path, xml); }
             catch (Exception ex) when (ex is COMException or UnauthorizedAccessException)
             {
-                // Tasks stored with a password (LogonType=Password) cannot be recreated without it.
-                throw new InvalidOperationException(
-                    $"Aufgabe konnte nicht neu angelegt werden (gespeichertes Kennwort nötig). Sicherung: {file}", ex);
+                var needsPassword = xml.Contains("<LogonType>Password</LogonType>", StringComparison.OrdinalIgnoreCase);
+                throw new InvalidOperationException(needsPassword
+                    ? $"Aufgabe konnte nicht neu angelegt werden (gespeichertes Kennwort nötig). Sicherung: {file}"
+                    : $"Aufgabe konnte nicht neu angelegt werden: {ex.Message}. Sicherung: {file}", ex);
             }
         }
         // The task was enabled before Apply; make sure it is now.
@@ -70,6 +74,11 @@ public sealed class TaskDisableChange : IChange
         return live.Enabled ? DriftState.Changed : DriftState.Unchanged;
     }
 
-    static string SafeFileName(string s) =>
-        string.Concat(s.Select(c => c == '\\' || Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+    // Readable name plus a hash of the full path so different paths never collide.
+    static string SafeFileName(string s)
+    {
+        var clean = string.Concat(s.Select(c => c == '\\' || Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)))[..8].ToLowerInvariant();
+        return $"{clean}_{hash}";
+    }
 }

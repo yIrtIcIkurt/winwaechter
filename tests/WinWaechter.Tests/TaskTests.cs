@@ -3,6 +3,7 @@ using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer.Tasks;
 using WinWaechter.Core.Rules;
+using WinWaechter.Core.Sys;
 using WinWaechter.Tests.Fakes;
 
 namespace WinWaechter.Tests;
@@ -112,7 +113,7 @@ public sealed class TaskTests : IDisposable
         Assert.False(_store.Get(@"\Foo\Bar")!.Enabled);
         var file = rec.Before["xml"]!;
         Assert.StartsWith(Ctx().BackupDir, file);
-        Assert.Equal("task__Foo_Bar.xml", Path.GetFileName(file));
+        Assert.Matches(@"^task__Foo_Bar_[0-9a-f]{8}\.xml$", Path.GetFileName(file));
         Assert.True(File.Exists(file));
         Assert.Equal("true", rec.Before["enabled"]);
         Assert.Equal("Aufgabe „Bar“ deaktivieren", rec.Description);
@@ -147,6 +148,7 @@ public sealed class TaskTests : IDisposable
     {
         _store.Add(@"\Foo", actionExe: @"C:\Apps\foo.exe");
         var rec = Change(@"\Foo").Apply(Ctx());
+        File.WriteAllText(rec.Before["xml"]!, "<Task><LogonType>Password</LogonType></Task>");
         _store.Remove(@"\Foo");
         _store.RegisterXmlThrows = new COMException("kein Kennwort");
 
@@ -176,5 +178,89 @@ public sealed class TaskTests : IDisposable
         Assert.Equal(DriftState.Changed, change.CheckDrift(rec));
         _store.Remove(@"\Foo");
         Assert.Equal(DriftState.Gone, change.CheckDrift(rec));
+    }
+
+    [Fact]
+    public void Backup_is_utf16_with_bom_and_round_trips()
+    {
+        _store.Add(@"\Foo", actionExe: @"C:\Apps\foo.exe");
+        var expected = _store.ExportXml(@"\Foo");
+        var rec = Change(@"\Foo").Apply(Ctx());
+        var bytes = File.ReadAllBytes(rec.Before["xml"]!);
+        Assert.Equal(new byte[] { 0xFF, 0xFE }, bytes[..2]);
+        Assert.Equal(expected, File.ReadAllText(rec.Before["xml"]!));
+    }
+
+    [Fact]
+    public void Backup_names_differ_for_paths_that_sanitize_equally()
+    {
+        _store.Add(@"\A\B", actionExe: @"C:\Apps\a.exe");
+        _store.Add(@"\A_B", actionExe: @"C:\Apps\b.exe");
+        var r1 = Change(@"\A\B").Apply(Ctx());
+        var r2 = Change(@"\A_B").Apply(Ctx());
+        Assert.NotEqual(r1.Before["xml"], r2.Before["xml"]);
+    }
+
+    [Fact]
+    public void Hidden_protected_task_without_action_not_listed()
+    {
+        _store.Add(new TaskInfo(@"\Dell SupportAssist", "Dell SupportAssist", true, true, null, null, "Dell Inc."));
+        Assert.Empty(Scanner().Scan());
+    }
+
+    [Fact]
+    public void Register_failure_without_password_logon_shows_exception_message()
+    {
+        _store.Add(@"\Foo", actionExe: @"C:\Apps\foo.exe");
+        var rec = Change(@"\Foo").Apply(Ctx());
+        _store.Remove(@"\Foo");
+        _store.RegisterXmlThrows = new COMException("kaputt");
+        var ex = Assert.Throws<InvalidOperationException>(() => Change(@"\Foo").Undo(rec, Ctx()));
+        Assert.Contains("kaputt", ex.Message);
+        Assert.DoesNotContain("Kennwort", ex.Message);
+    }
+
+    [Fact]
+    public void Register_failure_with_password_logon_mentions_password()
+    {
+        _store.Add(@"\Foo", actionExe: @"C:\Apps\foo.exe");
+        var rec = Change(@"\Foo").Apply(Ctx());
+        File.WriteAllText(rec.Before["xml"]!, "<Task><LogonType>Password</LogonType></Task>");
+        _store.Remove(@"\Foo");
+        _store.RegisterXmlThrows = new COMException("x");
+        var ex = Assert.Throws<InvalidOperationException>(() => Change(@"\Foo").Undo(rec, Ctx()));
+        Assert.Contains("gespeichertes Kennwort", ex.Message);
+    }
+
+    Finding One(string name, string exe, SignatureInfo sig)
+    {
+        _store.Add(new TaskInfo(@"\" + name, name, true, false, exe, null, null));
+        _sig.Set(exe, sig);
+        return Assert.Single(Scanner().Scan());
+    }
+
+    [Fact]
+    public void Pua_task_is_unerwuenscht_and_preselected()
+    {
+        var f = One("Glary Utilities", @"C:\Program Files\Glary Utilities\gu.exe", new(SignatureState.Valid, "Glarysoft Ltd", false));
+        Assert.Equal(Rating.Unerwuenscht, f.Rating);
+        Assert.True(f.Preselected);
+    }
+
+    [Fact]
+    public void Miner_task_is_verdaechtig_and_not_preselected()
+    {
+        var f = One("xmrig", @"C:\ProgramData\miner\xmrig.exe", new(SignatureState.Valid, "Someone", false));
+        Assert.Equal(Rating.Verdaechtig, f.Rating);
+        Assert.False(f.Preselected);
+    }
+
+    [Fact]
+    public void Unknown_signature_task_is_info_not_preselected()
+    {
+        var f = One("Foo", @"C:\Apps\foo.exe", new(SignatureState.Unknown, null, false));
+        Assert.Equal(Rating.Info, f.Rating);
+        Assert.False(f.Preselected);
+        Assert.Contains("Signatur nicht prüfbar", f.Reasons);
     }
 }

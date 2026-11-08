@@ -36,6 +36,7 @@ public sealed class TaskScanner
             {
                 // No program to judge: only a hidden task is worth showing.
                 if (!t.Hidden) continue;
+                if (_rules.Classify(new ItemFacts(t.Name, null, t.Author, null)) == RuleVerdict.Protected) continue;
                 result.Add(new Finding(id, FindingArea.Aufgabe, t.Name, "(keine Programmaktion)",
                     ["versteckt", "keine Programmaktion"], Rating.Info, false, change));
                 continue;
