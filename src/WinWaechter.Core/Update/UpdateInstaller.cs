@@ -4,7 +4,7 @@ namespace WinWaechter.Core.Update;
 
 public static class UpdateInstaller
 {
-    internal const string SetupArguments = "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS";
+    internal const string SetupArguments = "/SILENT /CLOSEAPPLICATIONS";
 
     // Starts the installer while u still holds the file open; the caller disposes u afterwards
     // and then shuts the app down.
