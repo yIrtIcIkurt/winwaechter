@@ -81,6 +81,69 @@ public sealed class ServiceTests : IDisposable
         Assert.Contains(f.Reasons, r => r.Contains("nicht von Microsoft signiert (Foo GmbH)"));
     }
 
+    Finding ScanOne(string name, string display, string exe, SignatureInfo? sig)
+    {
+        _sc.Add(name, imagePath: exe, displayName: display);
+        if (sig is not null) _sig.Set(exe, sig);
+        return Assert.Single(Scanner().Scan());
+    }
+
+    static SignatureInfo Valid(string publisher) => new(SignatureState.Valid, publisher, false);
+
+    const string SteamExe = @"C:\Program Files (x86)\Steam\bin\steamservice.exe";
+    const string GlaryExe = @"C:\Program Files\Glary Utilities\gu.exe";
+
+    [Fact]
+    public void Expendable_signed_service_is_entbehrlich_and_preselected()
+    {
+        var f = ScanOne("Steam Client Service", "Steam Client Service", SteamExe, Valid("Valve"));
+        Assert.Equal(Rating.Entbehrlich, f.Rating);
+        Assert.True(f.Preselected);
+        Assert.NotNull(f.Change);
+    }
+
+    [Fact]
+    public void Pua_signed_service_is_unerwuenscht_and_preselected()
+    {
+        var f = ScanOne("GlaryUtilsSvc", "Glary Utilities Service", GlaryExe, Valid("Glarysoft Ltd"));
+        Assert.Equal(Rating.Unerwuenscht, f.Rating);
+        Assert.True(f.Preselected);
+    }
+
+    [Fact]
+    public void Miner_service_is_verdaechtig_and_not_preselected()
+    {
+        var f = ScanOne("xmrigsvc", "xmrig", @"C:\ProgramData\miner\xmrig.exe", Valid("Someone"));
+        Assert.Equal(Rating.Verdaechtig, f.Rating);
+        Assert.False(f.Preselected);
+    }
+
+    [Fact]
+    public void Signed_unknown_third_party_service_is_info_not_preselected()
+    {
+        var f = ScanOne("Foo", "Foo Dienst", @"C:\Program Files\Foo\foo.exe", Valid("Foo GmbH"));
+        Assert.Equal(Rating.Info, f.Rating);
+        Assert.False(f.Preselected);
+    }
+
+    [Fact]
+    public void Expendable_with_unknown_signature_is_downgraded_with_reason()
+    {
+        var f = ScanOne("Steam Client Service", "Steam Client Service", SteamExe, null);
+        Assert.Equal(Rating.Info, f.Rating);
+        Assert.False(f.Preselected);
+        Assert.Contains(f.Reasons, r => r.Contains("bekannt als entbehrlich"));
+    }
+
+    [Fact]
+    public void Pua_with_unknown_signature_is_downgraded_with_reason()
+    {
+        var f = ScanOne("GlaryUtilsSvc", "Glary Utilities Service", GlaryExe, null);
+        Assert.Equal(Rating.Info, f.Rating);
+        Assert.False(f.Preselected);
+        Assert.Contains(f.Reasons, r => r.Contains("bekannt als unerwünscht"));
+    }
+
     [Fact]
     public void Protected_service_not_listed()
     {

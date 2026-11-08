@@ -28,10 +28,14 @@ public sealed class ServiceStartModeChange : IChange
         get
         {
             string? display = null;
-            try { display = _sc.Get(_name)?.DisplayName; } catch { }
-            return $"Dienst „{(string.IsNullOrWhiteSpace(display) ? _name : display)}“ auf Manuell stellen";
+            try { display = _sc.Get(_name)?.DisplayName; }
+            catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException) { }
+            return DescriptionFor(display);
         }
     }
+
+    string DescriptionFor(string? display) =>
+        $"Dienst „{(string.IsNullOrWhiteSpace(display) ? _name : display)}“ auf Manuell stellen";
 
     public static ServiceStartModeChange FromRecord(ChangeRecord r, IServiceControl sc, IRegistry reg) =>
         new(sc, reg, r.Target);
@@ -39,7 +43,7 @@ public sealed class ServiceStartModeChange : IChange
     public ChangeRecord Apply(SessionContext ctx)
     {
         var live = Read() ?? throw new InvalidOperationException($"Dienst „{_name}“ existiert nicht mehr.");
-        var description = Description;
+        var description = DescriptionFor(live.DisplayName);
 
         // Backup first; a missing key has nothing to export.
         string? backup = null;

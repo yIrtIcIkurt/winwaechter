@@ -41,8 +41,11 @@ public sealed class ServiceScanner
             bool preselect;
             if (sig.State == SignatureState.Unknown)
             {
-                // Signature could not be checked: never act on it.
+                // Signature could not be checked: never preselect, but show what the rules say.
                 rating = Rating.Info; preselect = false;
+                if (verdict == RuleVerdict.Expendable) reasons.Add("bekannt als entbehrlich");
+                else if (verdict == RuleVerdict.Pua) reasons.Add("bekannt als unerwünscht");
+                else if (verdict == RuleVerdict.Miner) reasons.Add("Entspricht einem Muster für Kryptominer");
             }
             else
             {
