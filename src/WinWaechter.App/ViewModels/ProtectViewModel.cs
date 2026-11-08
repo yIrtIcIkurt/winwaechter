@@ -19,10 +19,11 @@ public sealed partial class ProtectViewModel : ObservableObject
     readonly OptimizerEngine _engine;
     readonly Func<string, int> _killByPath;
     readonly IDialogService _dialogs;
+    readonly ChangeGate _gate;
     CancellationTokenSource? _defenderCts;
 
     public ProtectViewModel(IDefender defender, HeuristicScan heuristics, OptimizerEngine engine,
-        Func<string, int> killByPath, IDialogService dialogs, bool canChange)
+        Func<string, int> killByPath, IDialogService dialogs, bool canChange, ChangeGate gate)
     {
         _defender = defender;
         _heuristics = heuristics;
@@ -30,7 +31,19 @@ public sealed partial class ProtectViewModel : ObservableObject
         _killByPath = killByPath;
         _dialogs = dialogs;
         CanChange = canChange;
+        _gate = gate;
+        gate.PropertyChanged += (_, _) =>
+        {
+            CleanCommand.NotifyCanExecuteChanged();
+            EnablePuaCommand.NotifyCanExecuteChanged();
+            DisableCommand.NotifyCanExecuteChanged();
+            KillProcessCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(GateHint));
+        };
     }
+
+    /// <summary>Shown while another page holds the change gate.</summary>
+    public string? GateHint => _gate.IsBusyFor(this) ? ChangeGate.BusyHint : null;
 
     /// <summary>Raised after a journalled change (the history should reload).</summary>
     public event EventHandler? ChangesApplied;
@@ -185,7 +198,7 @@ public sealed partial class ProtectViewModel : ObservableObject
         await RefreshAsync();
     }
 
-    bool CanClean() => CanRunDefender() && ActiveThreatCount > 0;
+    bool CanClean() => CanRunDefender() && !_gate.IsBusy && ActiveThreatCount > 0;
 
     [RelayCommand(CanExecute = nameof(CanClean))]
     private async Task CleanAsync()
@@ -194,6 +207,11 @@ public sealed partial class ProtectViewModel : ObservableObject
                 "Defender entfernt oder isoliert die Funde. Das lässt sich nicht immer rückgängig machen.",
                 "Bereinigen", Threats.Where(t => t.Active).Select(t => t.Name).ToList(), final: true))
             return;
+        if (!await _gate.RunAsync(this, CleanCoreAsync)) DefenderResult = ChangeGate.BusyHint;
+    }
+
+    async Task CleanCoreAsync()
+    {
         DefenderOperation = "Funde werden bereinigt";
         Clock.Start();
         try
@@ -214,7 +232,7 @@ public sealed partial class ProtectViewModel : ObservableObject
         await RefreshAsync();
     }
 
-    bool CanEnablePua() => CanRunDefender() && ShowPuaSuggestion;
+    bool CanEnablePua() => CanRunDefender() && !_gate.IsBusy && ShowPuaSuggestion;
 
     [RelayCommand(CanExecute = nameof(CanEnablePua))]
     private async Task EnablePuaAsync()
@@ -224,6 +242,11 @@ public sealed partial class ProtectViewModel : ObservableObject
                 "Defender blockiert dann auch potenziell unerwünschte Programme, zum Beispiel Werbe-Bundles. Die Änderung steht im Verlauf und lässt sich dort zurücknehmen.",
                 "Einschalten"))
             return;
+        if (!await _gate.RunAsync(this, () => EnablePuaCoreAsync(change))) DefenderResult = ChangeGate.BusyHint;
+    }
+
+    async Task EnablePuaCoreAsync(PuaProtectionChange change)
+    {
         DefenderOperation = "PUA-Schutz wird eingeschaltet";
         try
         {
@@ -256,6 +279,9 @@ public sealed partial class ProtectViewModel : ObservableObject
     private string _heuristicProgress = "";
 
     [ObservableProperty]
+    private string? _heuristicError;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HeuristicSummary))]
     private bool _heuristicScanned;
 
@@ -275,6 +301,7 @@ public sealed partial class ProtectViewModel : ObservableObject
     private async Task HeuristicScanAsync(CancellationToken ct)
     {
         HeuristicProgress = "Prüfung startet …";
+        HeuristicError = null;
         HeuristicClock.Start();
         try
         {
@@ -286,6 +313,11 @@ public sealed partial class ProtectViewModel : ObservableObject
             HeuristicsChanged();
         }
         catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            FileLog.Error("Eigene Prüfung fehlgeschlagen", ex);
+            HeuristicError = $"Die eigene Prüfung ist fehlgeschlagen: {ex.Message}";
+        }
         finally
         {
             HeuristicClock.Stop();
@@ -309,7 +341,7 @@ public sealed partial class ProtectViewModel : ObservableObject
             : RunDefenderAsync($"Defender prüft {item.Title}", $"Defender hat {item.Title} geprüft.",
                 ct => _defender.ScanPathAsync(item.Location, ct));
 
-    bool CanDisable(HeuristicItemViewModel? item) => item is { CanDisable: true } && CanChange && !IsApplying;
+    bool CanDisable(HeuristicItemViewModel? item) => item is { CanDisable: true } && CanChange && !IsApplying && !_gate.IsBusy;
 
     [RelayCommand(CanExecute = nameof(CanDisable))]
     private async Task DisableAsync(HeuristicItemViewModel? item)
@@ -319,6 +351,11 @@ public sealed partial class ProtectViewModel : ObservableObject
                 "Diese Änderung wird angewendet und steht danach im Verlauf, wo sie sich rückgängig machen lässt.",
                 "Anwenden", [change.Description]))
             return;
+        if (!await _gate.RunAsync(this, () => DisableCoreAsync(item))) _dialogs.Inform(item.DisableText, ChangeGate.BusyHint);
+    }
+
+    async Task DisableCoreAsync(HeuristicItemViewModel item)
+    {
         IsApplying = true;
         try
         {
@@ -341,7 +378,7 @@ public sealed partial class ProtectViewModel : ObservableObject
         }
     }
 
-    bool CanKill(HeuristicItemViewModel? item) => item is { IsProcess: true } && CanChange && !IsApplying;
+    bool CanKill(HeuristicItemViewModel? item) => item is { IsProcess: true } && CanChange && !IsApplying && !_gate.IsBusy;
 
     [RelayCommand(CanExecute = nameof(CanKill))]
     private async Task KillProcessAsync(HeuristicItemViewModel? item)
@@ -351,6 +388,11 @@ public sealed partial class ProtectViewModel : ObservableObject
                 "Alle laufenden Prozesse dieser Programmdatei werden beendet. Das ist nicht umkehrbar: Ungespeicherte Daten des Programms gehen verloren. Die Datei selbst bleibt unverändert.",
                 "Beenden", [item.Location], final: true))
             return;
+        if (!await _gate.RunAsync(this, () => KillCoreAsync(item))) _dialogs.Inform("Prozess beenden", ChangeGate.BusyHint);
+    }
+
+    async Task KillCoreAsync(HeuristicItemViewModel item)
+    {
         IsApplying = true;
         try
         {

@@ -94,17 +94,18 @@ public sealed class ViewSmokeTests : IDisposable
 
         var engine = new OptimizerEngine([() => findings], store, new ChangeFactory(), _ => new RestorePointResult(true, "ok"));
         var dialogs = new Dialogs();
-        var optimize = new OptimizeViewModel(engine, dialogs, canChange: false);
+        var gate = new ChangeGate();
+        var optimize = new OptimizeViewModel(engine, dialogs, canChange: false, gate);
         var heur = new List<Finding>
         {
             new("h", FindingArea.Prozess, "miner.exe", @"C:\Users\x\AppData\Roaming\miner.exe",
                 ["Programmname entspricht einem bekannten Kryptominer"], Rating.Verdaechtig, true, new NoChange("miner")),
         };
         var protect = new ProtectViewModel(new FakeDefender(), (_, _) => Task.FromResult<IReadOnlyList<Finding>>(heur),
-            engine, _ => 0, dialogs, canChange: false);
-        var history = new HistoryViewModel(store, engine, new AblageJanitor(store), dialogs, canChange: false);
+            engine, _ => 0, dialogs, canChange: false, gate);
+        var history = new HistoryViewModel(store, engine, new AblageJanitor(store), dialogs, canChange: false, gate);
         var env = new AppEnvironment(false, _root, new SemVer(0, 1, 0));
-        var update = new UpdateViewModel(new Updates(), dialogs, canInstall: false, () => { });
+        var update = new UpdateViewModel(new Updates(), dialogs, canInstall: false, () => { }, gate);
         var settings = new SettingsViewModel(new AppSettings(), env, update, new Shell());
         var shell = new ShellViewModel(optimize, protect, history, settings, update, isElevated: false);
 

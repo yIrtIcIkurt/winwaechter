@@ -30,6 +30,8 @@
                         <Border Margin="0,12,0,0" Style="{StaticResource Notice}" Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}">
                             <TextBlock Foreground="{DynamicResource Watch}" TextWrapping="Wrap" Text="{Binding AdminNotice}" />
                         </Border>
+                        <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding GateHint}"
+                                   Visibility="{Binding GateHint, Converter={StaticResource Vis}}" />
                         <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
                             <Button Content="Herunterladen und prüfen" Margin="0,0,8,0" Command="{Binding DownloadCommand}" />
                             <Button Content="Abbrechen" Margin="0,0,8,0" Command="{Binding DownloadCancelCommand}"
@@ -55,13 +57,13 @@
             <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
                 <TextBlock VerticalAlignment="Center" Text="Automatisch leeren nach" />
                 <TextBox Margin="10,0,10,0" Width="64" TextAlignment="Right" Typography.NumeralAlignment="Tabular"
-                         Text="{Binding AblageDaysText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Tage bis zum automatischen Leeren" />
+                         Text="{Binding AblageDaysText, UpdateSourceTrigger=LostFocus}" KeyDown="OnAblageDaysKeyDown" AutomationProperties.Name="Tage bis zum automatischen Leeren" />
                 <TextBlock VerticalAlignment="Center" Text="Tagen" />
             </StackPanel>
             <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Alarm}" Text="{Binding AblageDaysError}"
                        Visibility="{Binding AblageDaysError, Converter={StaticResource Vis}}" />
             <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Prose}" FontSize="{StaticResource SizeSmall}"
-                       Text="Gilt ab dem nächsten Start. Erst das Leeren der Ablage löscht Dateien endgültig." />
+                       Text="Wird mit Eingabe oder beim Verlassen des Feldes gespeichert und gilt ab dem nächsten Start. Erst das Leeren der Ablage löscht Dateien endgültig." />
 
             <!-- ===== Folders ===== -->
             <TextBlock Margin="0,34,0,0" Style="{StaticResource Text.Section}" Text="Ordner" />

@@ -23,12 +23,23 @@ public sealed partial class OptimizeViewModel : ObservableObject
     readonly IDialogService _dialogs;
     readonly List<FindingItemViewModel> _all = [];
 
-    public OptimizeViewModel(OptimizerEngine engine, IDialogService dialogs, bool canChange)
+    readonly ChangeGate _gate;
+
+    public OptimizeViewModel(OptimizerEngine engine, IDialogService dialogs, bool canChange, ChangeGate gate)
     {
         _engine = engine;
         _dialogs = dialogs;
         CanChange = canChange;
+        _gate = gate;
+        gate.PropertyChanged += (_, _) =>
+        {
+            ApplyCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(GateHint));
+        };
     }
+
+    /// <summary>Shown while another page holds the change gate.</summary>
+    public string? GateHint => _gate.IsBusyFor(this) ? ChangeGate.BusyHint : null;
 
     /// <summary>Raised after changes were applied (the history should reload).</summary>
     public event EventHandler? ChangesApplied;
@@ -84,8 +95,12 @@ public sealed partial class OptimizeViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            ProgressText = "";
             LastSummary = "Prüfung abgebrochen.";
+        }
+        catch (Exception ex)
+        {
+            FileLog.Error("Prüfung fehlgeschlagen", ex);
+            LastSummary = $"Prüfung fehlgeschlagen: {ex.Message}";
         }
         finally
         {
@@ -107,6 +122,12 @@ public sealed partial class OptimizeViewModel : ObservableObject
             : $"Diese {selected.Count} Änderungen werden angewendet. Vorher legt WinWächter eine Sicherung an; im Verlauf lassen sie sich rückgängig machen.";
         if (!_dialogs.Confirm("Änderungen anwenden", question, "Anwenden", list)) return;
 
+        if (!await _gate.RunAsync(this, () => RunApplyAsync(selected, ct)))
+            LastSummary = ChangeGate.BusyHint;
+    }
+
+    async Task RunApplyAsync(List<FindingItemViewModel> selected, CancellationToken ct)
+    {
         IsBusy = true;
         ProgressText = "Sicherung wird vorbereitet …";
         try
@@ -114,7 +135,7 @@ public sealed partial class OptimizeViewModel : ObservableObject
             var progress = new Progress<string>(s => ProgressText = s);
             var result = await _engine.ApplyAsync("Optimierung", selected.Select(i => i.Finding).ToList(), progress, ct);
 
-            // the engine applies in order and stops at the first failure
+            // the engine applies in order and stops at the first failure or on cancel
             foreach (var done in selected.Take(result.Applied)) RemoveItem(done);
             var notDone = selected.Count - result.Applied - result.Failed;
             var lines = new List<string>
@@ -124,12 +145,24 @@ public sealed partial class OptimizeViewModel : ObservableObject
             };
             if (notDone > 0) lines.Add($"Nicht ausgeführt: {notDone}");
             lines.Add(result.RestorePoint.Message);
-            LastSummary = $"Zuletzt angewendet: {result.Applied}, fehlgeschlagen: {result.Failed}.";
-            _dialogs.Inform("Zusammenfassung",
-                result.Failed > 0
-                    ? "Eine Änderung ist fehlgeschlagen, danach wurde angehalten. Details stehen im Verlauf."
-                    : "Die Änderungen sind angewendet und stehen im Verlauf.",
-                lines);
+
+            string message;
+            if (result.Failed > 0)
+            {
+                message = "Eine Änderung ist fehlgeschlagen, danach wurde angehalten. Details stehen im Verlauf.";
+                LastSummary = $"Zuletzt: {result.Applied} angewendet, {result.Failed} fehlgeschlagen.";
+            }
+            else if (notDone > 0)
+            {
+                message = $"Abgebrochen: {result.Applied} angewendet, {notDone} nicht ausgeführt. Das Angewendete steht im Verlauf.";
+                LastSummary = $"Abgebrochen: {result.Applied} angewendet, {notDone} nicht ausgeführt.";
+            }
+            else
+            {
+                message = "Die Änderungen sind angewendet und stehen im Verlauf.";
+                LastSummary = $"Zuletzt: {result.Applied} angewendet.";
+            }
+            _dialogs.Inform("Zusammenfassung", message, lines);
             ChangesApplied?.Invoke(this, EventArgs.Empty);
         }
         catch (OperationCanceledException)
@@ -148,7 +181,7 @@ public sealed partial class OptimizeViewModel : ObservableObject
         }
     }
 
-    bool CanApply() => CanChange && !IsBusy && SelectedCount > 0;
+    bool CanApply() => CanChange && !IsBusy && !_gate.IsBusy && SelectedCount > 0;
 
     void SetFindings(IReadOnlyList<Finding> findings)
     {

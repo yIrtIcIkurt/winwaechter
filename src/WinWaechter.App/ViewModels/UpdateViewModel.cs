@@ -12,15 +12,25 @@ public sealed partial class UpdateViewModel : ObservableObject
     readonly IUpdateService _service;
     readonly IDialogService _dialogs;
     readonly Action _shutdown;
+    readonly ChangeGate _gate;
     VerifiedUpdate? _verified;
 
-    public UpdateViewModel(IUpdateService service, IDialogService dialogs, bool canInstall, Action shutdown)
+    public UpdateViewModel(IUpdateService service, IDialogService dialogs, bool canInstall, Action shutdown, ChangeGate gate)
     {
         _service = service;
         _dialogs = dialogs;
         CanInstall = canInstall;
         _shutdown = shutdown;
+        _gate = gate;
+        gate.PropertyChanged += (_, _) =>
+        {
+            InstallCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(GateHint));
+        };
     }
+
+    /// <summary>Installing would end the app, so it waits until no change is running.</summary>
+    public string? GateHint => _gate.IsBusy ? ChangeGate.BusyHint : null;
 
     public bool CanInstall { get; }
     public bool ShowAdminNotice => !CanInstall;
@@ -105,7 +115,7 @@ public sealed partial class UpdateViewModel : ObservableObject
         }
     }
 
-    bool CanInstallNow() => CanInstall && IsVerified;
+    bool CanInstallNow() => CanInstall && IsVerified && !_gate.IsBusy;
 
     [RelayCommand(CanExecute = nameof(CanInstallNow))]
     private void Install()

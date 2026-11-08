@@ -12,6 +12,11 @@
             <Border Margin="0,14,0,0" Style="{StaticResource Notice}" Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}">
                 <TextBlock Foreground="{DynamicResource Watch}" TextWrapping="Wrap" Text="{Binding AdminNotice}" />
             </Border>
+            <Border Margin="0,14,0,0" Style="{StaticResource Notice}" Visibility="{Binding GateHint, Converter={StaticResource Vis}}">
+                <TextBlock Foreground="{DynamicResource Watch}" TextWrapping="Wrap" Text="{Binding GateHint}" AutomationProperties.LiveSetting="Polite" />
+            </Border>
+            <TextBlock Margin="0,14,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Alarm}" Text="{Binding ErrorText}"
+                       Visibility="{Binding ErrorText, Converter={StaticResource Vis}}" />
         </StackPanel>
 
         <!-- Ablage -->

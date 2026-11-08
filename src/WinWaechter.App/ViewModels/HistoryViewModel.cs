@@ -60,15 +60,32 @@ public sealed partial class HistoryViewModel : ObservableObject
     readonly OptimizerEngine _engine;
     readonly AblageJanitor _janitor;
     readonly IDialogService _dialogs;
+    readonly ChangeGate _gate;
 
-    public HistoryViewModel(SessionStore store, OptimizerEngine engine, AblageJanitor janitor, IDialogService dialogs, bool canChange)
+    public HistoryViewModel(SessionStore store, OptimizerEngine engine, AblageJanitor janitor, IDialogService dialogs,
+        bool canChange, ChangeGate gate)
     {
         _store = store;
         _engine = engine;
         _janitor = janitor;
         _dialogs = dialogs;
         CanChange = canChange;
+        _gate = gate;
+        gate.PropertyChanged += (_, _) =>
+        {
+            UndoAllCommand.NotifyCanExecuteChanged();
+            UndoOneCommand.NotifyCanExecuteChanged();
+            PurgeAblageCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(GateHint));
+        };
     }
+
+    /// <summary>Shown while another page holds the change gate.</summary>
+    public string? GateHint => _gate.IsBusyFor(this) ? ChangeGate.BusyHint : null;
+
+    /// <summary>Page-level message when the history could not be read.</summary>
+    [ObservableProperty]
+    private string? _errorText;
 
     public bool CanChange { get; }
     public bool ShowAdminNotice => !CanChange;
@@ -97,11 +114,23 @@ public sealed partial class HistoryViewModel : ObservableObject
     private async Task RefreshAsync()
     {
         var selectedDir = SelectedSession?.Journal.Context.SessionDir;
-        var (journals, bytes) = await Task.Run(() =>
+        IReadOnlyList<SessionJournal> journals;
+        long bytes;
+        try
         {
-            var list = _store.List();
-            return (list, list.Sum(j => DirSize(j.Context.AblageDir)));
-        });
+            (journals, bytes) = await Task.Run(() =>
+            {
+                var list = _store.List();
+                return (list, list.Sum(j => DirSize(j.Context.AblageDir)));
+            });
+            ErrorText = null;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Error("Verlauf nicht lesbar", ex);
+            ErrorText = $"Der Verlauf konnte nicht gelesen werden: {ex.Message}";
+            return;
+        }
         Sessions.Clear();
         foreach (var j in journals) Sessions.Add(new SessionViewModel(j));
         SelectedSession = Sessions.FirstOrDefault(s => s.Journal.Context.SessionDir == selectedDir) ?? Sessions.FirstOrDefault();
@@ -124,7 +153,7 @@ public sealed partial class HistoryViewModel : ObservableObject
         }
     }
 
-    bool CanUndoAll(SessionViewModel? s) => CanChange && !IsBusy && s is { CanUndoAll: true };
+    bool CanUndoAll(SessionViewModel? s) => CanChange && !IsBusy && !_gate.IsBusy && s is { CanUndoAll: true };
 
     [RelayCommand(CanExecute = nameof(CanUndoAll))]
     private async Task UndoAllAsync(SessionViewModel? s)
@@ -137,13 +166,18 @@ public sealed partial class HistoryViewModel : ObservableObject
         await RunUndoAsync(() => _engine.UndoSession(s.Journal));
     }
 
-    bool CanUndoOne(RecordViewModel? r) => CanChange && !IsBusy && r is { CanUndo: true };
+    bool CanUndoOne(RecordViewModel? r) => CanChange && !IsBusy && !_gate.IsBusy && r is { CanUndo: true };
 
     [RelayCommand(CanExecute = nameof(CanUndoOne))]
     private Task UndoOneAsync(RecordViewModel? r) =>
         r is null ? Task.CompletedTask : RunUndoAsync(() => _engine.UndoOne(r.Session.Journal, r.Record.Id));
 
     async Task RunUndoAsync(Func<UndoResult> undo)
+    {
+        if (!await _gate.RunAsync(this, () => UndoCoreAsync(undo))) _dialogs.Inform("Rückgängig", ChangeGate.BusyHint);
+    }
+
+    async Task UndoCoreAsync(Func<UndoResult> undo)
     {
         IsBusy = true;
         try
@@ -169,7 +203,7 @@ public sealed partial class HistoryViewModel : ObservableObject
         await RefreshAsync();
     }
 
-    bool CanPurge() => !IsBusy && AblageBytes > 0;
+    bool CanPurge() => !IsBusy && !_gate.IsBusy && AblageBytes > 0;
 
     [RelayCommand(CanExecute = nameof(CanPurge))]
     private async Task PurgeAblageAsync()
@@ -178,6 +212,11 @@ public sealed partial class HistoryViewModel : ObservableObject
                 $"Alle Dateien in der Ablage ({AblageText}) werden endgültig gelöscht. Danach lassen sich diese Dateien nicht mehr wiederherstellen, auch nicht über den Verlauf.",
                 "Endgültig leeren", final: true))
             return;
+        if (!await _gate.RunAsync(this, PurgeCoreAsync)) _dialogs.Inform("Ablage jetzt leeren", ChangeGate.BusyHint);
+    }
+
+    async Task PurgeCoreAsync()
+    {
         IsBusy = true;
         try
         {

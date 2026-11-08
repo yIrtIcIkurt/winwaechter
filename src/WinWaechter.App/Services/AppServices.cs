@@ -60,13 +60,14 @@ public sealed class AppServices
             user, fo, autostart, tasks, services);
 
         var canChange = env.IsElevated;
-        var optimize = new OptimizeViewModel(engine, dialogs, canChange);
+        var gate = new ChangeGate();
+        var optimize = new OptimizeViewModel(engine, dialogs, canChange, gate);
         // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
         var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),
-            engine, ProcessTools.KillByPath, dialogs, canChange);
+            engine, ProcessTools.KillByPath, dialogs, canChange, gate);
         var janitor = new AblageJanitor(store);
-        var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange);
-        var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown);
+        var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate);
+        var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
         var settingsVm = new SettingsViewModel(settings, env, update, shell);
 
         return new AppServices(env, settings, janitor,

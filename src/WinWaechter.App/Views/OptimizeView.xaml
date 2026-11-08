@@ -33,6 +33,8 @@
                 <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
                     <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding AdminNotice}"
                                Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}" />
+                    <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding GateHint}"
+                               Visibility="{Binding GateHint, Converter={StaticResource Vis}}" />
                     <TextBlock Style="{StaticResource Text.Small}" Text="{Binding LastSummary}"
                                Visibility="{Binding LastSummary, Converter={StaticResource Vis}}" />
                 </StackPanel>
