@@ -98,7 +98,9 @@ public sealed class MoveToAblageChange : IChange
         Directory.CreateDirectory(ctx.SessionDir);
         Directory.CreateDirectory(root);
         var folder = SourceRoot;
-        using (var log = new FileStream(sidecar, FileMode.Create, FileAccess.Write, FileShare.Read))
+        File.WriteAllBytes(sidecar, []);
+        ctx.ClaimFile(sidecar);   // owner fixed before anything is listed in it
+        using (var log = new FileStream(sidecar, FileMode.Append, FileAccess.Write, FileShare.Read))
         {
             foreach (var fi in candidates)
             {

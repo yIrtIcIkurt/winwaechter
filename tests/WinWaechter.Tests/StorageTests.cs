@@ -242,6 +242,36 @@ public sealed class StorageTests : IDisposable
     }
 
     [Fact]
+    public void ForFile_undo_refuses_a_junction_above_the_parent_folder()
+    {
+        // plant X\System32\evil.dll, move it away, then swap X for a junction to C:\Windows
+        var fake = new FakeFileOps();
+        var f = Make(@"X\System32\evil.dll", 0, "mal");
+        var ctx = Ctx();
+        var change = MoveToAblageChange.ForFile(fake, f);
+        var rec = change.Apply(ctx);
+        fake.Junctions.Add(Path.Combine(TempDir, "X"));
+
+        Assert.Throws<InvalidOperationException>(() => change.Undo(rec, ctx));
+        Assert.Single(fake.MoveCalls);
+        Assert.True(File.Exists(Path.Combine(rec.After["ablage"]!, "evil.dll")));
+    }
+
+    [Fact]
+    public void Apply_skips_files_when_an_ancestor_of_the_folder_is_a_junction()
+    {
+        var fake = new FakeFileOps();
+        var a = Make("a.tmp", 5);
+        fake.Junctions.Add(_root);   // above the temp folder itself
+
+        var rec = new MoveToAblageChange(fake, TempDir, MoveToAblageChange.DefaultMinAge).Apply(Ctx());
+
+        Assert.True(File.Exists(a));
+        Assert.Equal("0", rec.After["moved"]);
+        Assert.Equal("1", rec.After["skipped"]);
+    }
+
+    [Fact]
     public void Apply_skips_files_below_a_junction()
     {
         var fake = new FakeFileOps();
@@ -391,5 +421,57 @@ public sealed class StorageTests : IDisposable
 
         change.Undo(rec, ctx);
         Assert.Equal("aaa", File.ReadAllText(a));
+    }
+
+    // ---- owner of written files / purge preview ----
+
+    [Fact]
+    public void Journal_and_sidecar_are_claimed_after_writing()
+    {
+        var claimed = new List<string>();
+        var store = new SessionStore(Path.Combine(_root, "pd"), null, p => { Assert.True(File.Exists(p)); claimed.Add(p); });
+        var j = store.Create("T");
+        var journal = Path.Combine(j.Context.SessionDir, "journal.json");
+        Assert.Contains(journal, claimed);
+
+        Make("a.tmp", 5);
+        var rec = Change().Apply(j.Context);
+        Assert.Contains(rec.After["sidecar"]!, claimed);
+
+        claimed.Clear();
+        j.Upsert(rec);
+        Assert.Equal([journal], claimed);
+    }
+
+    [Fact]
+    public void FileOwner_SetAdmins_never_throws()
+    {
+        var f = Make("x.json", 0);
+        FileOwner.SetAdmins(f);   // not elevated: fails quietly (logged)
+        FileOwner.SetAdmins(Path.Combine(_root, "missing.json"));
+    }
+
+    [Fact]
+    public void Preview_counts_only_purgeable_folders_and_does_not_follow_links()
+    {
+        var store = new SessionStore(Path.Combine(_root, "pd"));
+        var j = store.Create("T");
+        Make("a.tmp", 5, "12345");
+        var done = Change().Apply(j.Context);
+        j.Upsert(done);
+        var outside = Directory.CreateDirectory(Path.Combine(_root, "outside")).FullName;
+        File.WriteAllText(Path.Combine(outside, "big.bin"), new string('x', 1000));
+        SysSmokeTests.MakeJunction(Path.Combine(done.After["ablage"]!, "link"), outside);   // inside a purgeable folder
+        SysSmokeTests.MakeJunction(Path.Combine(j.Context.AblageDir, "linked"), outside);   // as an Ablage folder
+        var half = Path.Combine(j.Context.AblageDir, "half");
+        Directory.CreateDirectory(half);
+        File.WriteAllText(Path.Combine(half, "y"), "123");   // no record names it
+
+        var p = new AblageJanitor(store).PreviewNow();
+
+        Assert.Equal(5, p.PurgeableBytes);
+        Assert.Equal(1, p.KeptFolders);
+        Assert.Equal(5, new AblageJanitor(store).PurgeNow());
+        Assert.True(File.Exists(Path.Combine(outside, "big.bin")));
     }
 }

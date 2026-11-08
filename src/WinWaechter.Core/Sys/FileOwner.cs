@@ -25,4 +25,23 @@ public static class FileOwner
             return false;
         }
     }
+
+    /// <summary>
+    /// Sets the owner to BUILTIN\Administrators (only the owner, the DACL stays inherited). Needs an
+    /// elevated token. Never throws: a failure is logged, and the owner check then fails closed.
+    /// </summary>
+    public static void SetAdmins(string path)
+    {
+        try
+        {
+            var sec = new FileSecurity();
+            sec.SetOwner(Admins);
+            new FileInfo(path).SetAccessControl(sec);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+                                       or PlatformNotSupportedException)
+        {
+            Logging.FileLog.Warn($"Besitzer von „{path}“ konnte nicht gesetzt werden", ex);
+        }
+    }
 }

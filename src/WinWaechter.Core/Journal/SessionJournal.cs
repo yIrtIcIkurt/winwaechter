@@ -7,12 +7,13 @@ namespace WinWaechter.Core.Journal;
 
 public sealed class SessionContext
 {
-    public SessionContext(string sessionDir, Func<string, bool>? isTrustedFile = null)
+    public SessionContext(string sessionDir, Func<string, bool>? isTrustedFile = null, Action<string>? claimFile = null)
     {
         SessionDir = sessionDir;
         BackupDir = Path.Combine(sessionDir, "Sicherung");
         AblageDir = Path.Combine(sessionDir, "Ablage");
         IsTrustedFile = isTrustedFile ?? (_ => true);
+        ClaimFile = claimFile ?? (_ => { });
     }
 
     public string SessionDir { get; }
@@ -24,6 +25,12 @@ public sealed class SessionContext
     /// Always true in Dev mode and tests.
     /// </summary>
     public Func<string, bool> IsTrustedFile { get; }
+
+    /// <summary>
+    /// Called after the app wrote a journal or sidecar (elevated: sets owner Administrators, so the
+    /// owner check does not depend on the default-owner policy). No-op in Dev mode and tests.
+    /// </summary>
+    public Action<string> ClaimFile { get; }
 }
 
 public sealed class SessionJournal
@@ -73,13 +80,14 @@ public sealed class SessionJournal
     }
 
     // Returns null when the journal is missing, unreadable or not trusted (a leftover .tmp is ignored).
-    internal static SessionJournal? Load(string sessionDir, Func<string, bool>? isTrustedFile = null)
+    internal static SessionJournal? Load(string sessionDir, Func<string, bool>? isTrustedFile = null,
+        Action<string>? claimFile = null)
     {
         try
         {
             var path = Path.Combine(sessionDir, FileName);
             if (!File.Exists(path)) return null;
-            var ctx = new SessionContext(sessionDir, isTrustedFile);
+            var ctx = new SessionContext(sessionDir, isTrustedFile, claimFile);
             if (!ctx.IsTrustedFile(path))
             {
                 FileLog.Warn($"Sitzung ignoriert, Journal hat einen fremden Besitzer: {path}");
@@ -115,6 +123,7 @@ public sealed class SessionJournal
             File.WriteAllText(tmp, JsonSerializer.Serialize(doc, Json));
             if (File.Exists(FilePath)) File.Replace(tmp, FilePath, null);
             else File.Move(tmp, FilePath);
+            Context.ClaimFile(FilePath);
         }
     }
 }

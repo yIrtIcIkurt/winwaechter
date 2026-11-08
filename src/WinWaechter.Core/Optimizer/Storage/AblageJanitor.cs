@@ -4,6 +4,9 @@ using WinWaechter.Core.Model;
 
 namespace WinWaechter.Core.Optimizer.Storage;
 
+/// <summary>What „Ablage jetzt leeren“ would delete, and how many folders it keeps.</summary>
+public sealed record AblagePreview(long PurgeableBytes, int KeptFolders);
+
 /// <summary>
 /// The only place where Ablage files are really deleted (auto-purge after 14 days).
 /// Only Ablage folders of records that are Applied or Undone are purged. A folder of a Pending or
@@ -29,9 +32,58 @@ public sealed class AblageJanitor
 
     public long PurgeNow() => Run(_ => true);
 
+    /// <summary>
+    /// What PurgeNow would do, without deleting: bytes it would free and the number of non-empty
+    /// folders it keeps (unfinished or unknown moves). Links are never followed.
+    /// </summary>
+    public AblagePreview PreviewNow()
+    {
+        long bytes = 0;
+        var kept = 0;
+        foreach (var (_, sub, _, purge) in Classify(_ => true))
+        {
+            try
+            {
+                if (purge) bytes += Size(sub);
+                else if (HasFiles(sub)) kept++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                FileLog.Warn($"Ablage „{sub.FullName}“ nicht lesbar", ex);
+            }
+        }
+        return new AblagePreview(bytes, kept);
+    }
+
     long Run(Func<SessionJournal, bool> select)
     {
         long freed = 0;
+        foreach (var (j, sub, owners, purge) in Classify(select))
+        {
+            try
+            {
+                if (!purge)
+                {
+                    if (HasFiles(sub))
+                        FileLog.Warn($"Ablage-Ordner behalten, Änderung nicht abgeschlossen oder ohne Eintrag: {sub.FullName}");
+                    continue;
+                }
+                freed += Delete(sub);
+                foreach (var r in owners)
+                    j.Upsert(r with { After = new Dictionary<string, string?>(r.After) { ["purged"] = "true" } });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                FileLog.Warn($"Ablage „{sub.FullName}“ konnte nicht geleert werden", ex);
+            }
+        }
+        return freed;
+    }
+
+    // Every Ablage subfolder of the selected sessions; purge = all records naming it are Applied/Undone.
+    // Reparse-point subfolders are skipped entirely.
+    IEnumerable<(SessionJournal J, DirectoryInfo Sub, List<ChangeRecord> Owners, bool Purge)> Classify(Func<SessionJournal, bool> select)
+    {
         foreach (var j in _store.List().Where(select))
         {
             var dir = j.Context.AblageDir;
@@ -49,44 +101,43 @@ public sealed class AblageJanitor
 
             foreach (var sub in new DirectoryInfo(dir).EnumerateDirectories("*", new EnumerationOptions { AttributesToSkip = 0 }))
             {
-                try
+                if ((sub.Attributes & FileAttributes.ReparsePoint) != 0)
                 {
-                    if ((sub.Attributes & FileAttributes.ReparsePoint) != 0)
-                    {
-                        FileLog.Warn($"Ablage-Ordner ist eine Verknüpfung, nicht geleert: {sub.FullName}");
-                        continue;
-                    }
-                    if (!byFolder.TryGetValue(sub.FullName.TrimEnd('\\'), out var owners)
-                        || owners.Any(r => r.Status is not (ChangeStatus.Applied or ChangeStatus.Undone)))
-                    {
-                        if (HasFiles(sub))
-                            FileLog.Warn($"Ablage-Ordner behalten, Änderung nicht abgeschlossen oder ohne Eintrag: {sub.FullName}");
-                        continue;
-                    }
-                    freed += Delete(sub);
-                    foreach (var r in owners)
-                        j.Upsert(r with { After = new Dictionary<string, string?>(r.After) { ["purged"] = "true" } });
+                    FileLog.Warn($"Ablage-Ordner ist eine Verknüpfung, wird nicht angefasst: {sub.FullName}");
+                    continue;
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    FileLog.Warn($"Ablage „{sub.FullName}“ konnte nicht geleert werden", ex);
-                }
+                var known = byFolder.TryGetValue(sub.FullName.TrimEnd('\\'), out var owners);
+                var purge = known && owners!.All(r => r.Status is ChangeStatus.Applied or ChangeStatus.Undone);
+                yield return (j, sub, owners ?? [], purge);
             }
         }
-        return freed;
     }
+
+    static long Size(DirectoryInfo d) => d.EnumerateFiles("*", NoLinks).Sum(f => f.Length);
 
     static bool HasFiles(DirectoryInfo d) => d.EnumerateFiles("*", NoLinks).Any();
 
+    // Depth-first by hand: links are removed as links (never entered), files and folders deleted.
     static long Delete(DirectoryInfo dir)
     {
         long bytes = 0;
-        foreach (var f in dir.EnumerateFiles("*", NoLinks).ToList())
+        foreach (var e in dir.EnumerateFileSystemInfos("*", new EnumerationOptions { AttributesToSkip = 0 }).ToList())
         {
-            bytes += f.Length;
-            try { f.Attributes = FileAttributes.Normal; } catch { }   // read-only files must not block the purge
+            if ((e.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                if (e is DirectoryInfo link) Directory.Delete(link.FullName, recursive: false);
+                else File.Delete(e.FullName);
+            }
+            else if (e is DirectoryInfo sub) bytes += Delete(sub);
+            else if (e is FileInfo f)
+            {
+                bytes += f.Length;
+                try { f.Attributes = FileAttributes.Normal; } catch { }   // read-only files must not block the purge
+                f.Delete();
+            }
         }
-        dir.Delete(true);   // removes links inside without following them
+        dir.Attributes = FileAttributes.Directory;
+        dir.Delete(false);
         return bytes;
     }
 }
