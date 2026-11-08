@@ -50,8 +50,9 @@ public sealed class FakeFileOps : IFileOps
         var full = Path.GetFullPath(path);
         if (!full.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase)
             && !full.Equals(root, StringComparison.OrdinalIgnoreCase)) return true;
-        for (var d = Path.GetDirectoryName(full); d is not null && d.Length >= root.Length; d = Path.GetDirectoryName(d))
+        // like the real one: every ancestor up to the volume root counts, not only those below stopAtRoot
+        for (var d = Path.GetDirectoryName(full); d is not null; d = Path.GetDirectoryName(d))
             if (Junctions.Contains(d.TrimEnd('\\'))) return true;
-        return Junctions.Contains(root);
+        return false;
     }
 }

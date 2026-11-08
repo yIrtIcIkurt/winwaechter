@@ -196,6 +196,32 @@ public sealed class SysSmokeTests : IDisposable
     }
 
     [Fact]
+    public void FileOps_detects_junction_above_the_root()
+    {
+        var outside = Directory.CreateDirectory(Path.Combine(_dir, "outside")).FullName;
+        Directory.CreateDirectory(Path.Combine(outside, "System32"));
+        var link = Path.Combine(_dir, "X");
+        MakeJunction(link, outside);
+        var ops = new WinFileOps();
+
+        // stopAtRoot is the file's own parent (ForFile): the junction one level higher must still count
+        var file = Path.Combine(link, "System32", "evil.dll");
+        Assert.True(ops.HasReparsePointInChain(file, Path.Combine(link, "System32")));
+        Assert.False(WinFileOps.FinalPathMatches(Path.Combine(link, "System32")));
+        Assert.True(WinFileOps.FinalPathMatches(Path.Combine(outside, "System32")));
+        Assert.False(ops.HasReparsePointInChain(Path.Combine(outside, "System32", "evil.dll"), Path.Combine(outside, "System32")));
+    }
+
+    [Theory]
+    [InlineData(@"C:\Temp\a", @"\\?\C:\Temp\a", true)]
+    [InlineData(@"\\?\C:\Temp\a\", @"\\?\c:\temp\A", true)]
+    [InlineData(@"\\srv\share\x", @"\\?\UNC\srv\share\x", true)]
+    [InlineData(@"C:\Users\Public\X\System32", @"\\?\C:\Windows\System32", false)]
+    [InlineData(@"C:\Temp\a", @"\\?\C:\Temp\ab", false)]
+    public void FileOps_final_path_comparison(string literal, string final, bool same) =>
+        Assert.Equal(same, WinFileOps.PathsMatch(literal, final));
+
+    [Fact]
     public void FileOwner_of_a_file_created_by_a_normal_user_is_not_trusted()
     {
         var f = Write(Path.Combine(_dir, "journal.json"), DateTime.UtcNow);
@@ -244,7 +270,7 @@ public sealed class SysSmokeTests : IDisposable
         return path;
     }
 
-    static void MakeJunction(string link, string target)
+    internal static void MakeJunction(string link, string target)
     {
         var psi = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
         foreach (var a in new[] { "/c", "mklink", "/J", link, target }) psi.ArgumentList.Add(a);
