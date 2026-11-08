@@ -65,4 +65,55 @@ public sealed class RuleSetTests
         }
         finally { File.Delete(bad); }
     }
+
+    static RuleVerdict C(string name, string? exe = null, string? pub = null) =>
+        Rules.Classify(new ItemFacts(name, exe, pub, null));
+
+    [Fact]
+    public void SystemRoot_driver_path_is_protected() =>
+        Assert.Equal(RuleVerdict.Protected, C("drv", @"\SystemRoot\System32\drivers\x.sys"));
+
+    [Fact]
+    public void Relative_system32_path_is_protected() =>
+        Assert.Equal(RuleVerdict.Protected, C("drv", @"System32\drivers\x.sys"));
+
+    [Fact]
+    public void Spoofed_windows_folder_in_profile_is_not_protected() =>
+        Assert.Equal(RuleVerdict.Miner, C("svc", @"C:\Users\x\Windows\xmrig.exe"));
+
+    [Fact]
+    public void Realtek_under_program_files_without_publisher_is_protected() =>
+        Assert.Equal(RuleVerdict.Protected, C("RtkNGUI", @"C:\Program Files\Realtek\Audio\RtkNGUI64.exe"));
+
+    [Fact]
+    public void Realtek_folder_in_appdata_is_not_protected() =>
+        Assert.Equal(RuleVerdict.Unknown, C("foo", @"C:\Users\x\AppData\Local\Realtek\foo.exe"));
+
+    [Fact]
+    public void Intel_publisher_protected() => Assert.Equal(RuleVerdict.Protected, C("foo", null, "Intel Corporation"));
+
+    [Fact]
+    public void Haufe_publisher_protected() => Assert.Equal(RuleVerdict.Protected, C("foo", null, "Haufe Group"));
+
+    [Fact]
+    public void Kaspersky_name_protected() => Assert.Equal(RuleVerdict.Protected, C("Kaspersky Anti-Virus"));
+
+    [Fact]
+    public void Teams_without_publisher_expendable_but_with_microsoft_publisher_protected()
+    {
+        Assert.Equal(RuleVerdict.Expendable, C("MicrosoftTeams"));
+        Assert.Equal(RuleVerdict.Protected, C("MicrosoftTeams", null, "Microsoft Corporation"));
+    }
+
+    [Fact]
+    public void Empty_protected_list_throws_InvalidDataException()
+    {
+        var f = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(f, "{ \"protected\": [] }");
+            Assert.Throws<InvalidDataException>(() => RuleSet.Load(f));
+        }
+        finally { File.Delete(f); }
+    }
 }

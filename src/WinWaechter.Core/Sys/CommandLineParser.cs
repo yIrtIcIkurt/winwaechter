@@ -53,6 +53,7 @@ public static class CommandLineParser
 
     static bool SafeExists(string p)
     {
+        if (p.StartsWith(@"\\", StringComparison.Ordinal)) return false; // UNC: never touch the network
         try { return File.Exists(p); } catch { return false; }
     }
 

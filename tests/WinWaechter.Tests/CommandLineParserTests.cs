@@ -46,6 +46,10 @@ public sealed class CommandLineParserTests
     }
 
     [Fact]
+    public void Unc_path_is_not_probed() =>
+        Assert.Equal(@"\\srv\share\a b\app.exe", CommandLineParser.ExtractExePath(@"\\srv\share\a b\app.exe -x"));
+
+    [Fact]
     public void Unquoted_nonexistent_path_cuts_at_first_exe() =>
         Assert.Equal(@"C:\No Such Dir\app.exe", CommandLineParser.ExtractExePath(@"C:\No Such Dir\app.exe -x"));
 }

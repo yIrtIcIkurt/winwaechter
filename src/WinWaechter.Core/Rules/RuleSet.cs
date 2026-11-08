@@ -1,4 +1,5 @@
 using System.Text.Json;
+using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Rules;
 
@@ -20,7 +21,19 @@ public sealed class RuleSet
             (Name is not null || Publisher is not null || Path is not null)
             && (Name is null || WordStart(f.Name, Name))
             && (Publisher is null || WordStart(f.Publisher, Publisher))
-            && (Path is null || (f.ExePath?.Contains(Path, StringComparison.OrdinalIgnoreCase) ?? false));
+            && (Path is null || PathMatches(f.ExePath));
+
+        // "%..%" matchers are expanded at load and anchored at the start of the normalized path
+        // (an AppData\Realtek or Users\x\Windows folder must not look protected).
+        // Other path matchers are plain substrings; \Lexware\ stays one on purpose:
+        // wrongly protecting a Lexware look-alike is better than touching the bookkeeping.
+        bool PathMatches(string? exe)
+        {
+            if (string.IsNullOrEmpty(exe) || Path is null) return false;
+            return Path.StartsWith('%')
+                ? exe.StartsWith(Environment.ExpandEnvironmentVariables(Path), StringComparison.OrdinalIgnoreCase)
+                : exe.Contains(Path, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     sealed class Dto
@@ -100,6 +113,7 @@ public sealed class RuleSet
 
     public RuleVerdict Classify(ItemFacts f)
     {
+        if (!string.IsNullOrWhiteSpace(f.ExePath)) f = f with { ExePath = PathNormalizer.NormalizePath(f.ExePath) };
         if (_protected.Any(m => m.IsMatch(f))) return RuleVerdict.Protected;
         if (IsMiner(f)) return RuleVerdict.Miner;
         if (_pua.Any(m => m.IsMatch(f))) return RuleVerdict.Pua;
