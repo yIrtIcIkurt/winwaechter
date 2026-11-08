@@ -1,0 +1,75 @@
+using WinWaechter.App.ViewModels;
+using WinWaechter.Core.Changes;
+using WinWaechter.Core.Journal;
+using WinWaechter.Core.Model;
+using WinWaechter.Core.Optimizer;
+using WinWaechter.Core.Optimizer.Autostart;
+using WinWaechter.Core.Optimizer.Services;
+using WinWaechter.Core.Optimizer.Storage;
+using WinWaechter.Core.Optimizer.Tasks;
+using WinWaechter.Core.Rules;
+using WinWaechter.Core.Security.Defender;
+using WinWaechter.Core.Security.Heuristics;
+using WinWaechter.Core.Sys;
+
+namespace WinWaechter.App.Services;
+
+/// <summary>Composition root: wires Core services and view models with plain constructors.</summary>
+public sealed class AppServices
+{
+    AppServices(AppEnvironment env, AppSettings settings, AblageJanitor janitor, ShellViewModel shell)
+    {
+        Env = env;
+        Settings = settings;
+        Janitor = janitor;
+        Shell = shell;
+    }
+
+    public AppEnvironment Env { get; }
+    public AppSettings Settings { get; }
+    public AblageJanitor Janitor { get; }
+    public ShellViewModel Shell { get; }
+
+    public static AppServices Create(AppEnvironment env, AppSettings settings, IDialogService dialogs, ISystemShell shell, Action shutdown)
+    {
+        var user = new InteractiveUserContext();
+        var reg = new WinRegistry(user);
+        var sc = new WinServiceControl();
+        var ts = new WinTaskStore();
+        var fo = new WinFileOps();
+        var sig = new WinTrustVerifier();
+        var lnk = new WinShortcutResolver();
+        var rules = RuleSet.Default;
+
+        var store = new SessionStore(env.DataRoot);
+        var defender = new DefenderClient(new ProcessRunner(), reg);
+        var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo);
+        DefenderRegistration.Register(factory, defender);
+
+        var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);
+        var services = new ServiceScanner(sc, sig, rules, reg);
+        var tasks = new TaskScanner(ts, sig, rules);
+        var temp = new TempScanner(fo, user);
+        var restore = new RestorePointService();
+
+        var engine = new OptimizerEngine(
+            new Func<IReadOnlyList<Finding>>[] { autostart.Scan, services.Scan, tasks.Scan, temp.Scan },
+            store, factory, restore.TryCreate);
+
+        var heuristics = new HeuristicScanner(new WmiProcessSource(), new TcpTableConnections(), sig, rules,
+            user, fo, autostart, tasks, services);
+
+        var canChange = env.IsElevated;
+        var optimize = new OptimizeViewModel(engine, dialogs, canChange);
+        // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
+        var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),
+            engine, ProcessTools.KillByPath, dialogs, canChange);
+        var janitor = new AblageJanitor(store);
+        var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange);
+        var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown);
+        var settingsVm = new SettingsViewModel(settings, env, update, shell);
+
+        return new AppServices(env, settings, janitor,
+            new ShellViewModel(optimize, protect, history, settingsVm, update, env.IsElevated));
+    }
+}

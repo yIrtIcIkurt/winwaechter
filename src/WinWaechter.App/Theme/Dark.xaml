@@ -1,0 +1,39 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Dark palette, see docs/design-notes.md -->
+    <SolidColorBrush x:Key="Canvas" Color="#1A1F22" />
+    <SolidColorBrush x:Key="Surface" Color="#222A2D" />
+    <SolidColorBrush x:Key="Rail" Color="#151A1C" />
+    <SolidColorBrush x:Key="Line" Color="#354044" />
+    <SolidColorBrush x:Key="Ink" Color="#E2E8E6" />
+    <SolidColorBrush x:Key="InkMuted" Color="#A2AEAB" />
+    <SolidColorBrush x:Key="Accent" Color="#6CC0CE" />
+    <SolidColorBrush x:Key="OnAccent" Color="#0A272C" />
+    <SolidColorBrush x:Key="AccentSoft" Color="#1E3A3F" />
+    <SolidColorBrush x:Key="Good" Color="#7EC690" />
+    <SolidColorBrush x:Key="Watch" Color="#E2B65C" />
+    <SolidColorBrush x:Key="WatchSoft" Color="#3A3121" />
+    <SolidColorBrush x:Key="Alarm" Color="#F08B7F" />
+    <SolidColorBrush x:Key="AlarmSoft" Color="#43251F" />
+    <SolidColorBrush x:Key="Hover" Color="#14E2E8E6" />
+    <SolidColorBrush x:Key="Disabled" Color="#6E7A78" />
+    <Color x:Key="CanvasColor">#1A1F22</Color>
+    <!-- Tick scale (instrument motif) -->
+    <DrawingBrush x:Key="TickBrush" TileMode="Tile" Viewport="0,0,40,10" ViewportUnits="Absolute" Stretch="None" AlignmentX="Left" AlignmentY="Top">
+        <DrawingBrush.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="Transparent" Geometry="M0,0 L40,0 40,10 0,10Z" />
+                <GeometryDrawing Brush="#354044" Geometry="M0,0 L1,0 1,10 0,10Z M8,5 L9,5 9,10 8,10Z M16,5 L17,5 17,10 16,10Z M24,5 L25,5 25,10 24,10Z M32,5 L33,5 33,10 32,10Z" />
+            </DrawingGroup>
+        </DrawingBrush.Drawing>
+    </DrawingBrush>
+    <DrawingBrush x:Key="TickBrushAccent" TileMode="Tile" Viewport="0,0,40,10" ViewportUnits="Absolute" Stretch="None" AlignmentX="Left" AlignmentY="Top">
+        <DrawingBrush.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="Transparent" Geometry="M0,0 L40,0 40,10 0,10Z" />
+                <GeometryDrawing Brush="#6CC0CE" Geometry="M0,0 L1,0 1,10 0,10Z M8,4 L9,4 9,10 8,10Z M16,4 L17,4 17,10 16,10Z M24,4 L25,4 25,10 24,10Z M32,4 L33,4 33,10 32,10Z" />
+            </DrawingGroup>
+        </DrawingBrush.Drawing>
+    </DrawingBrush>
+
+</ResourceDictionary>

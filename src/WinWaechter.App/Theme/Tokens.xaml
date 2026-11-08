@@ -1,0 +1,35 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+    <!-- Type, spacing and radius tokens (theme independent), see docs/design-notes.md -->
+
+    <FontFamily x:Key="DisplayFont">Bahnschrift, Segoe UI</FontFamily>
+    <FontFamily x:Key="TextFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+    <FontFamily x:Key="SmallFont">Segoe UI Variable Small, Segoe UI</FontFamily>
+    <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+    <sys:Double x:Key="SizeStatement">34</sys:Double>
+    <sys:Double x:Key="SizePageTitle">26</sys:Double>
+    <sys:Double x:Key="SizeReadout">28</sys:Double>
+    <sys:Double x:Key="SizeSection">17</sys:Double>
+    <sys:Double x:Key="SizeLead">15.5</sys:Double>
+    <sys:Double x:Key="SizeBody">14</sys:Double>
+    <sys:Double x:Key="SizeSmall">12.5</sys:Double>
+    <sys:Double x:Key="SizeChip">11.5</sys:Double>
+    <sys:Double x:Key="SizeIcon">16</sys:Double>
+
+    <FontWeight x:Key="WeightSemiLight">350</FontWeight>
+
+    <Thickness x:Key="PagePadding">32,28,32,24</Thickness>
+    <CornerRadius x:Key="RadiusSurface">6</CornerRadius>
+    <CornerRadius x:Key="RadiusButton">4</CornerRadius>
+    <CornerRadius x:Key="RadiusChip">3</CornerRadius>
+    <sys:Double x:Key="ProseWidth">620</sys:Double>
+
+    <!-- Glyphs (Segoe Fluent Icons / MDL2 code points); nav glyphs live in ShellViewModel -->
+    <sys:String x:Key="GlyphChevronRight">&#xE76C;</sys:String>
+    <sys:String x:Key="GlyphChevronDown">&#xE70D;</sys:String>
+    <sys:String x:Key="GlyphInfo">&#xE946;</sys:String>
+    <sys:String x:Key="GlyphDownload">&#xE896;</sys:String>
+    <sys:String x:Key="GlyphClose">&#xE711;</sys:String>
+</ResourceDictionary>

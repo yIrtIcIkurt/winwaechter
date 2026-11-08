@@ -1,0 +1,111 @@
+<UserControl x:Class="WinWaechter.App.Views.HistoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="{StaticResource PagePadding}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Neu laden" Command="{Binding RefreshCommand}" VerticalAlignment="Center" />
+                <TextBlock Style="{StaticResource Text.PageTitle}" Text="Verlauf" />
+            </DockPanel>
+            <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
+                       Text="Jede Sitzung ist gesichert. Rückgängig läuft in umgekehrter Reihenfolge; was sich inzwischen von außen geändert hat, wird übersprungen und gemeldet." />
+            <Border Margin="0,14,0,0" Style="{StaticResource Notice}" Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}">
+                <TextBlock Foreground="{DynamicResource Watch}" TextWrapping="Wrap" Text="{Binding AdminNotice}" />
+            </Border>
+        </StackPanel>
+
+        <!-- Ablage -->
+        <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Line}" Padding="32,12,32,14">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Final}" Content="Ablage jetzt leeren"
+                        Command="{Binding PurgeAblageCommand}" VerticalAlignment="Center" />
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock FontWeight="SemiBold" Text="Ablage" />
+                        <TextBlock Margin="10,0,0,0" Typography.NumeralAlignment="Tabular" Text="{Binding AblageText}" />
+                    </StackPanel>
+                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}"
+                               Text="Verschobene Dateien liegen hier, bis die Ablage geleert wird. Erst das Leeren ist endgültig." />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid Margin="32,0,32,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="290" />
+                <ColumnDefinition Width="24" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.ColumnSpan="3" Style="{StaticResource Text.Muted}" Visibility="{Binding IsEmpty, Converter={StaticResource Vis}}"
+                       Text="Noch keine Sitzungen. Sobald Änderungen angewendet werden, erscheinen sie hier." />
+
+            <ListBox Style="{StaticResource SessionList}" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession, Mode=TwoWay}"
+                     AutomationProperties.Name="Sitzungen" Visibility="{Binding IsEmpty, Converter={StaticResource Vis}, ConverterParameter=not}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Typography.NumeralAlignment="Tabular" Text="{Binding CreatedText}" />
+                            <TextBlock Style="{StaticResource Text.Small}" Text="{Binding Summary}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Rectangle Grid.Column="1" Width="1" HorizontalAlignment="Center" Fill="{DynamicResource Line}"
+                       Visibility="{Binding IsEmpty, Converter={StaticResource Vis}, ConverterParameter=not}" />
+
+            <DockPanel Grid.Column="2" DataContext="{Binding SelectedSession}"
+                       Visibility="{Binding Converter={StaticResource Vis}}">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <Button DockPanel.Dock="Right" Content="Alles rückgängig" VerticalAlignment="Center"
+                            Command="{Binding DataContext.UndoAllCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}" />
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Text.Section}" Text="{Binding Title}" />
+                        <TextBlock Style="{StaticResource Text.Small}" Typography.NumeralAlignment="Tabular" Text="{Binding CreatedText}" />
+                    </StackPanel>
+                </DockPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <Border Style="{StaticResource SurfaceBox}" VerticalAlignment="Top">
+                        <ItemsControl ItemsSource="{Binding Records}" Focusable="False" Margin="0,0,0,-1">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource RowDivider}" Padding="16,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Description}" TextWrapping="Wrap" />
+                                                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Typography.NumeralAlignment="Tabular"
+                                                           Text="{Binding TimeText}" />
+                                                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}"
+                                                           Text="{Binding Error}" Visibility="{Binding Error, Converter={StaticResource Vis}}" />
+                                            </StackPanel>
+                                            <ContentControl Grid.Column="1" Margin="16,0,0,0" Style="{StaticResource Chip}" VerticalAlignment="Top"
+                                                            Tag="{Binding StatusTone}" Content="{Binding StatusText}" />
+                                            <StackPanel Grid.Column="2" Margin="12,0,0,0" Width="118" VerticalAlignment="Top">
+                                                <Button Content="Rückgängig" HorizontalAlignment="Right"
+                                                        Visibility="{Binding CanUndo, Converter={StaticResource Vis}}"
+                                                        Command="{Binding DataContext.UndoOneCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}" AutomationProperties.HelpText="{Binding Description}" />
+                                                <StackPanel Visibility="{Binding Hint, Converter={StaticResource Vis}}" HorizontalAlignment="Right">
+                                                    <Button Content="Rückgängig" IsEnabled="False" HorizontalAlignment="Right" />
+                                                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" HorizontalAlignment="Right" Text="{Binding Hint}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </ScrollViewer>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</UserControl>

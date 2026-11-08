@@ -1,0 +1,170 @@
+<UserControl x:Class="WinWaechter.App.Views.ProtectView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+        <StackPanel Margin="{StaticResource PagePadding}">
+            <TextBlock Style="{StaticResource Text.PageTitle}" Text="Schutz" />
+            <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
+                       Text="Microsoft Defender ist die Prüf-Engine. Dazu kommt eine eigene Prüfung auf Kryptominer und Verdächtiges." />
+            <Border Margin="0,14,0,0" Style="{StaticResource Notice}" Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}">
+                <TextBlock Foreground="{DynamicResource Watch}" TextWrapping="Wrap" Text="{Binding AdminNotice}" />
+            </Border>
+
+            <!-- ===== Defender ===== -->
+            <TextBlock Margin="0,30,0,0" Style="{StaticResource Text.Section}" Text="Defender" />
+            <Rectangle Margin="0,12,0,0" Style="{StaticResource ScaleRule}" />
+            <WrapPanel Margin="0,14,0,0">
+                <StackPanel Width="170" Margin="0,0,0,12">
+                    <TextBlock Style="{StaticResource Text.Label}" Text="Echtzeitschutz" />
+                    <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                        <Control Style="{StaticResource ToneMark}" Tag="{Binding RealTimeTone}" Margin="0,2,9,0" />
+                        <TextBlock Style="{StaticResource Text.Readout}" FontSize="22" Text="{Binding RealTimeText}" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Width="170" Margin="0,0,0,12">
+                    <TextBlock Style="{StaticResource Text.Label}" Text="Signaturalter" />
+                    <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                        <Control Style="{StaticResource ToneMark}" Tag="{Binding SignatureTone}" Margin="0,2,9,0" />
+                        <TextBlock Style="{StaticResource Text.Readout}" FontSize="22" Text="{Binding SignatureAgeText}" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Width="200" Margin="0,0,0,12">
+                    <TextBlock Style="{StaticResource Text.Label}" Text="Letzter Scan" />
+                    <TextBlock Margin="0,3,0,0" Style="{StaticResource Text.Readout}" FontSize="22" Text="{Binding LastScanText}" />
+                </StackPanel>
+                <StackPanel Width="170" Margin="0,0,0,12">
+                    <TextBlock Style="{StaticResource Text.Label}" Text="Manipulationsschutz" />
+                    <TextBlock Margin="0,3,0,0" Style="{StaticResource Text.Readout}" FontSize="22" Text="{Binding TamperText}" />
+                </StackPanel>
+                <StackPanel Width="170" Margin="0,0,0,12">
+                    <TextBlock Style="{StaticResource Text.Label}" Text="PUA-Schutz" />
+                    <TextBlock Margin="0,3,0,0" Style="{StaticResource Text.Readout}" FontSize="22" Text="{Binding PuaText}" />
+                </StackPanel>
+            </WrapPanel>
+            <TextBlock Style="{StaticResource Text.Muted}" Text="{Binding DefenderNote}"
+                       Visibility="{Binding DefenderNote, Converter={StaticResource Vis}}" />
+
+            <WrapPanel Margin="0,10,0,0">
+                <Button Margin="0,0,8,8" Content="Signaturen aktualisieren" Command="{Binding UpdateSignaturesCommand}" />
+                <Button Margin="0,0,8,8" Content="Schnellscan" Command="{Binding QuickScanCommand}" />
+                <Button Margin="0,0,8,8" Content="Vollscan" Command="{Binding FullScanCommand}" />
+                <Button Margin="0,0,8,8" Content="Abbrechen" Command="{Binding CancelDefenderCommand}"
+                        Visibility="{Binding CanCancelDefender, Converter={StaticResource Vis}}" />
+            </WrapPanel>
+            <StackPanel Margin="0,6,0,0" Visibility="{Binding IsDefenderBusy, Converter={StaticResource Vis}}">
+                <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBlock Style="{StaticResource Text.Small}" Text="{Binding DefenderOperation}" />
+                    <TextBlock Margin="10,0,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Ink}"
+                               Typography.NumeralAlignment="Tabular" Text="{Binding Clock.Text}" />
+                </StackPanel>
+            </StackPanel>
+            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" Text="{Binding DefenderResult}"
+                       Visibility="{Binding DefenderResult, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
+
+            <!-- PUA suggestion -->
+            <Border Margin="0,18,0,0" Style="{StaticResource SurfaceBox}" Padding="16,12"
+                    Visibility="{Binding ShowPuaSuggestion, Converter={StaticResource Vis}}">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Margin="16,0,0,0" VerticalAlignment="Center" Content="PUA-Schutz einschalten"
+                            Command="{Binding EnablePuaCommand}" />
+                    <StackPanel>
+                        <TextBlock FontWeight="SemiBold" Text="Vorschlag: PUA-Schutz einschalten" />
+                        <TextBlock Margin="0,3,0,0" Style="{StaticResource Text.Small}"
+                                   Text="Defender blockiert dann auch potenziell unerwünschte Programme wie Werbe-Bundles. Die Änderung steht im Verlauf und lässt sich zurücknehmen." />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- ===== Defender findings ===== -->
+            <TextBlock Margin="0,34,0,0" Style="{StaticResource Text.Section}" Text="Defender-Funde" />
+            <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" Text="{Binding ThreatSummary}" />
+            <Border Margin="0,12,0,0" Style="{StaticResource SurfaceBox}" Visibility="{Binding Threats.Count, Converter={StaticResource Vis}}">
+                <ItemsControl ItemsSource="{Binding Threats}" Focusable="False" Margin="0,0,0,-1">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource RowDivider}" Padding="16,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding Resources}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="16,0,0,0" HorizontalAlignment="Right">
+                                        <TextBlock Style="{StaticResource Text.Small}" HorizontalAlignment="Right" Text="{Binding StatusText}" />
+                                        <TextBlock Style="{StaticResource Text.Small}" HorizontalAlignment="Right" Text="{Binding SeverityText, StringFormat=Schwere: {0}}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+            <StackPanel Margin="0,12,0,0" Visibility="{Binding HasActiveThreats, Converter={StaticResource Vis}}">
+                <Button HorizontalAlignment="Left" Style="{StaticResource Button.Final}" Content="Alle aktiven Funde bereinigen"
+                        Command="{Binding CleanCommand}" />
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}"
+                           Text="Defender entscheidet je Fund, ob isoliert oder entfernt wird. Ein Rückgängig gibt es dafür nicht immer." />
+            </StackPanel>
+
+            <!-- ===== Own heuristics ===== -->
+            <DockPanel Margin="0,34,0,0">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
+                    <Button Content="Abbrechen" Margin="0,0,8,0" Command="{Binding HeuristicScanCancelCommand}"
+                            Visibility="{Binding HeuristicScanCommand.IsRunning, Converter={StaticResource Vis}}" />
+                    <Button Style="{StaticResource Button.Primary}" Content="Programme prüfen" Command="{Binding HeuristicScanCommand}" />
+                </StackPanel>
+                <TextBlock Style="{StaticResource Text.Section}" Text="Eigene Prüfung" VerticalAlignment="Bottom" />
+            </DockPanel>
+            <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" Text="{Binding HeuristicSummary}" />
+            <StackPanel Margin="0,12,0,0" Visibility="{Binding HeuristicScanCommand.IsRunning, Converter={StaticResource Vis}}">
+                <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBlock Style="{StaticResource Text.Small}" Text="{Binding HeuristicProgress}" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Margin="10,0,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Ink}"
+                               Typography.NumeralAlignment="Tabular" Text="{Binding HeuristicClock.Text}" />
+                </StackPanel>
+            </StackPanel>
+
+            <ItemsControl Margin="0,12,0,0" ItemsSource="{Binding HeuristicItems}" Focusable="False">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Style="{StaticResource SurfaceBox}" Margin="0,0,0,10" Padding="16,12">
+                            <StackPanel>
+                                <DockPanel>
+                                    <ContentControl DockPanel.Dock="Right" Margin="16,0,0,0" Style="{StaticResource Chip}" VerticalAlignment="Top"
+                                                    Tag="{Binding RatingTone}" Content="{Binding RatingText}" />
+                                    <StackPanel>
+                                        <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Path}" Text="{Binding Location}" />
+                                    </StackPanel>
+                                </DockPanel>
+                                <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding Reasons}" ItemTemplate="{StaticResource ReasonLine}" Focusable="False" />
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button Margin="0,0,8,0" Content="Von Defender prüfen lassen"
+                                            Command="{Binding DataContext.CheckWithDefenderCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Margin="0,0,8,0" Content="{Binding DisableText}"
+                                            Visibility="{Binding CanDisable, Converter={StaticResource Vis}}"
+                                            Command="{Binding DataContext.DisableCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Style="{StaticResource Button.Final}" Visibility="{Binding IsProcess, Converter={StaticResource Vis}}"
+                                            Command="{Binding DataContext.KillProcessCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" AutomationProperties.Name="Prozess beenden, nicht umkehrbar">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Prozess beenden" />
+                                            <TextBlock Margin="8,0,0,0" FontWeight="Normal" Opacity="0.85" Text="(nicht umkehrbar)" />
+                                        </StackPanel>
+                                    </Button>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
