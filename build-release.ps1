@@ -1,4 +1,4 @@
-<#
+﻿<#
 Builds a WinWaechter release locally: version, tests, publish, installer, signature, self-check.
 -Publish additionally creates the GitHub release (only after approval!).
 #>
@@ -32,6 +32,7 @@ function Assert-Ok([string]$what) { if ($LASTEXITCODE -ne 0) { throw "$what fehl
 $props = Join-Path $root 'Directory.Build.props'
 $text = [IO.File]::ReadAllText($props)
 $new = [regex]::Replace($text, '<Version>[^<]*</Version>', "<Version>$Version</Version>")
+if ($text -notmatch '<Version>[^<]*</Version>') { throw 'Kein <Version> in Directory.Build.props gefunden.' }
 if ($new -ne $text) { [IO.File]::WriteAllText($props, $new) }
 
 # 2. Tests
@@ -70,7 +71,8 @@ if ($Publish) {
     $notes = Join-Path $env:TEMP "winwaechter-notes-$Version.md"
     $changelog = [IO.File]::ReadAllText((Join-Path $root 'CHANGELOG.md'))
     $m = [regex]::Match($changelog, "(?ms)^## $([regex]::Escape($Version))\s*\r?\n(.*?)(?=^## |\z)")
-    $body = if ($m.Success) { $m.Groups[1].Value.Trim() } else { "WinWächter $Version" }
+    if (-not $m.Success) { throw "CHANGELOG.md hat keinen Abschnitt für Version $Version." }
+    $body = $m.Groups[1].Value.Trim()
     [IO.File]::WriteAllText($notes, $body)
     gh release create "v$Version" $setup $sums $sig --repo yIrtIcIkurt/winwaechter --title "WinWächter $Version" --notes-file $notes
     Assert-Ok 'gh release create'

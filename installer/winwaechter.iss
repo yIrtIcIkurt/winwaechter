@@ -1,4 +1,4 @@
-; WinWaechter installer (Inno Setup 6). Build via build-release.ps1.
+﻿; WinWaechter installer (Inno Setup 6). Build via build-release.ps1.
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
@@ -17,7 +17,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
-RestartApplications=yes
+RestartApplications=no
 OutputDir=..\dist
 OutputBaseFilename=WinWaechter-Setup-{#AppVersion}
 Compression=lzma2

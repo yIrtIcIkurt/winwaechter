@@ -1,4 +1,4 @@
-# Converts assets\icon\winwaechter-1024.png into a multi-size winwaechter.ico (PNG-compressed entries).
+﻿# Converts assets\icon\winwaechter-1024.png into a multi-size winwaechter.ico (PNG-compressed entries).
 param(
     [string]$Source = (Join-Path $PSScriptRoot '..\assets\icon\winwaechter-1024.png'),
     [string]$Target = (Join-Path $PSScriptRoot '..\assets\icon\winwaechter.ico')
