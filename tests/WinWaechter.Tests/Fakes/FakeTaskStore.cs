@@ -11,6 +11,7 @@ public sealed class FakeTaskStore : ITaskStore
     public List<(string Path, bool Enabled)> SetEnabledCalls { get; } = [];
     public List<(string Path, string Xml)> RegisterXmlCalls { get; } = [];
     public List<string> ExportXmlCalls { get; } = [];
+    public Exception? RegisterXmlThrows { get; set; }
 
     public FakeTaskStore Add(TaskInfo t)
     {
@@ -51,6 +52,7 @@ public sealed class FakeTaskStore : ITaskStore
     public void RegisterXml(string path, string xml)
     {
         RegisterXmlCalls.Add((path, xml));
+        if (RegisterXmlThrows is not null) throw RegisterXmlThrows;
         var enabled = !xml.Contains("<Enabled>false</Enabled>", StringComparison.OrdinalIgnoreCase);
         var t = _removed.Remove(path, out var old) ? old : Get(path);
         _tasks[path] = (t ?? new TaskInfo(path, path[(path.LastIndexOf('\\') + 1)..], enabled, false, null, null, null))
