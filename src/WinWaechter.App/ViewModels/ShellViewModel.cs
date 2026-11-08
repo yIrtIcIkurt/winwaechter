@@ -44,9 +44,9 @@ public sealed partial class ShellViewModel : ObservableObject
         SettingsNav = new NavItem("Einstellungen", "\uE713", settings, OnSelected);
         PrimaryNav[0].IsSelected = true;
 
-        // the history must show what other pages just changed
-        optimize.ChangesApplied += async (_, _) => await history.RefreshCommand.ExecuteAsync(null);
-        protect.ChangesApplied += async (_, _) => await history.RefreshCommand.ExecuteAsync(null);
+        // the history must show what other pages just changed, with the new session selected
+        optimize.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
+        protect.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
     }
 
     public OverviewViewModel Overview { get; }

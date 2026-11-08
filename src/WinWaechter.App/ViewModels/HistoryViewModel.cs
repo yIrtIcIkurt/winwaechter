@@ -121,10 +121,21 @@ public sealed partial class HistoryViewModel : ObservableObject
 
     public bool IsEmpty => Sessions.Count == 0;
 
+    bool _selectNewestNext;
+
+    /// <summary>Refresh after a new change was applied and select that new (newest) session,
+    /// so „Alles rückgängig“ never acts on an older session the user looked at before.</summary>
+    public Task ShowNewestAsync()
+    {
+        _selectNewestNext = true;
+        return RefreshCommand.ExecuteAsync(null);
+    }
+
     [RelayCommand]
     private async Task RefreshAsync()
     {
-        var selectedDir = SelectedSession?.Journal.Context.SessionDir;
+        var selectedDir = _selectNewestNext ? null : SelectedSession?.Journal.Context.SessionDir;
+        _selectNewestNext = false;
         IReadOnlyList<SessionJournal> journals;
         AblagePreview preview;
         try

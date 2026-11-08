@@ -214,6 +214,24 @@ public sealed class ViewModelTests : IDisposable
         Assert.StartsWith(notePrefix, item.ProcessNote);
     }
 
+    [Fact]
+    public async Task After_a_new_change_the_history_selects_the_new_session()
+    {
+        var store = new SessionStore(_root);
+        store.Create("alt");
+        var h = new HistoryViewModel(store, Engine(), new AblageJanitor(store), new YesDialogs(), true, _gate);
+        await h.RefreshCommand.ExecuteAsync(null);
+        var old = h.SelectedSession!;
+
+        Thread.Sleep(1100);   // session folders are named by second
+        store.Create("neu");
+        await h.RefreshCommand.ExecuteAsync(null);
+        Assert.Equal(old.Journal.Context.SessionDir, h.SelectedSession!.Journal.Context.SessionDir);   // plain refresh keeps the choice
+
+        await h.ShowNewestAsync();
+        Assert.Equal("neu", h.SelectedSession!.Journal.Title);
+    }
+
     OptimizerEngine Engine(Func<string, RestorePointResult>? rp = null) =>
         new([() => [F("a", true)]], new SessionStore(_root), new ChangeFactory(), rp ?? (_ => new RestorePointResult(true, "ok")));
 
