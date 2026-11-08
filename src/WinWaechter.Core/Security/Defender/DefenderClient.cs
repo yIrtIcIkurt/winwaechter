@@ -10,15 +10,23 @@ internal static class MpCmdRunArgs
     public const string Update = "-SignatureUpdate";
 
     public static string Scan(ScanKind kind) => $"-Scan -ScanType {(int)kind}";
-    public static string ScanPath(string path) => $"-Scan -ScanType 3 -File \"{path}\" -DisableRemediation";
+    public static string ScanPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path.Any(c => c == '"' || char.IsControl(c)))
+            throw new ArgumentException("Der Pfad enthält ungültige Zeichen.", nameof(path));
+        // A trailing backslash would escape the closing quote.
+        var p = path.EndsWith(Path.DirectorySeparatorChar) ? path + Path.DirectorySeparatorChar : path;
+        return $"-Scan -ScanType 3 -File \"{p}\" -DisableRemediation";
+    }
 }
 
 /// <summary>Talks to Microsoft Defender via WMI, MpCmdRun and PowerShell. No own signatures.</summary>
-public sealed class DefenderClient(IProcessRunner runner, IRegistry reg) : IDefender
+public sealed class DefenderClient(IProcessRunner runner, IRegistry reg, Func<string, bool>? fileExists = null) : IDefender
 {
+    readonly Func<string, bool> _fileExists = fileExists ?? File.Exists;
     const string Scope = @"root\Microsoft\Windows\Defender";
     const string NotActiveNote = "Defender ist nicht aktiv – möglicherweise ist ein anderer Virenschutz installiert.";
-    const string PowerShell = "powershell.exe";
+    static readonly string PowerShell = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
 
     internal sealed record ThreatRow(long Id, string Name, int Severity, bool IsActive);
     internal sealed record DetectionRow(long ThreatId, int StatusId, DateTimeOffset? Time, IReadOnlyList<string> Resources);
@@ -72,7 +80,7 @@ public sealed class DefenderClient(IProcessRunner runner, IRegistry reg) : IDefe
                 AsDate(cs["AntivirusSignatureLastUpdated"]), cs["AntivirusSignatureAge"] is { } a ? Convert.ToInt32(a) : 0,
                 AsDate(cs["QuickScanEndTime"]), AsDate(cs["FullScanEndTime"]), null);
         }
-        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException or InvalidCastException)
+        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException or InvalidCastException or ArgumentOutOfRangeException or FormatException)
         {
             FileLog.Warn("Defender-Status nicht lesbar", ex);
             return Unavailable();
@@ -95,7 +103,7 @@ public sealed class DefenderClient(IProcessRunner runner, IRegistry reg) : IDefe
                 .ToList();
             return JoinThreats(threats, detections);
         }
-        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException or InvalidCastException)
+        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException or InvalidCastException or ArgumentOutOfRangeException or FormatException)
         {
             FileLog.Warn("Defender-Bedrohungen nicht lesbar", ex);
             return [];
@@ -124,7 +132,11 @@ public sealed class DefenderClient(IProcessRunner runner, IRegistry reg) : IDefe
     string MpCmdRunPath()
     {
         var dir = reg.Get(Hive.LocalMachine, @"SOFTWARE\Microsoft\Windows Defender", "InstallLocation") as string;
-        if (!string.IsNullOrWhiteSpace(dir)) return Path.Combine(dir, "MpCmdRun.exe");
+        if (!string.IsNullOrWhiteSpace(dir) && Path.IsPathRooted(dir))
+        {
+            var p = Path.Combine(dir, "MpCmdRun.exe");
+            if (_fileExists(p)) return p;
+        }
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Windows Defender", "MpCmdRun.exe");
     }
 
@@ -137,6 +149,7 @@ public sealed class DefenderClient(IProcessRunner runner, IRegistry reg) : IDefe
     // The process itself is never killed: cancelling asks Defender to stop, then we wait for the process to exit.
     async Task<int> RunMp(string args, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var exe = MpCmdRunPath();
         var run = runner.RunAsync(exe, args, CancellationToken.None);
         var cancelled = new TaskCompletionSource();

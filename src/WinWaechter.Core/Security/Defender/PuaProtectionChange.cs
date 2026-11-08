@@ -15,7 +15,10 @@ public sealed class PuaProtectionChange(IDefender defender) : IChange
 
     public ChangeRecord Apply(SessionContext ctx)
     {
-        var before = defender.GetStatusAsync().GetAwaiter().GetResult().PuaMode;
+        var status = defender.GetStatusAsync().GetAwaiter().GetResult();
+        if (!status.Available)
+            throw new InvalidOperationException("Defender ist nicht aktiv – PUA-Schutz kann nicht geändert werden.");
+        var before = status.PuaMode;
         defender.SetPuaModeAsync(1).GetAwaiter().GetResult();
         return new ChangeRecord(Guid.NewGuid().ToString("N"), Kind, Target, Description,
             new() { ["mode"] = before.ToString() }, new() { ["mode"] = "1" },

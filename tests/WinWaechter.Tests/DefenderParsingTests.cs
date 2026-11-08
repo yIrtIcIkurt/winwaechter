@@ -67,7 +67,7 @@ public sealed class DefenderParsingTests
     {
         var reg = new FakeRegistry().Seed(Hive.LocalMachine, @"SOFTWARE\Microsoft\Windows Defender", "InstallLocation", @"C:\Def\");
         var run = new FakeProcessRunner { Handler = (_, _) => Task.FromResult((2, "", "")) };
-        var d = new DefenderClient(run, reg);
+        var d = new DefenderClient(run, reg, _ => true);
 
         var exit = await d.ScanAsync(ScanKind.Quick, CancellationToken.None);
 
@@ -106,7 +106,7 @@ public sealed class DefenderParsingTests
         await d.RemoveActiveThreatsAsync();
         await d.SetPuaModeAsync(1);
 
-        Assert.All(run.Calls, c => Assert.Equal("powershell.exe", c.Exe));
+        Assert.All(run.Calls, c => { Assert.True(Path.IsPathRooted(c.Exe)); Assert.EndsWith("powershell.exe", c.Exe); });
         Assert.Equal("-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Remove-MpThreat\"", run.Calls[0].Args);
         Assert.Equal("-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Set-MpPreference -PUAProtection 1\"", run.Calls[1].Args);
 
@@ -117,9 +117,39 @@ public sealed class DefenderParsingTests
         Assert.Contains("boom", ex.Message);
     }
 
+    [Fact]
+    public void ScanPath_rejects_quotes_and_escapes_trailing_backslash()
+    {
+        Assert.Throws<ArgumentException>(() => MpCmdRunArgs.ScanPath("C:\\a\" -x"));
+        Assert.Throws<ArgumentException>(() => MpCmdRunArgs.ScanPath("C:\\a\nb"));
+        Assert.Equal("-Scan -ScanType 3 -File \"C:\\dir\\\\\" -DisableRemediation", MpCmdRunArgs.ScanPath("C:\\dir\\"));
+    }
+
+    [Fact]
+    public async Task Mp_path_falls_back_when_registry_value_invalid()
+    {
+        var fallback = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Windows Defender", "MpCmdRun.exe");
+        foreach (var (loc, exists) in new[] { (@"C:\Def\", false), (@"relative", true) })
+        {
+            var reg = new FakeRegistry().Seed(Hive.LocalMachine, @"SOFTWARE\Microsoft\Windows Defender", "InstallLocation", loc);
+            var run = new FakeProcessRunner();
+            await new DefenderClient(run, reg, _ => exists).UpdateSignaturesAsync(CancellationToken.None);
+            Assert.Equal(fallback, run.Calls.Single().Exe);
+        }
+    }
+
+    [Fact]
+    public async Task Scan_already_cancelled_does_not_start()
+    {
+        var run = new FakeProcessRunner();
+        using var cts = new CancellationTokenSource(); cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new DefenderClient(run, new FakeRegistry()).ScanAsync(ScanKind.Quick, cts.Token));
+        Assert.Empty(run.Calls);
+    }
+
     // Read-only: WMI queries only.
     [Fact]
-    public async Task Status_and_threats_never_throw()
+    public async Task Status_and_threats_smoke_read_only()
     {
         var d = new DefenderClient(new ProcessRunner(), new FakeRegistry());
         var s = await d.GetStatusAsync();
@@ -147,6 +177,26 @@ public sealed class DefenderParsingTests
 
         PuaProtectionChange.FromRecord(rec, d).Undo(rec, Ctx());
         Assert.Equal(0, d.PuaMode);
+    }
+
+    [Fact]
+    public void Pua_apply_fails_when_defender_unavailable()
+    {
+        var d = new UnavailableDefender();
+        Assert.Throws<InvalidOperationException>(() => new PuaProtectionChange(d).Apply(Ctx()));
+        Assert.Empty(d.SetPuaCalls);
+    }
+
+    sealed class UnavailableDefender : IDefender
+    {
+        public List<int> SetPuaCalls { get; } = [];
+        public Task<DefenderStatus> GetStatusAsync() => Task.FromResult(new DefenderStatus(false, false, false, 0, null, 0, null, null, "x"));
+        public Task<IReadOnlyList<DefenderThreat>> GetThreatsAsync() => throw new NotSupportedException();
+        public Task<int> UpdateSignaturesAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> ScanAsync(ScanKind kind, CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> ScanPathAsync(string path, CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> RemoveActiveThreatsAsync() => throw new NotSupportedException();
+        public Task SetPuaModeAsync(int mode) { SetPuaCalls.Add(mode); return Task.CompletedTask; }
     }
 
     [Fact]
