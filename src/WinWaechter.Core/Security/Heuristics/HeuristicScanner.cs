@@ -146,7 +146,7 @@ public sealed class HeuristicScanner
         if (verdict == RuleVerdict.Protected)
         {
             if (badSignature) reasons.Add("gibt sich als geschützter Hersteller aus, ist aber nicht gültig signiert");
-            else reasons.Add("Herkunft nicht prüfbar, wirkt wie ein geschützter Hersteller");
+            else reasons.Add("Hersteller geschützt, Signatur nicht prüfbar");
         }
         if (acc.Load)
             Add(Scoring.Load, string.Create(CultureInfo.GetCultureInfo("de-DE"), $"Anhaltend hohe CPU-Last (ca. {acc.Cpu:0} %)"));
@@ -172,9 +172,11 @@ public sealed class HeuristicScanner
         var protectedByName = verdict == RuleVerdict.Protected;
         var onlyConnection = acc.Pool && points == Scoring.PoolPort;
 
+        // protected vendors are only shown: no change, never preselected, Defender check only
         return new Finding($"heur|{path}", onlyConnection ? FindingArea.Verbindung : FindingArea.Prozess, file, path,
             reasons.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), rating,
-            rating == Rating.Verdaechtig && !protectedByName, PickChange(acc), Publisher: sig.Publisher);
+            rating == Rating.Verdaechtig && !protectedByName, protectedByName ? null : PickChange(acc),
+            Publisher: sig.Publisher, IsProtectedVendor: protectedByName);
     }
 
     // Prefer the reversible change of a task, then autostart, then service; else move the file to the Ablage.

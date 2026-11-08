@@ -215,6 +215,14 @@ public sealed class ServiceTests : IDisposable
     }
 
     [Fact]
+    public void Description_falls_back_to_name_on_win32_error()
+    {
+        _sc.Add("Glary", displayName: "Glary Utilities");
+        _sc.GetError = new System.ComponentModel.Win32Exception(1060);
+        Assert.Equal("Dienst „Glary“ auf Manuell stellen", Change().Description);
+    }
+
+    [Fact]
     public void Drift_when_mode_changed_externally()
     {
         _sc.Add("Glary");

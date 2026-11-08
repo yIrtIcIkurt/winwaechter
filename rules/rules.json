@@ -44,7 +44,14 @@
     { "path": "%ProgramFiles%\\Sophos\\" }, { "path": "%ProgramFiles(x86)%\\Sophos\\" },
     { "path": "%ProgramFiles%\\F-Secure\\" }, { "path": "%ProgramFiles(x86)%\\F-Secure\\" },
     { "path": "%ProgramFiles%\\G DATA\\" }, { "path": "%ProgramFiles(x86)%\\G DATA\\" },
-    { "path": "%ProgramFiles%\\Trend Micro\\" }, { "path": "%ProgramFiles(x86)%\\Trend Micro\\" }
+    { "path": "%ProgramFiles%\\Trend Micro\\" }, { "path": "%ProgramFiles(x86)%\\Trend Micro\\" },
+    { "publisher": "Waves Audio" }, { "name": "Waves" }, { "name": "MaxxAudio" },
+    { "publisher": "Synaptics" }, { "name": "Synaptics" },
+    { "publisher": "ELAN Microelectronics" }, { "name": "ELAN" },
+    { "publisher": "Rivet Networks" }, { "name": "Killer" },
+    { "publisher": "Goodix" }, { "name": "Goodix" },
+    { "name": "SQL Anywhere" },
+    { "path": "%ProgramFiles%\\SQL Anywhere" }, { "path": "%ProgramFiles(x86)%\\SQL Anywhere" }
   ],
   "expendableAutostart": [
     { "name": "Steam" },
@@ -52,7 +59,6 @@
     { "name": "Epic Games Launcher" },
     { "name": "EADesktop" },
     { "name": "EA Desktop" },
-    { "name": "Origin" },
     { "name": "Ubisoft Connect" },
     { "name": "UbisoftConnect" },
     { "name": "upc", "path": "Ubisoft" },
@@ -63,8 +69,6 @@
     { "name": "GOG Galaxy" },
     { "name": "Discord" },
     { "name": "Spotify" },
-    { "name": "MicrosoftTeams" },
-    { "name": "ms-teams" },
     { "name": "AdobeAAMUpdater" },
     { "name": "Adobe Updater" },
     { "name": "Adobe Acrobat Update" },

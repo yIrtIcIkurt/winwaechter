@@ -120,3 +120,42 @@ public sealed class SignatureSmokeTests : IDisposable
         catch { return true; }
     }
 }
+
+// Pure mapping of WinVerifyTrust results, no API calls.
+public sealed class SignatureMappingTests
+{
+    [Theory]
+    [InlineData("Microsoft Corporation")]
+    [InlineData("Microsoft Windows")]
+    [InlineData("Microsoft Windows Publisher")]
+    [InlineData("Microsoft Windows Hardware Compatibility Publisher")]
+    [InlineData("Microsoft Windows Production PCA 2011")]
+    public void Exact_microsoft_publishers_count_as_microsoft(string publisher) =>
+        Assert.True(WinTrustVerifier.ToInfo(0, publisher).IsMicrosoft);
+
+    [Theory]
+    [InlineData("Microsoft Corporation Fake Ltd")]
+    [InlineData("MicrosoftUpdater")]
+    [InlineData("microsoft corporation")]
+    [InlineData(null)]
+    public void Lookalike_publishers_are_not_microsoft(string? publisher)
+    {
+        var r = WinTrustVerifier.ToInfo(0, publisher);
+        Assert.Equal(SignatureState.Valid, r.State);
+        Assert.False(r.IsMicrosoft);
+    }
+
+    [Fact]
+    public void Invalid_microsoft_signature_is_not_microsoft() =>
+        Assert.False(WinTrustVerifier.ToInfo(unchecked((int)0x80096010), "Microsoft Corporation").IsMicrosoft);
+
+    [Theory]
+    [InlineData(unchecked((int)0x80096001))] // TRUST_E_SYSTEM_ERROR
+    [InlineData(unchecked((int)0x800B0001))] // TRUST_E_PROVIDER_UNKNOWN
+    public void System_and_provider_errors_are_unknown(int code) =>
+        Assert.Equal(SignatureState.Unknown, WinTrustVerifier.ToInfo(code, null).State);
+
+    [Fact]
+    public void Bad_digest_is_invalid() =>
+        Assert.Equal(SignatureState.Invalid, WinTrustVerifier.ToInfo(unchecked((int)0x80096010), null).State);
+}

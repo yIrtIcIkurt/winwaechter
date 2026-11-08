@@ -23,7 +23,10 @@ public sealed class FakeServiceControl : IServiceControl
 
     public IReadOnlyList<ServiceInfo> List() => _services.Values.ToList();
 
-    public ServiceInfo? Get(string name) => _services.GetValueOrDefault(name);
+    /// <summary>When set, Get throws it (simulates a service the SCM refuses to open).</summary>
+    public Exception? GetError { get; set; }
+
+    public ServiceInfo? Get(string name) => GetError is { } e ? throw e : _services.GetValueOrDefault(name);
 
     public void SetStartMode(string name, StartMode mode, bool delayed)
     {

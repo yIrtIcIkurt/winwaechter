@@ -128,6 +128,35 @@ public sealed class HeuristicTests : IDisposable
     }
 
     [Fact]
+    public async Task Protected_name_gets_no_change_and_no_preselection()
+    {
+        var exe = AppData("Dell", "DellUpdate.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exe)!);
+        File.WriteAllText(exe, "x");   // exists, so the Ablage move would otherwise be offered
+        _sig.Unsigned(exe);
+        _procs.Samples.Add(Proc(15, exe, exe + " --donate-level 1", busy: true));
+
+        var f = Assert.Single(await Scan());
+        Assert.True(f.IsProtectedVendor);
+        Assert.Null(f.Change);
+        Assert.False(f.Preselected);
+        Assert.Contains(f.Reasons, r => r.Contains("gibt sich als geschützter Hersteller aus"));
+    }
+
+    [Fact]
+    public async Task Protected_name_with_unknown_signature_gets_neutral_reason()
+    {
+        var exe = AppData("Dell", "DellUpdate.exe");
+        _procs.Samples.Add(Proc(16, exe, busy: true));   // FakeSignatures: Unknown
+
+        var f = Assert.Single(await Scan());
+        Assert.True(f.IsProtectedVendor);
+        Assert.Null(f.Change);
+        Assert.Contains("Hersteller geschützt, Signatur nicht prüfbar", f.Reasons);
+        Assert.DoesNotContain(f.Reasons, r => r.Contains("gibt sich"));
+    }
+
+    [Fact]
     public async Task Windows_folder_and_microsoft_signed_are_dropped()
     {
         var win = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "svchost.exe");

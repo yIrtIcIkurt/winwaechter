@@ -32,7 +32,6 @@ internal static class WinTrustNative
         unchecked((int)0x800B010F), // CERT_E_CN_NO_MATCH
         unchecked((int)0x800B0110), // CERT_E_WRONG_USAGE
         unchecked((int)0x800B0111), // TRUST_E_EXPLICIT_DISTRUST
-        unchecked((int)0x80096001), // TRUST_E_SYSTEM_ERROR
         unchecked((int)0x80096004), // TRUST_E_CERT_SIGNATURE
         unchecked((int)0x80096010), // TRUST_E_BAD_DIGEST
         unchecked((int)0x80096019), // TRUST_E_BASIC_CONSTRAINTS

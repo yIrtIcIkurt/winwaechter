@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Security;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
@@ -29,7 +30,7 @@ public sealed class ServiceStartModeChange : IChange
         {
             string? display = null;
             try { display = _sc.Get(_name)?.DisplayName; }
-            catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException) { }
+            catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException or Win32Exception) { }
             return DescriptionFor(display);
         }
     }

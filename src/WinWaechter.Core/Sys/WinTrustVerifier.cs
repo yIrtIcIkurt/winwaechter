@@ -41,26 +41,38 @@ public sealed class WinTrustVerifier : ISignatureVerifier
         }
     }
 
+    // Exact signer names of Microsoft's own code-signing certificates. A prefix match would also
+    // accept any third-party certificate whose subject merely starts with "Microsoft".
+    internal static readonly HashSet<string> MicrosoftPublishers = new(StringComparer.Ordinal)
+    {
+        "Microsoft Corporation",
+        "Microsoft Windows",
+        "Microsoft Windows Publisher",
+        "Microsoft Windows Hardware Compatibility Publisher",
+        "Microsoft Windows Production PCA 2011",
+    };
+
     static bool IsNoSignature(int code) =>
-        code is TRUST_E_NOSIGNATURE or TRUST_E_SUBJECT_FORM_UNKNOWN or TRUST_E_PROVIDER_UNKNOWN;
+        code is TRUST_E_NOSIGNATURE or TRUST_E_SUBJECT_FORM_UNKNOWN;
 
     static SignatureInfo VerifyUncached(string path)
     {
         var (code, publisher) = VerifyEmbedded(path);
-        if (IsNoSignature(code))
+        // no SIP for this file type: the catalogs may still know it, otherwise it stays Unknown
+        if (IsNoSignature(code) || code == TRUST_E_PROVIDER_UNKNOWN)
         {
             var cat = VerifyCatalog(path);
-            if (cat is null) return new(SignatureState.Unsigned, null, false);
+            if (cat is null)
+                return code == TRUST_E_PROVIDER_UNKNOWN ? UnknownInfo : new(SignatureState.Unsigned, null, false);
             (code, publisher) = cat.Value;
         }
         return ToInfo(code, publisher);
     }
 
-    static SignatureInfo ToInfo(int code, string? publisher)
+    internal static SignatureInfo ToInfo(int code, string? publisher)
     {
         if (code == 0)
-            return new(SignatureState.Valid, publisher,
-                publisher?.StartsWith("Microsoft", StringComparison.Ordinal) == true);
+            return new(SignatureState.Valid, publisher, publisher is not null && MicrosoftPublishers.Contains(publisher));
         if (IsNoSignature(code)) return new(SignatureState.Unsigned, null, false);
         if (BadSignatureCodes.Contains(code)) return new(SignatureState.Invalid, publisher, false);
         return new(SignatureState.Unknown, publisher, false);

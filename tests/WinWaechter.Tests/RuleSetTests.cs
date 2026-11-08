@@ -99,10 +99,39 @@ public sealed class RuleSetTests
     public void Kaspersky_name_protected() => Assert.Equal(RuleVerdict.Protected, C("Kaspersky Anti-Virus"));
 
     [Fact]
-    public void Teams_without_publisher_expendable_but_with_microsoft_publisher_protected()
+    public void Teams_is_not_expendable_and_microsoft_teams_is_protected()
     {
-        Assert.Equal(RuleVerdict.Expendable, C("MicrosoftTeams"));
+        Assert.Equal(RuleVerdict.Unknown, C("MicrosoftTeams"));
         Assert.Equal(RuleVerdict.Protected, C("MicrosoftTeams", null, "Microsoft Corporation"));
+    }
+
+    [Fact]
+    public void Origin_is_not_expendable() =>
+        Assert.Equal(RuleVerdict.Unknown, C("Origin", @"C:\Apps\OriginLab\Origin.exe"));
+
+    [Theory]
+    [InlineData("WavesSvc64", "Waves Audio Ltd.")]
+    [InlineData("MaxxAudioPro", null)]
+    [InlineData("SynTPEnh", "Synaptics Incorporated")]
+    [InlineData("Synaptics TouchPad", null)]
+    [InlineData("ETDCtrl", "ELAN Microelectronics Corp.")]
+    [InlineData("ELAN Smart-Pad", null)]
+    [InlineData("KillerControlCenter", null)]
+    [InlineData("xtuservice", "Rivet Networks LLC")]
+    [InlineData("GoodixFPService", "Goodix Technology Co., Ltd.")]
+    [InlineData("Goodix Fingerprint", null)]
+    [InlineData("RtkAudUService", "Realtek Semiconductor Corp.")]
+    [InlineData("SQL Anywhere 17", null)]
+    public void Oem_driver_companions_are_protected(string name, string? pub) =>
+        Assert.Equal(RuleVerdict.Protected, C(name, @"C:\Apps\x\x.exe", pub));
+
+    [Fact]
+    public void Sql_anywhere_folders_are_protected()
+    {
+        var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        Assert.Equal(RuleVerdict.Protected, C("dbsrv17", pf + @"\SQL Anywhere 17\Bin64\dbsrv17.exe"));
+        Assert.Equal(RuleVerdict.Protected, C("dbeng17", pf86 + @"\SQL Anywhere 17\Bin32\dbeng17.exe"));
     }
 
     [Fact]
