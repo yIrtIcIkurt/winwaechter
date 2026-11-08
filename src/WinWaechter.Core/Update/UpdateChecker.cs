@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace WinWaechter.Core.Update;
 
-// Asks GitHub for the latest release. The HttpClient should use AllowAutoRedirect = false.
+// Asks GitHub for the latest release. Pass UpdateHttp.CreateHandler() (no auto-redirect; enforced).
 public sealed class UpdateChecker
 {
     const long MaxJsonBytes = 1_000_000;
@@ -14,11 +14,11 @@ public sealed class UpdateChecker
     readonly SemVer _installed;
     readonly string _repo;
 
-    public UpdateChecker(HttpClient http, SemVer installed, string repo = "yIrtIcIkurt/winwaechter")
+    public UpdateChecker(HttpMessageHandler handler, SemVer installed, string repo = "yIrtIcIkurt/winwaechter")
     {
         if (!Regex.IsMatch(repo, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))
             throw new ArgumentException("Ungültiger Repository-Name.", nameof(repo));
-        _http = http;
+        _http = UpdateHttp.CreateClient(handler, TimeSpan.FromSeconds(30));
         _installed = installed;
         _repo = repo;
     }

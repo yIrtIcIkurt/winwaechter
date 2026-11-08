@@ -4,8 +4,8 @@ using System.Text;
 namespace WinWaechter.Core.Update;
 
 // Order: signature -> strict parse -> version line == info and > installed -> setup name listed -> SHA-256.
-// The setup is hashed while held open with FileShare.Read (no writers). Callers must launch the
-// installer right after Verify returns; the folder is admin-only (SecureDataDir) to limit swaps.
+// The setup is hashed through a handle that stays open (FileShare.Read) inside the returned
+// VerifiedUpdate, so it cannot be swapped before launch. The caller disposes it after launching.
 public sealed class ReleaseVerifier
 {
     public const int MaxSmallFileBytes = 64 * 1024;
@@ -40,21 +40,25 @@ public sealed class ReleaseVerifier
         if (!SumsFile.IsPlainFileName(info.SetupName) || !file.Hashes.TryGetValue(info.SetupName, out var expected))
             throw new UpdateVerificationException("Die Setup-Datei ist in den signierten Prüfsummen nicht aufgeführt.");
 
-        // 4. SHA-256 of the setup
-        byte[] actual;
-        try
-        {
-            using var fs = new FileStream(setupPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            actual = SHA256.HashData(fs);
-        }
+        // 4. SHA-256 of the setup; the handle stays open inside the result (see VerifiedUpdate)
+        FileStream fs;
+        try { fs = new FileStream(setupPath, FileMode.Open, FileAccess.Read, FileShare.Read); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             throw new UpdateVerificationException("Die Setup-Datei konnte nicht gelesen werden.");
         }
-        if (!CryptographicOperations.FixedTimeEquals(actual, expected))
-            throw new UpdateVerificationException("Die Prüfsumme der Setup-Datei stimmt nicht überein. Das Update wird nicht installiert.");
-
-        return new VerifiedUpdate(Path.GetFullPath(setupPath), file.Version);
+        try
+        {
+            var actual = SHA256.HashData(fs);
+            if (!CryptographicOperations.FixedTimeEquals(actual, expected))
+                throw new UpdateVerificationException("Die Prüfsumme der Setup-Datei stimmt nicht überein. Das Update wird nicht installiert.");
+            return new VerifiedUpdate(Path.GetFullPath(setupPath), file.Version, fs);
+        }
+        catch
+        {
+            fs.Dispose();
+            throw;
+        }
     }
 
     bool SignatureValid(byte[] data, string sigBase64)

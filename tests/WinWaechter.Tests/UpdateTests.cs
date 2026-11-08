@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using WinWaechter.Core.Update;
+using WinWaechter.ReleaseTool;
 
 namespace WinWaechter.Tests;
 
@@ -85,7 +86,7 @@ public sealed class UpdateTests : IDisposable
     public void Valid_release_verifies()
     {
         var r = MakeRelease(V011);
-        var v = new ReleaseVerifier(PubPem, V010).Verify(r.sums, r.sig, r.setup, r.info);
+        using var v = new ReleaseVerifier(PubPem, V010).Verify(r.sums, r.sig, r.setup, r.info);
         Assert.Equal(V011, v.Version);
         Assert.Equal(Path.GetFullPath(r.setup), v.SetupPath);
     }
@@ -96,7 +97,8 @@ public sealed class UpdateTests : IDisposable
         var r = MakeRelease(V011);
         var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(r.setup))).ToLowerInvariant();
         var (sums, sig) = SignRaw($"version: 0.1.1\r\n{hash}  {r.info.SetupName}\r\n");
-        Assert.Equal(V011, new ReleaseVerifier(PubPem, V010).Verify(sums, sig, r.setup, r.info).Version);
+        using var ok = new ReleaseVerifier(PubPem, V010).Verify(sums, sig, r.setup, r.info);
+        Assert.Equal(V011, ok.Version);
     }
 
     [Fact]
@@ -232,7 +234,7 @@ public sealed class UpdateTests : IDisposable
         => new(code) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
     static UpdateChecker Checker(Func<HttpRequestMessage, HttpResponseMessage> f, SemVer? installed = null)
-        => new(new HttpClient(new FakeHandler(f)), installed ?? V010);
+        => new(new FakeHandler(f), installed ?? V010);
 
     static string ReleaseJson(string tag = "v0.1.1", string extra = "", string? setupUrl = null, bool setup = true, bool sums = true, bool sig = true)
     {
@@ -284,7 +286,7 @@ public sealed class UpdateTests : IDisposable
     public async Task Checker_picks_assets_by_name()
     {
         var h = new FakeHandler(_ => Json(ReleaseJson()));
-        var r = await new UpdateChecker(new HttpClient(h), V010).CheckAsync(default);
+        var r = await new UpdateChecker(h, V010).CheckAsync(default);
         Assert.NotNull(r.Available);
         var i = r.Available!;
         Assert.Equal(V011, i.Version);
@@ -338,18 +340,19 @@ public sealed class UpdateTests : IDisposable
     }
 
     [Theory]
-    [InlineData("{ not json")]
-    [InlineData("[]")]
-    [InlineData("{\"tag_name\":\"banana\"}")]
-    public async Task Checker_handles_garbage(string json)
+    [InlineData("{ not json", "Ungültige Antwort von GitHub.")]
+    [InlineData("[]", "Ungültige Antwort von GitHub.")]
+    [InlineData("{\"tag_name\":\"banana\"}", "Ungültige Versionsnummer im Release.")]
+    public async Task Checker_handles_garbage(string json, string message)
     {
         var r = await Checker(_ => Json(json)).CheckAsync(default);
         Assert.Null(r.Available);
+        Assert.Equal(message, r.Message);
     }
 
     [Fact]
     public void Checker_rejects_bad_repo_name()
-        => Assert.Throws<ArgumentException>(() => new UpdateChecker(new HttpClient(), V010, "a/b/../../c"));
+        => Assert.Throws<ArgumentException>(() => new UpdateChecker(new FakeHandler(_ => Bytes(new byte[1])), V010, "a/b/../../c"));
 
     // ---- Downloader ----
 
@@ -380,13 +383,14 @@ public sealed class UpdateTests : IDisposable
             "/b" => Bytes(new byte[] { 1, 2, 3 }),
             _ => Bytes(Encoding.ASCII.GetBytes("small")),
         });
-        var prog = new List<double>();
-        var (sums, sig, setup) = await new UpdateDownloader(new HttpClient(h)).DownloadAsync(info, TargetDir(), new Progress<double>(prog.Add), default);
+        var prog = new SyncProgress();
+        var (sums, sig, setup) = await new UpdateDownloader(h).DownloadAsync(info, TargetDir(), prog, default);
         Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(setup));
         Assert.Equal("small", File.ReadAllText(sums));
         Assert.Equal("small", File.ReadAllText(sig));
         Assert.StartsWith(TargetDir() + Path.DirectorySeparatorChar + "0.1.1-", Path.GetDirectoryName(setup)! + Path.DirectorySeparatorChar);
         Assert.All(h.Requests, u => Assert.True(HostPolicy.IsAllowed(u)));
+        Assert.Equal(1.0, prog.Last());
     }
 
     [Theory]
@@ -398,7 +402,7 @@ public sealed class UpdateTests : IDisposable
         var info = Info(V011, "WinWaechter-Setup-0.1.1.exe");
         var h = new FakeHandler(r => r.RequestUri!.AbsolutePath == "/x/SHA256SUMS" ? Bytes(new byte[] { 1 }) : Redirect(loc));
         await Assert.ThrowsAsync<UpdateDownloadException>(() =>
-            new UpdateDownloader(new HttpClient(h)).DownloadAsync(info, TargetDir(), null, default));
+            new UpdateDownloader(h).DownloadAsync(info, TargetDir(), null, default));
         Assert.DoesNotContain(h.Requests, u => u.Host == "evil.com");
         Assert.Empty(Directory.GetFileSystemEntries(TargetDir()));
     }
@@ -410,7 +414,7 @@ public sealed class UpdateTests : IDisposable
         var n = 0;
         var h = new FakeHandler(_ => Redirect($"https://github.com/r{++n}"));
         await Assert.ThrowsAsync<UpdateDownloadException>(() =>
-            new UpdateDownloader(new HttpClient(h)).DownloadAsync(info, TargetDir(), null, default));
+            new UpdateDownloader(h).DownloadAsync(info, TargetDir(), null, default));
         Assert.Equal(6, h.Requests.Count); // first request + 5 redirects
         Assert.Empty(Directory.GetFileSystemEntries(TargetDir()));
     }
@@ -423,7 +427,7 @@ public sealed class UpdateTests : IDisposable
         var info = Info(V011, "WinWaechter-Setup-0.1.1.exe");
         var h = new FakeHandler(_ => Bytes(new byte[64 * 1024 + 1], announce));
         await Assert.ThrowsAsync<UpdateDownloadException>(() =>
-            new UpdateDownloader(new HttpClient(h)).DownloadAsync(info, TargetDir(), null, default));
+            new UpdateDownloader(h).DownloadAsync(info, TargetDir(), null, default));
         Assert.Empty(Directory.GetFileSystemEntries(TargetDir()));
     }
 
@@ -433,7 +437,7 @@ public sealed class UpdateTests : IDisposable
         var info = Info(V011, "WinWaechter-Setup-0.1.1.exe");
         var h = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
         await Assert.ThrowsAsync<UpdateDownloadException>(() =>
-            new UpdateDownloader(new HttpClient(h)).DownloadAsync(info, TargetDir(), null, default));
+            new UpdateDownloader(h).DownloadAsync(info, TargetDir(), null, default));
         Assert.Empty(Directory.GetFileSystemEntries(TargetDir()));
     }
 
@@ -444,7 +448,7 @@ public sealed class UpdateTests : IDisposable
         using var cts = new CancellationTokenSource();
         var h = new FakeHandler(_ => { cts.Cancel(); return Bytes(new byte[] { 1 }); });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new UpdateDownloader(new HttpClient(h)).DownloadAsync(info, TargetDir(), null, cts.Token));
+            new UpdateDownloader(h).DownloadAsync(info, TargetDir(), null, cts.Token));
         Assert.Empty(Directory.GetFileSystemEntries(TargetDir()));
     }
 
@@ -452,7 +456,7 @@ public sealed class UpdateTests : IDisposable
     public async Task Downloader_refuses_foreign_url_in_info_and_bad_name()
     {
         var bad = Info(V011, "WinWaechter-Setup-0.1.1.exe") with { SetupUrl = new Uri("https://evil.com/a.exe") };
-        var d = new UpdateDownloader(new HttpClient(new FakeHandler(_ => Bytes(new byte[1]))));
+        var d = new UpdateDownloader(new FakeHandler(_ => Bytes(new byte[1])));
         await Assert.ThrowsAsync<UpdateDownloadException>(() => d.DownloadAsync(bad, TargetDir(), null, default));
         var badName = Info(V011, "..\\evil.exe");
         await Assert.ThrowsAsync<UpdateDownloadException>(() => d.DownloadAsync(badName, TargetDir(), null, default));
@@ -464,12 +468,12 @@ public sealed class UpdateTests : IDisposable
     public void Installer_builds_start_info_and_requires_absolute_path()
     {
         var path = Path.Combine(_root, "WinWaechter-Setup-0.1.1.exe");
-        var psi = UpdateInstaller.BuildStartInfo(new VerifiedUpdate(path, V011));
+        var psi = UpdateInstaller.BuildStartInfo(new VerifiedUpdate(path, V011, null));
         Assert.Equal(path, psi.FileName);
         Assert.Equal("/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS", psi.Arguments);
         Assert.False(psi.UseShellExecute);
-        Assert.Throws<ArgumentException>(() => UpdateInstaller.BuildStartInfo(new VerifiedUpdate("setup.exe", V011)));
-        Assert.Throws<ArgumentException>(() => UpdateInstaller.BuildStartInfo(new VerifiedUpdate(@"\setup.exe", V011)));
+        Assert.Throws<ArgumentException>(() => UpdateInstaller.BuildStartInfo(new VerifiedUpdate("setup.exe", V011, null)));
+        Assert.Throws<ArgumentException>(() => UpdateInstaller.BuildStartInfo(new VerifiedUpdate(@"\setup.exe", V011, null)));
     }
 
     // ---- ReleaseSigner ----
@@ -489,7 +493,8 @@ public sealed class UpdateTests : IDisposable
         File.WriteAllText(setup, "payload");
         var (sums, sig) = ReleaseSigner.Sign(priv, V011, setup, Path.Combine(_root, "out"));
         var info = Info(V011, "WinWaechter-Setup-0.1.1.exe");
-        Assert.Equal(V011, new ReleaseVerifier(File.ReadAllText(pub), V010).Verify(sums, sig, setup, info).Version);
+        using var ok = new ReleaseVerifier(File.ReadAllText(pub), V010).Verify(sums, sig, setup, info);
+        Assert.Equal(V011, ok.Version);
         Assert.StartsWith("version: 0.1.1\n", File.ReadAllText(sums));
     }
 
@@ -507,5 +512,58 @@ public sealed class UpdateTests : IDisposable
         using var k = ECDsa.Create();
         k.ImportFromPem(UpdateKeys.PublicKeyPem);
         Assert.Equal(256, k.KeySize);
+    }
+
+    sealed class SyncProgress : IProgress<double>
+    {
+        readonly List<double> _v = new();
+        public void Report(double value) => _v.Add(value);
+        public double Last() => _v[^1];
+    }
+
+    [Fact]
+    public void Handler_factory_disables_auto_redirect_and_guard_rejects_following_handlers()
+    {
+        using var h = UpdateHttp.CreateHandler();
+        Assert.False(h.AllowAutoRedirect);
+        using var follow = new SocketsHttpHandler { AllowAutoRedirect = true };
+        Assert.Throws<ArgumentException>(() => new UpdateChecker(follow, V010));
+        Assert.Throws<ArgumentException>(() => new UpdateDownloader(follow));
+        using var clientHandler = new HttpClientHandler { AllowAutoRedirect = true };
+        Assert.Throws<ArgumentException>(() => new UpdateDownloader(clientHandler));
+        _ = new UpdateChecker(h, V010); // the real handler is accepted
+    }
+
+    [Fact]
+    public void VerifiedUpdate_holds_setup_until_disposed()
+    {
+        var r = MakeRelease(V011);
+        var v = new ReleaseVerifier(PubPem, V010).Verify(r.sums, r.sig, r.setup, r.info);
+        Assert.ThrowsAny<IOException>(() => new FileStream(r.setup, FileMode.Open, FileAccess.Write, FileShare.None).Dispose());
+        Assert.ThrowsAny<IOException>(() => File.Delete(r.setup));
+        Assert.ThrowsAny<IOException>(() => File.WriteAllBytes(r.setup, new byte[] { 1 }));
+        v.Dispose();
+        File.WriteAllBytes(r.setup, new byte[] { 1 });
+        File.Delete(r.setup);
+    }
+
+    [Fact]
+    public void Failed_verification_releases_the_setup_file()
+    {
+        var r = MakeRelease(V011);
+        File.WriteAllBytes(r.setup, new byte[] { 9, 9 });
+        Assert.Throws<UpdateVerificationException>(() => new ReleaseVerifier(PubPem, V010).Verify(r.sums, r.sig, r.setup, r.info));
+        File.Delete(r.setup); // would throw if the handle leaked
+    }
+
+    [Fact]
+    public async Task Downloader_maps_http_timeout_to_german_message()
+    {
+        var info = Info(V011, "WinWaechter-Setup-0.1.1.exe");
+        var h = new FakeHandler(_ => throw new TaskCanceledException("timeout"));
+        var ex = await Assert.ThrowsAsync<UpdateDownloadException>(() =>
+            new UpdateDownloader(h).DownloadAsync(info, TargetDir(), null, default));
+        Assert.Equal("Keine Verbindung zu GitHub.", ex.Message);
+        Assert.Empty(Directory.GetFileSystemEntries(TargetDir()));
     }
 }

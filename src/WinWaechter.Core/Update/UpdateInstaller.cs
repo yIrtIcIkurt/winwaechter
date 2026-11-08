@@ -6,7 +6,8 @@ public static class UpdateInstaller
 {
     internal const string SetupArguments = "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS";
 
-    // Call right after verification; the caller shuts the app down afterwards.
+    // Starts the installer while u still holds the file open; the caller disposes u afterwards
+    // and then shuts the app down.
     public static void Launch(VerifiedUpdate u)
     {
         var psi = BuildStartInfo(u);

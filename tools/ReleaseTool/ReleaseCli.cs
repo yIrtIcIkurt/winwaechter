@@ -33,8 +33,7 @@ public static class ReleaseCli
                         + "  ReleaseTool verify <pubPem> <installedVersion> <sumsPath> <sigPath> <setupPath>");
             }
         }
-        catch (Exception e) when (e is UpdateVerificationException or IOException or ArgumentException
-                                      or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        catch (Exception e)
         {
             return Fail(error, e.Message);
         }
@@ -50,7 +49,7 @@ public static class ReleaseCli
         var name = Path.GetFileName(a[5]);
         var dummy = new Uri("https://github.com/");
         var info = new UpdateInfo(file.Version, "", dummy, dummy, dummy, name);
-        var ok = new ReleaseVerifier(pem, installed).Verify(a[3], a[4], a[5], info);
+        using var ok = new ReleaseVerifier(pem, installed).Verify(a[3], a[4], a[5], info);
         output.WriteLine($"OK: Version {ok.Version} ist signiert und die Prüfsumme stimmt.");
         return 0;
     }

@@ -5,7 +5,7 @@ namespace WinWaechter.Core.Update;
 
 // Downloads setup + SHA256SUMS + signature into a fresh subfolder of targetDir.
 // The APP must create targetDir with SecureDataDir.Ensure(%ProgramData%\WinWaechter\Updates) first;
-// this class does not, so tests can use temp folders. The HttpClient must use AllowAutoRedirect = false:
+// this class does not, so tests can use temp folders. Pass UpdateHttp.CreateHandler() (no auto-redirect, enforced):
 // redirects are followed here by hand, and every hop is checked against HostPolicy.
 public sealed class UpdateDownloader
 {
@@ -15,7 +15,7 @@ public sealed class UpdateDownloader
 
     readonly HttpClient _http;
 
-    public UpdateDownloader(HttpClient http) { _http = http; }
+    public UpdateDownloader(HttpMessageHandler handler) { _http = UpdateHttp.CreateClient(handler, TimeSpan.FromMinutes(30)); }
 
     public async Task<(string sums, string sig, string setup)> DownloadAsync(
         UpdateInfo i, string targetDir, IProgress<double>? p, CancellationToken ct)
@@ -78,6 +78,10 @@ public sealed class UpdateDownloader
                 p?.Report(1.0);
                 return;
             }
+        }
+        catch (OperationCanceledException e) when (!ct.IsCancellationRequested) // HTTP timeout
+        {
+            throw new UpdateDownloadException("Keine Verbindung zu GitHub.", e);
         }
         catch (HttpRequestException e)
         {
