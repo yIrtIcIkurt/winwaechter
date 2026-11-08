@@ -45,9 +45,9 @@ public sealed class AutostartScanner
     void ScanFolder(List<Finding> result, Hive hive, string dir)
     {
         if (string.IsNullOrEmpty(dir)) return;
-        foreach (var f in _files.EnumerateOlderThan(dir, TimeSpan.Zero))
+        // no age filter: a file with a future timestamp starts just as well
+        foreach (var f in _files.EnumerateTopLevel(dir))
         {
-            if (!SameDir(f.DirectoryName, dir)) continue;                       // top level only
             if (f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
             var exe = f.Extension.Equals(".lnk", StringComparison.OrdinalIgnoreCase)
                 ? _lnk.ResolveTarget(f.FullName) : f.FullName;
@@ -126,7 +126,4 @@ public sealed class AutostartScanner
         SignatureState.Invalid => "Signatur: ungültig",
         _ => "Signatur: nicht prüfbar",
     };
-
-    static bool SameDir(string? a, string b) =>
-        string.Equals(a?.TrimEnd('\\'), b.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
 }

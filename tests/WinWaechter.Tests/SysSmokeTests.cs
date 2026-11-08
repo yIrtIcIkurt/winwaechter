@@ -164,6 +164,78 @@ public sealed class SysSmokeTests : IDisposable
         Assert.Equal(@"\\?\C:\a", WinFileOps.LongPath(@"\\?\C:\a"));
     }
 
+    [Fact]
+    public void FileOps_top_level_lists_future_and_hidden_files_but_not_subfolders()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_dir, "startup")).FullName;
+        var future = Write(Path.Combine(root, "future.exe"), DateTime.UtcNow.AddYears(3));
+        var hidden = Write(Path.Combine(root, "hidden.lnk"), DateTime.UtcNow.AddDays(-1));
+        File.SetAttributes(hidden, FileAttributes.Hidden);
+        Write(Path.Combine(root, "sub", "deep.lnk"), DateTime.UtcNow.AddDays(-1));
+
+        var found = new WinFileOps().EnumerateTopLevel(root).Select(f => f.FullName).Order().ToList();
+        Assert.Equal(new[] { future, hidden }.Order(), found);
+        Assert.Empty(new WinFileOps().EnumerateTopLevel(Path.Combine(_dir, "missing")));
+    }
+
+    [Fact]
+    public void FileOps_detects_junction_between_root_and_target()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_dir, "temp")).FullName;
+        Directory.CreateDirectory(Path.Combine(root, "real", "deeper"));
+        var outside = Directory.CreateDirectory(Path.Combine(_dir, "outside")).FullName;
+        MakeJunction(Path.Combine(root, "link"), outside);
+        var ops = new WinFileOps();
+
+        Assert.False(ops.HasReparsePointInChain(Path.Combine(root, "real", "deeper", "a.tmp"), root));
+        Assert.False(ops.HasReparsePointInChain(Path.Combine(root, "real", "missing", "x", "a.tmp"), root));
+        Assert.True(ops.HasReparsePointInChain(Path.Combine(root, "link", "a.tmp"), root));
+        Assert.True(ops.HasReparsePointInChain(Path.Combine(root, "link", "sub", "a.tmp"), root));
+        Assert.True(ops.HasReparsePointInChain(Path.Combine(outside, "a.tmp"), root));            // not under root
+        Assert.True(ops.HasReparsePointInChain(Path.Combine(root, "link", "a.tmp"), Path.Combine(root, "link"))); // root itself
+    }
+
+    [Fact]
+    public void FileOwner_of_a_file_created_by_a_normal_user_is_not_trusted()
+    {
+        var f = Write(Path.Combine(_dir, "journal.json"), DateTime.UtcNow);
+        var elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
+        if (!elevated) Assert.False(FileOwner.IsAdminOrSystem(f));
+        Assert.False(FileOwner.IsAdminOrSystem(Path.Combine(_dir, "missing.json")));
+        _ = FileOwner.IsAdminOrSystem(Path.Combine(Environment.SystemDirectory, "kernel32.dll"));   // must not throw
+    }
+
+    [Fact]
+    public void SecureDataDir_refuses_a_junction_as_root_or_parent_without_touching_it()
+    {
+        var target = Directory.CreateDirectory(Path.Combine(_dir, "victim")).FullName;
+        var link = Path.Combine(_dir, "WinWaechter");
+        MakeJunction(link, target);
+        var before = new DirectoryInfo(target).GetAccessControl().GetSecurityDescriptorSddlForm(System.Security.AccessControl.AccessControlSections.Access);
+
+        Assert.Throws<InvalidOperationException>(() => SecureDataDir.Ensure(link));
+        Assert.Throws<InvalidOperationException>(() => SecureDataDir.Ensure(Path.Combine(link, "Updates")));
+        Assert.Equal(before, new DirectoryInfo(target).GetAccessControl().GetSecurityDescriptorSddlForm(System.Security.AccessControl.AccessControlSections.Access));
+        Assert.False(Directory.Exists(Path.Combine(target, "Updates")));
+    }
+
+    [Fact]
+    public void SecureDataDir_walk_removes_links_keeps_targets_and_visits_real_folders()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_dir, "data")).FullName;
+        Directory.CreateDirectory(Path.Combine(root, "Sitzungen", "s1", "Ablage"));
+        var outside = Directory.CreateDirectory(Path.Combine(_dir, "outside")).FullName;
+        var victim = Write(Path.Combine(outside, "keep.txt"), DateTime.UtcNow);
+        MakeJunction(Path.Combine(root, "Sitzungen", "evil"), outside);
+
+        var visited = new List<string>();
+        SecureDataDir.SecureChildren(root, d => visited.Add(Path.GetRelativePath(root, d.FullName)));
+
+        Assert.Equal(new[] { "Sitzungen", @"Sitzungen\s1", @"Sitzungen\s1\Ablage" }, visited.Order());
+        Assert.False(Directory.Exists(Path.Combine(root, "Sitzungen", "evil")));
+        Assert.True(File.Exists(victim));
+    }
+
     static string Write(string path, DateTime lastWriteUtc)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

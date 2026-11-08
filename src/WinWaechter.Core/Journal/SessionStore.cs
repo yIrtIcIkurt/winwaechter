@@ -5,9 +5,15 @@ namespace WinWaechter.Core.Journal;
 public sealed class SessionStore
 {
     readonly string _sitzungen;
+    readonly Func<string, bool>? _isTrustedFile;
 
-    // root = %ProgramData%\WinWaechter
-    public SessionStore(string root) => _sitzungen = Path.Combine(root, "Sitzungen");
+    // root = %ProgramData%\WinWaechter. isTrustedFile (elevated only): journals and sidecars that
+    // fail it are ignored, so files planted by a normal user never steer an undo.
+    public SessionStore(string root, Func<string, bool>? isTrustedFile = null)
+    {
+        _sitzungen = Path.Combine(root, "Sitzungen");
+        _isTrustedFile = isTrustedFile;
+    }
 
     // Folder name: yyyy-MM-dd_HHmmss, then _2, _3 ... if taken.
     public SessionJournal Create(string title)
@@ -19,19 +25,20 @@ public sealed class SessionStore
         for (var n = 2; Directory.Exists(Path.Combine(_sitzungen, name)); n++)
             name = $"{baseName}_{n}";
         var dir = Path.Combine(_sitzungen, name);
-        var ctx = new SessionContext(dir);
+        var ctx = new SessionContext(dir, _isTrustedFile);
         Directory.CreateDirectory(ctx.BackupDir);
         Directory.CreateDirectory(ctx.AblageDir);
         return SessionJournal.CreateNew(title, now, ctx);
     }
 
-    // Newest first; folders without a readable journal are skipped.
+    // Newest first; folders without a readable, trusted journal (and junctions) are skipped.
     public IReadOnlyList<SessionJournal> List()
     {
         if (!Directory.Exists(_sitzungen)) return Array.Empty<SessionJournal>();
-        return Directory.GetDirectories(_sitzungen)
+        return new DirectoryInfo(_sitzungen).EnumerateDirectories("*", new EnumerationOptions { AttributesToSkip = FileAttributes.ReparsePoint })
+            .Select(d => d.FullName)
             .OrderByDescending(d => Path.GetFileName(d), StringComparer.Ordinal)
-            .Select(SessionJournal.Load)
+            .Select(d => SessionJournal.Load(d, _isTrustedFile))
             .OfType<SessionJournal>()
             .ToList();
     }

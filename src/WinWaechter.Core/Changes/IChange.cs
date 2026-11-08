@@ -11,6 +11,13 @@ public interface IChange
     ChangeRecord Apply(SessionContext ctx);          // backs up first, returns Applied record
     void Undo(ChangeRecord record, SessionContext ctx);
     DriftState CheckDrift(ChangeRecord record);      // compare live state with record.After
+
+    /// <summary>
+    /// The Pending record journalled before Apply runs. Changes that write files fill in where
+    /// (Before/After), so a failure or crash midway can still be undone.
+    /// </summary>
+    ChangeRecord Plan(SessionContext ctx) =>
+        new(Guid.NewGuid().ToString("N"), Kind, Target, Description, new(), new(), ChangeStatus.Pending, DateTimeOffset.Now);
 }
 
 // Registered per Kind, used for undo from disk

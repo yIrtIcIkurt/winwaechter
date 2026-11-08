@@ -10,6 +10,14 @@ public sealed class WinFileOps : IFileOps
         AttributesToSkip = FileAttributes.ReparsePoint,
     };
 
+    // Hidden and system files count too (the default options would skip them).
+    static readonly EnumerationOptions TopLevel = new()
+    {
+        RecurseSubdirectories = false,
+        IgnoreInaccessible = true,
+        AttributesToSkip = 0,
+    };
+
     public IEnumerable<FileInfo> EnumerateOlderThan(string dir, TimeSpan age)
     {
         if (!Directory.Exists(dir)) return [];
@@ -17,17 +25,71 @@ public sealed class WinFileOps : IFileOps
         return new DirectoryInfo(dir).EnumerateFiles("*", Recursive).Where(f => f.LastWriteTimeUtc < cutoff);
     }
 
+    public IEnumerable<FileInfo> EnumerateTopLevel(string dir) =>
+        Directory.Exists(dir) ? new DirectoryInfo(dir).EnumerateFiles("*", TopLevel) : [];
+
+    // Missing parent folders are created one at a time; one that turns out to be a reparse point aborts.
     public void Move(string src, string dst)
     {
         var parent = Path.GetDirectoryName(Path.GetFullPath(dst));
-        if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(LongPath(parent));
+        if (!string.IsNullOrEmpty(parent)) CreateChain(parent);
         File.Move(LongPath(src), LongPath(dst), overwrite: false);
+    }
+
+    static void CreateChain(string dir)
+    {
+        var missing = new Stack<string>();
+        for (var d = dir; !string.IsNullOrEmpty(d) && !Directory.Exists(LongPath(d)); d = Path.GetDirectoryName(d))
+            missing.Push(d);
+        while (missing.Count > 0)
+        {
+            var d = missing.Pop();
+            Directory.CreateDirectory(LongPath(d));
+            if (IsReparsePoint(d)) throw new IOException($"Ordner „{d}“ ist eine Verknüpfung, Verschieben abgebrochen.");
+        }
     }
 
     public bool Exists(string path)
     {
         var p = LongPath(path);
         return File.Exists(p) || Directory.Exists(p);
+    }
+
+    public bool HasReparsePointInChain(string path, string stopAtRoot)
+    {
+        var root = Path.GetFullPath(stopAtRoot).TrimEnd('\\');
+        var full = Path.GetFullPath(path);
+        if (!IsUnderOrSame(full, root)) return true;
+        if (IsReparsePoint(root)) return true;
+        var parent = Path.GetDirectoryName(full);
+        if (parent is null || !IsUnderOrSame(parent, root)) return false;   // path is root itself
+        var dir = root;
+        foreach (var part in Path.GetRelativePath(root, parent).Split('\\', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part == ".") continue;
+            dir = Path.Combine(dir, part);
+            if (!Directory.Exists(LongPath(dir))) return false;   // the rest is created by Move, one by one
+            if (IsReparsePoint(dir)) return true;
+        }
+        return false;
+    }
+
+    internal static bool IsUnderOrSame(string path, string root) =>
+        path.TrimEnd('\\').Equals(root, StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            var p = LongPath(path);
+            return (File.Exists(p) || Directory.Exists(p))
+                && (File.GetAttributes(p) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;   // cannot tell: treat as unsafe
+        }
     }
 
     internal static string LongPath(string path)

@@ -145,6 +145,19 @@ public sealed class AutostartTests : IDisposable
     }
 
     [Fact]
+    public void Startup_folder_file_with_future_timestamp_is_listed()
+    {
+        Directory.CreateDirectory(_user.StartupDir);
+        var exe = Path.Combine(_user.StartupDir, "Sneaky.exe");
+        File.WriteAllText(exe, "x");
+        File.SetLastWriteTimeUtc(exe, DateTime.UtcNow.AddYears(5));
+
+        var f = Assert.Single(Scanner().Scan());
+        Assert.Equal("Sneaky", f.Title);
+        Assert.Equal(exe, f.Location);
+    }
+
+    [Fact]
     public void Missing_startup_folders_yield_nothing() => Assert.Empty(Scanner().Scan());
 
     [Fact]

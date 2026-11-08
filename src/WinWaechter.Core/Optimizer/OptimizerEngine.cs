@@ -57,9 +57,9 @@ public sealed class OptimizerEngine
                 var change = changes[i];
                 p?.Report($"({i + 1}/{changes.Count}) {change.Description}");
                 var id = Guid.NewGuid().ToString("N");
-                // journal first, so a crash mid-change leaves a trace
-                session.Upsert(new ChangeRecord(id, change.Kind, change.Target, change.Description,
-                    new(), new(), ChangeStatus.Pending, DateTimeOffset.Now));
+                // journal first (with the paths the change will write), so a crash mid-change leaves a trace
+                var pending = change.Plan(session.Context) with { Id = id, Status = ChangeStatus.Pending, At = DateTimeOffset.Now };
+                session.Upsert(pending);
                 try
                 {
                     var done = change.Apply(session.Context);
@@ -69,9 +69,11 @@ public sealed class OptimizerEngine
                 catch (Exception ex)
                 {
                     FileLog.Error($"Änderung fehlgeschlagen: {change.Description}", ex);
-                    session.Upsert(new ChangeRecord(id, change.Kind, change.Target, change.Description,
-                        new(), new(), ChangeStatus.Failed, DateTimeOffset.Now,
-                        $"Änderung fehlgeschlagen: {ex.Message}"));
+                    session.Upsert(pending with
+                    {
+                        Status = ChangeStatus.Failed, At = DateTimeOffset.Now,
+                        Error = $"Änderung fehlgeschlagen: {ex.Message}",
+                    });
                     failed++;
                     break;
                 }
@@ -79,11 +81,23 @@ public sealed class OptimizerEngine
             return new ApplyResult(session, applied, failed, rp);
         }, CancellationToken.None);
 
+    /// <summary>
+    /// Applied records, plus Pending/Failed ones whose plan names what was written (e.g. files moved
+    /// before a crash). Ablage records that moved nothing are left out.
+    /// </summary>
+    public static bool IsUndoable(ChangeRecord r) =>
+        (r.Status == ChangeStatus.Applied || ((r.Status is ChangeStatus.Pending or ChangeStatus.Failed) && r.After.Count > 0))
+        && !MovedNothing(r);
+
+    /// <summary>A temp/file record whose Apply found nothing to move.</summary>
+    public static bool MovedNothing(ChangeRecord r) =>
+        r.Kind is "temp" or "file" && r.After.GetValueOrDefault("moved") == "0";
+
     public UndoResult UndoSession(SessionJournal s) =>
-        Undo(s, s.Records.Where(r => r.Status == ChangeStatus.Applied).Reverse().ToList());
+        Undo(s, s.Records.Where(IsUndoable).Reverse().ToList());
 
     public UndoResult UndoOne(SessionJournal s, string recordId) =>
-        Undo(s, s.Records.Where(r => r.Id == recordId && r.Status == ChangeStatus.Applied).ToList());
+        Undo(s, s.Records.Where(r => r.Id == recordId && IsUndoable(r)).ToList());
 
     UndoResult Undo(SessionJournal s, IReadOnlyList<ChangeRecord> records)
     {

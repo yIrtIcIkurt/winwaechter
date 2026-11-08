@@ -1,21 +1,29 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 
 namespace WinWaechter.Core.Journal;
 
 public sealed class SessionContext
 {
-    public SessionContext(string sessionDir)
+    public SessionContext(string sessionDir, Func<string, bool>? isTrustedFile = null)
     {
         SessionDir = sessionDir;
         BackupDir = Path.Combine(sessionDir, "Sicherung");
         AblageDir = Path.Combine(sessionDir, "Ablage");
+        IsTrustedFile = isTrustedFile ?? (_ => true);
     }
 
     public string SessionDir { get; }
     public string BackupDir { get; }
     public string AblageDir { get; }
+
+    /// <summary>
+    /// Whether a file in the session may steer an undo (elevated: owned by Administrators or SYSTEM).
+    /// Always true in Dev mode and tests.
+    /// </summary>
+    public Func<string, bool> IsTrustedFile { get; }
 }
 
 public sealed class SessionJournal
@@ -64,16 +72,22 @@ public sealed class SessionJournal
         return j;
     }
 
-    // Returns null when the journal is missing or unreadable (a leftover .tmp is ignored).
-    internal static SessionJournal? Load(string sessionDir)
+    // Returns null when the journal is missing, unreadable or not trusted (a leftover .tmp is ignored).
+    internal static SessionJournal? Load(string sessionDir, Func<string, bool>? isTrustedFile = null)
     {
         try
         {
             var path = Path.Combine(sessionDir, FileName);
             if (!File.Exists(path)) return null;
+            var ctx = new SessionContext(sessionDir, isTrustedFile);
+            if (!ctx.IsTrustedFile(path))
+            {
+                FileLog.Warn($"Sitzung ignoriert, Journal hat einen fremden Besitzer: {path}");
+                return null;
+            }
             var doc = JsonSerializer.Deserialize<Doc>(File.ReadAllText(path), Json);
             if (doc is null) return null;
-            return new SessionJournal(doc.Title, doc.Created, new SessionContext(sessionDir), doc.Records ?? new());
+            return new SessionJournal(doc.Title, doc.Created, ctx, doc.Records ?? new());
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {

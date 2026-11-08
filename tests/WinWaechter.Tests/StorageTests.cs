@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
+using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Sys;
 using WinWaechter.Tests.Fakes;
@@ -189,5 +190,206 @@ public sealed class StorageTests : IDisposable
 
         var freedAll = new AblageJanitor(store).PurgeNow();
         Assert.Equal(3, freedAll);
+    }
+
+    // ---- junctions on the way back / into the Ablage ----
+
+    [Fact]
+    public void Undo_skips_files_whose_target_path_runs_through_a_junction()
+    {
+        var fake = new FakeFileOps();
+        var a = Make(@"d\a.tmp", 5, "aaa");
+        var b = Make("b.tmp", 5, "bbb");
+        var ctx = Ctx();
+        var change = new MoveToAblageChange(fake, TempDir, MoveToAblageChange.DefaultMinAge);
+        var rec = change.Apply(ctx);
+        fake.Junctions.Add(Path.Combine(TempDir, "d"));   // "d" re-created as a junction meanwhile
+
+        change.Undo(rec, ctx);
+
+        Assert.False(File.Exists(a));
+        Assert.Equal("bbb", File.ReadAllText(b));
+        Assert.True(File.Exists(Path.Combine(ctx.AblageDir, rec.Id, "d", "a.tmp")));
+    }
+
+    [Fact]
+    public void Undo_throws_when_every_target_runs_through_a_junction()
+    {
+        var fake = new FakeFileOps();
+        Make("a.tmp", 5);
+        var ctx = Ctx();
+        var change = new MoveToAblageChange(fake, TempDir, MoveToAblageChange.DefaultMinAge);
+        var rec = change.Apply(ctx);
+        fake.Junctions.Add(TempDir);   // the whole temp folder replaced by a junction
+
+        var ex = Assert.Throws<InvalidOperationException>(() => change.Undo(rec, ctx));
+        Assert.Contains("Verknüpfung", ex.Message);
+        Assert.Single(fake.MoveCalls);   // only the original move, nothing moved back
+    }
+
+    [Fact]
+    public void ForFile_undo_checks_the_original_parent_folder()
+    {
+        var fake = new FakeFileOps();
+        var f = Make(@"app\x.exe", 0, "mal");
+        var ctx = Ctx();
+        var change = MoveToAblageChange.ForFile(fake, f);
+        var rec = change.Apply(ctx);
+        fake.Junctions.Add(Path.GetDirectoryName(f)!);
+
+        Assert.Throws<InvalidOperationException>(() => change.Undo(rec, ctx));
+        Assert.False(File.Exists(f));
+    }
+
+    [Fact]
+    public void Apply_skips_files_below_a_junction()
+    {
+        var fake = new FakeFileOps();
+        var a = Make(@"j\a.tmp", 5);
+        var b = Make("b.tmp", 5);
+        fake.Junctions.Add(Path.Combine(TempDir, "j"));
+
+        var rec = new MoveToAblageChange(fake, TempDir, MoveToAblageChange.DefaultMinAge).Apply(Ctx());
+
+        Assert.True(File.Exists(a));
+        Assert.False(File.Exists(b));
+        Assert.Equal("1", rec.After["moved"]);
+        Assert.Equal("1", rec.After["skipped"]);
+    }
+
+    // ---- sidecar trust ----
+
+    [Fact]
+    public void Undo_refuses_an_untrusted_sidecar()
+    {
+        Make("a.tmp", 5);
+        var dir = Path.Combine(_root, "session");
+        var change = Change();
+        var rec = change.Apply(new SessionContext(dir));
+        var untrusted = new SessionContext(dir, _ => false);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => change.Undo(rec, untrusted));
+        Assert.Contains("nicht von WinWächter", ex.Message);
+    }
+
+    [Fact]
+    public void Undo_refuses_a_sidecar_outside_the_session()
+    {
+        Make("a.tmp", 5);
+        var ctx = Ctx();
+        var change = Change();
+        var rec = change.Apply(ctx);
+        var moved = Path.Combine(_root, "elsewhere.json");
+        File.Copy(rec.After["sidecar"]!, moved);
+        var forged = rec with { After = new(rec.After) { ["sidecar"] = moved } };
+
+        Assert.Throws<InvalidOperationException>(() => change.Undo(forged, ctx));
+    }
+
+    [Fact]
+    public void Store_skips_journals_that_fail_the_owner_check()
+    {
+        var pd = Path.Combine(_root, "pd");
+        new SessionStore(pd).Create("fremd");
+        Assert.Single(new SessionStore(pd).List());
+        Assert.Empty(new SessionStore(pd, _ => false).List());
+    }
+
+    // ---- crash midway / nothing moved ----
+
+    (OptimizerEngine Engine, SessionStore Store) EngineWith(FakeFileOps fake)
+    {
+        var store = new SessionStore(Path.Combine(_root, "pd"));
+        var factory = new WinWaechter.Core.Changes.ChangeFactory();
+        factory.Register("temp", r => MoveToAblageChange.FromRecord(r, fake));
+        return (new OptimizerEngine([], store, factory, _ => new RestorePointResult(true, "ok")), store);
+    }
+
+    static Finding TempFinding(IFileOps f, string dir) =>
+        new("storage|x", FindingArea.Speicher, "Temp", dir, ["r"], Rating.Entbehrlich, true,
+            new MoveToAblageChange(f, dir, MoveToAblageChange.DefaultMinAge));
+
+    [Fact]
+    public async Task Failure_between_moves_keeps_sidecar_and_undo_restores_moved_file()
+    {
+        var fake = new FakeFileOps();
+        var a = Make("a.tmp", 5, "aaa");
+        var b = Make("b.tmp", 5, "bbb");
+        var (engine, store) = EngineWith(fake);
+        // the second file in enumeration order "crashes"
+        var order = fake.EnumerateOlderThan(TempDir, MoveToAblageChange.DefaultMinAge).Select(f => f.FullName).ToList();
+        fake.Crash.Add(order[1]);
+
+        var res = await engine.ApplyAsync("T", [TempFinding(fake, TempDir)], null, CancellationToken.None);
+
+        Assert.Equal(1, res.Failed);
+        var rec = Assert.Single(res.Session.Records);
+        Assert.Equal(ChangeStatus.Failed, rec.Status);
+        var sidecar = rec.After["sidecar"]!;
+        Assert.Contains(order[0].Replace(@"\", @"\\"), File.ReadAllText(sidecar));
+        Assert.False(File.Exists(order[0]));
+        Assert.True(OptimizerEngine.IsUndoable(rec));
+
+        // the janitor must not purge the half-done move
+        Assert.Equal(0, new AblageJanitor(store).PurgeNow());
+        Assert.True(Directory.Exists(rec.After["ablage"]));
+
+        var u = engine.UndoSession(store.List().Single());
+        Assert.Equal(1, u.Undone);
+        Assert.Equal("aaa", File.ReadAllText(a));
+        Assert.Equal("bbb", File.ReadAllText(b));
+        Assert.Equal(ChangeStatus.Undone, store.List().Single().Records.Single().Status);
+    }
+
+    [Fact]
+    public void Janitor_keeps_ablage_of_pending_record_and_unknown_folders()
+    {
+        var store = new SessionStore(Path.Combine(_root, "pd"));
+        var j = store.Create("T");
+        Make("a.tmp", 5, "12345");
+        var change = Change();
+        var planned = change.Plan(j.Context);
+        j.Upsert(planned);                       // crash right after Apply: only the Pending record exists
+        change.Apply(j.Context);
+        var stray = Path.Combine(j.Context.AblageDir, "stray");
+        Directory.CreateDirectory(stray);
+        File.WriteAllText(Path.Combine(stray, "x"), "x");
+
+        Assert.Equal(0, new AblageJanitor(store).PurgeNow());
+        Assert.True(Directory.Exists(planned.After["ablage"]));
+        Assert.True(File.Exists(Path.Combine(stray, "x")));
+    }
+
+    [Fact]
+    public async Task Nothing_moved_is_marked_and_undo_skips_it_without_error()
+    {
+        var fake = new FakeFileOps();
+        Make("fresh.tmp", 0);
+        var (engine, store) = EngineWith(fake);
+
+        var res = await engine.ApplyAsync("T", [TempFinding(fake, TempDir)], null, CancellationToken.None);
+        var rec = Assert.Single(res.Session.Records);
+        Assert.Equal("0", rec.After["moved"]);
+        Assert.True(OptimizerEngine.MovedNothing(rec));
+        Assert.False(OptimizerEngine.IsUndoable(rec));
+
+        var u = engine.UndoSession(store.List().Single());
+        Assert.Equal(0, u.Undone + u.Failed + u.SkippedDrift);
+        Assert.Empty(u.Messages);
+    }
+
+    [Fact]
+    public void Old_array_sidecar_still_undoes()
+    {
+        var a = Make("a.tmp", 5, "aaa");
+        var ctx = Ctx();
+        var change = Change();
+        var rec = change.Apply(ctx);
+        var stored = Path.Combine(rec.After["ablage"]!, "a.tmp");
+        File.WriteAllText(rec.After["sidecar"]!,
+            System.Text.Json.JsonSerializer.Serialize(new[] { new { original = a, stored } }));
+
+        change.Undo(rec, ctx);
+        Assert.Equal("aaa", File.ReadAllText(a));
     }
 }
