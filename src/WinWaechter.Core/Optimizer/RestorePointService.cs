@@ -8,6 +8,8 @@ public sealed record RestorePointResult(bool Created, string Message);
 // Creates a Windows restore point via WMI. Never throws.
 public sealed class RestorePointService
 {
+    internal const string ScopePath = @"\\.\root\default";
+
     const string NotCreated =
         "Kein neuer Wiederherstellungspunkt (Computerschutz aus oder Windows-Sperre von 24 Stunden). Die eigene Sicherung ist trotzdem angelegt.";
 
@@ -15,7 +17,7 @@ public sealed class RestorePointService
     {
         try
         {
-            var scope = new ManagementScope(@"\.\root\default");
+            var scope = new ManagementScope(ScopePath);
             scope.Connect();
             var before = Sequences(scope);
 

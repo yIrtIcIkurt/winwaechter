@@ -44,6 +44,7 @@ public sealed class OptimizerEngine
         IProgress<string>? p, CancellationToken ct) =>
         Task.Run(() =>
         {
+            ct.ThrowIfCancellationRequested();   // before any restore point or session exists
             var changes = selected.Select(f => f.Change).OfType<IChange>().ToList();
             p?.Report("Wiederherstellungspunkt wird erstellt …");
             var rp = _restorePoint(title);

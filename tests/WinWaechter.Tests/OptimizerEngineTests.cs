@@ -218,4 +218,23 @@ public sealed class OptimizerEngineTests : IDisposable
         var ex = Assert.Throws<InvalidOperationException>(() => f.Rehydrate(r));
         Assert.Contains("nix", ex.Message);
     }
+
+    [Fact]
+    public async Task Cancelled_before_start_creates_no_session_or_restore_point()
+    {
+        var called = false;
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var e = Engine(_ => { called = true; return new RestorePointResult(true, ""); });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            e.ApplyAsync("T", new[] { F(Fake("c1"), "c1") }, null, cts.Token));
+        Assert.False(called);
+        Assert.Empty(new SessionStore(_root).List());
+    }
+
+    [Fact]
+    public void RestorePoint_scope_path_is_valid_wmi_path()
+    {
+        Assert.Equal(@"\\.\root\default", RestorePointService.ScopePath);
+    }
 }
