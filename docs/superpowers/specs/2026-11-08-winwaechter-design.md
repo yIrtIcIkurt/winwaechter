@@ -95,7 +95,7 @@ Vor jedem Anwenden:
 
 ### 7.2 Ablage statt Papierkorb
 
-Dateien wandern nicht in den Papierkorb, denn daraus lassen sie sich nicht zuverlässig per Programm zurückholen. Sie kommen in `%ProgramData%\WinWaechter\Ablage\<Sitzung>\`, die Originalpfade stehen im Journal. Die Ablage wird **nach 14 Tagen** automatisch geleert (in den Einstellungen änderbar), außerdem gibt es den Knopf „Ablage jetzt leeren“. Erst dieses Leeren ist endgültig, das sagt die Oberfläche auch so. *(Meine Entscheidung.)*
+Dateien wandern nicht in den Papierkorb, denn daraus lassen sie sich nicht zuverlässig per Programm zurückholen. Sie kommen in `%ProgramData%\WinWaechter\Sitzungen\<Sitzung>\Ablage\`, die Originalpfade stehen in einer Liste neben dem Journal der Sitzung. Die Ablage wird **nach 14 Tagen** automatisch geleert (in den Einstellungen änderbar), außerdem gibt es den Knopf „Ablage jetzt leeren“. Erst dieses Leeren ist endgültig, das sagt die Oberfläche auch so. *(Meine Entscheidung.)*
 
 ### 7.3 Verlauf und Rückgängig
 
