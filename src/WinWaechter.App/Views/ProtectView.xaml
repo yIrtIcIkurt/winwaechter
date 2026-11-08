@@ -97,6 +97,8 @@
                                         <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding Resources}" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Margin="16,0,0,0" HorizontalAlignment="Right">
+                                        <ContentControl Style="{StaticResource Chip}" HorizontalAlignment="Right" Margin="0,0,0,4"
+                                                        Tag="{Binding ActivityTone}" Content="{Binding ActivityText}" />
                                         <TextBlock Style="{StaticResource Text.Small}" HorizontalAlignment="Right" Text="{Binding StatusText}" />
                                         <TextBlock Style="{StaticResource Text.Small}" HorizontalAlignment="Right" Text="{Binding SeverityText, StringFormat=Schwere: {0}}" />
                                     </StackPanel>

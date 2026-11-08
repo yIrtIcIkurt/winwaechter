@@ -34,4 +34,9 @@ public sealed partial class HeuristicItemViewModel(Finding finding) : Observable
 }
 
 /// <summary>One Defender detection.</summary>
-public sealed record ThreatItemViewModel(string Name, string SeverityText, string StatusText, string Resources, bool Active);
+public sealed record ThreatItemViewModel(string Name, string SeverityText, string StatusText, string Resources, bool Active)
+{
+    /// <summary>Marks which detections still need attention; the list also shows resolved ones.</summary>
+    public string ActivityText => Active ? "Aktiv" : "Erledigt";
+    public Tone ActivityTone => Active ? Tone.Watch : Tone.Neutral;
+}
