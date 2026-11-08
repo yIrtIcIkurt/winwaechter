@@ -112,6 +112,13 @@ public sealed partial class HistoryViewModel : ObservableObject
     [ObservableProperty]
     private string _ablageText = "–";
 
+    /// <summary>Folders of unfinished moves that a purge keeps (null when there are none).</summary>
+    [ObservableProperty]
+    private string? _keptText;
+
+    internal static string? KeptFoldersText(int n) =>
+        n <= 0 ? null : $"{n} Ordner aus unvollständigen Vorgängen bleiben erhalten.";
+
     public bool IsEmpty => Sessions.Count == 0;
 
     [RelayCommand]
@@ -119,14 +126,11 @@ public sealed partial class HistoryViewModel : ObservableObject
     {
         var selectedDir = SelectedSession?.Journal.Context.SessionDir;
         IReadOnlyList<SessionJournal> journals;
-        long bytes;
+        AblagePreview preview;
         try
         {
-            (journals, bytes) = await Task.Run(() =>
-            {
-                var list = _store.List();
-                return (list, list.Sum(j => DirSize(j.Context.AblageDir)));
-            });
+            // size = exactly what "Ablage jetzt leeren" would delete (kept folders and links excluded)
+            (journals, preview) = await Task.Run(() => (_store.List(), _janitor.PreviewNow()));
             ErrorText = null;
         }
         catch (Exception ex)
@@ -138,23 +142,10 @@ public sealed partial class HistoryViewModel : ObservableObject
         Sessions.Clear();
         foreach (var j in journals) Sessions.Add(new SessionViewModel(j));
         SelectedSession = Sessions.FirstOrDefault(s => s.Journal.Context.SessionDir == selectedDir) ?? Sessions.FirstOrDefault();
-        AblageBytes = bytes;
-        AblageText = Labels.Size(bytes);
+        AblageBytes = preview.PurgeableBytes;
+        AblageText = Labels.Size(preview.PurgeableBytes);
+        KeptText = KeptFoldersText(preview.KeptFolders);
         OnPropertyChanged(nameof(IsEmpty));
-    }
-
-    static long DirSize(string dir)
-    {
-        try
-        {
-            return Directory.Exists(dir)
-                ? new DirectoryInfo(dir).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length)
-                : 0;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return 0;
-        }
     }
 
     bool CanUndoAll(SessionViewModel? s) => CanChange && !IsBusy && !_gate.IsBusy && s is { CanUndoAll: true };
@@ -212,9 +203,9 @@ public sealed partial class HistoryViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanPurge))]
     private async Task PurgeAblageAsync()
     {
-        if (!_dialogs.Confirm("Ablage jetzt leeren",
-                $"Alle Dateien in der Ablage ({AblageText}) werden endgültig gelöscht. Danach lassen sich diese Dateien nicht mehr wiederherstellen, auch nicht über den Verlauf.",
-                "Endgültig leeren", final: true))
+        var message = $"Alle Dateien in der Ablage ({AblageText}) werden endgültig gelöscht. Danach lassen sich diese Dateien nicht mehr wiederherstellen, auch nicht über den Verlauf.";
+        if (KeptText is not null) message += " " + KeptText;
+        if (!_dialogs.Confirm("Ablage jetzt leeren", message, "Endgültig leeren", final: true))
             return;
         if (!await _gate.RunAsync(this, PurgeCoreAsync)) _dialogs.Inform("Ablage jetzt leeren", ChangeGate.BusyHint);
     }

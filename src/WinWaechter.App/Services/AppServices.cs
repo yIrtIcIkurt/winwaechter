@@ -47,7 +47,9 @@ public sealed class AppServices
         var rules = RuleSet.Default;
 
         // elevated: only journals/sidecars owned by Administrators or SYSTEM may steer an undo
-        var store = new SessionStore(env.DataRoot, env.IsElevated ? FileOwner.IsAdminOrSystem : null);
+        var store = new SessionStore(env.DataRoot,
+            env.IsElevated ? FileOwner.IsAdminOrSystem : null,
+            env.IsElevated ? FileOwner.SetAdmins : null);
         var defender = new DefenderClient(new ProcessRunner(), reg);
         var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo);
         DefenderRegistration.Register(factory, defender);

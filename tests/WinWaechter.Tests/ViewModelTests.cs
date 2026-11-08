@@ -378,8 +378,7 @@ public sealed class ViewModelTests : IDisposable
     public async Task Purge_needs_admin_rights()
     {
         var store = new SessionStore(_root);
-        var j = store.Create("T");
-        File.WriteAllText(Path.Combine(j.Context.AblageDir, "x.tmp"), "12345");
+        AblageFolder(store.Create("T"), "a", ChangeStatus.Applied, "12345");
         foreach (var admin in new[] { false, true })
         {
             var h = new HistoryViewModel(store, Engine(), new AblageJanitor(store), new YesDialogs(), admin, _gate);
@@ -387,6 +386,49 @@ public sealed class ViewModelTests : IDisposable
             Assert.Equal(5, h.AblageBytes);
             Assert.Equal(admin, h.PurgeAblageCommand.CanExecute(null));
         }
+    }
+
+    // One Ablage subfolder with a file, named by a temp record with the given status.
+    static void AblageFolder(SessionJournal j, string id, ChangeStatus status, string content)
+    {
+        var dir = Path.Combine(j.Context.AblageDir, id);
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "x.tmp"), content);
+        j.Upsert(new ChangeRecord(id, "temp", "t", "Temp", new(), new() { ["ablage"] = dir }, status, DateTimeOffset.Now));
+    }
+
+    sealed class ConfirmRecorder : IDialogService
+    {
+        public string? LastConfirm { get; private set; }
+        public bool Confirm(string title, string message, string confirmText, IReadOnlyList<string>? items = null, bool final = false)
+        {
+            LastConfirm = message;
+            return true;
+        }
+
+        public void Inform(string title, string message, IReadOnlyList<string>? items = null) { }
+    }
+
+    [Fact]
+    public async Task Ablage_size_and_purge_dialog_count_only_what_is_really_deleted()
+    {
+        var store = new SessionStore(_root);
+        var j = store.Create("T");
+        AblageFolder(j, "done", ChangeStatus.Applied, "12345");
+        AblageFolder(j, "half", ChangeStatus.Failed, "1234567890");
+        AblageFolder(j, "crash", ChangeStatus.Pending, "1234567890");
+        var dialogs = new ConfirmRecorder();
+        var h = new HistoryViewModel(store, Engine(), new AblageJanitor(store), dialogs, true, _gate);
+
+        await h.RefreshCommand.ExecuteAsync(null);
+        Assert.Equal(5, h.AblageBytes);
+        Assert.Equal("2 Ordner aus unvollständigen Vorgängen bleiben erhalten.", h.KeptText);
+
+        await h.PurgeAblageCommand.ExecuteAsync(null);
+        Assert.Contains("2 Ordner aus unvollständigen Vorgängen bleiben erhalten.", dialogs.LastConfirm);
+        Assert.Equal(0, h.AblageBytes);
+        Assert.True(Directory.Exists(Path.Combine(j.Context.AblageDir, "half")));
+        Assert.False(Directory.Exists(Path.Combine(j.Context.AblageDir, "done")));
     }
 
     [Fact]
