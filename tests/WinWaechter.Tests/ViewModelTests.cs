@@ -196,6 +196,24 @@ public sealed class ViewModelTests : IDisposable
         new(new FakeDefender { PuaMode = 0 }, (_, _) => Task.FromResult<IReadOnlyList<Finding>>([Heur("m")]),
             engine, _ => 0, new YesDialogs(), canChange, _gate);
 
+    [Theory]
+    [InlineData(2, "2 Prozesse beendet.")]
+    [InlineData(0, "Läuft nicht mehr.")]
+    public async Task Kill_hides_the_button_and_notes_it_on_the_card(int killed, string notePrefix)
+    {
+        var p = new ProtectViewModel(new FakeDefender(), (_, _) => Task.FromResult<IReadOnlyList<Finding>>([Heur("m")]),
+            Engine(), _ => killed, new YesDialogs(), true, _gate);
+        await p.HeuristicScanCommand.ExecuteAsync(null);
+        var item = p.HeuristicItems.Single();
+        Assert.True(p.KillProcessCommand.CanExecute(item));
+
+        await p.KillProcessCommand.ExecuteAsync(item);
+
+        Assert.False(item.CanKill);
+        Assert.False(p.KillProcessCommand.CanExecute(item));
+        Assert.StartsWith(notePrefix, item.ProcessNote);
+    }
+
     OptimizerEngine Engine(Func<string, RestorePointResult>? rp = null) =>
         new([() => [F("a", true)]], new SessionStore(_root), new ChangeFactory(), rp ?? (_ => new RestorePointResult(true, "ok")));
 

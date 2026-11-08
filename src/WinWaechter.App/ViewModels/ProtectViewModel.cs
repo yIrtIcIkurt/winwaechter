@@ -431,12 +431,16 @@ public sealed partial class ProtectViewModel : ObservableObject
         try
         {
             var n = await Task.Run(() => _killByPath(item.Location));
-            _dialogs.Inform("Prozess beenden", n switch
+            var text = n switch
             {
                 0 => "Es lief kein passender Prozess mehr.",
                 1 => "1 Prozess beendet.",
                 _ => $"{n} Prozesse beendet.",
-            });
+            };
+            // Either way nothing is running now: hide the kill button and say so on the card.
+            item.ProcessNote = n == 0 ? "Läuft nicht mehr." : $"{text} Startet das Programm neu, erscheint es bei der nächsten Prüfung wieder.";
+            KillProcessCommand.NotifyCanExecuteChanged();
+            _dialogs.Inform("Prozess beenden", text);
         }
         catch (Exception ex)
         {

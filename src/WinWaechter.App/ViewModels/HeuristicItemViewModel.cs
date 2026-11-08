@@ -1,10 +1,16 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using WinWaechter.Core.Model;
 
 namespace WinWaechter.App.ViewModels;
 
 /// <summary>One finding of the own heuristics with its possible actions.</summary>
-public sealed class HeuristicItemViewModel(Finding finding)
+public sealed partial class HeuristicItemViewModel(Finding finding) : ObservableObject
 {
+    /// <summary>Set after „Prozess beenden“ ran; the kill button disappears and this note is shown.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanKill))]
+    private string? _processNote;
+
     public Finding Finding { get; } = finding;
     public string Title => Finding.Title;
     public string Location => Finding.Location;
@@ -14,7 +20,7 @@ public sealed class HeuristicItemViewModel(Finding finding)
     public string? Publisher => Finding.Publisher;
     public bool IsProcess => Finding.Area is FindingArea.Prozess or FindingArea.Verbindung;
     public bool IsProtectedVendor => Finding.IsProtectedVendor;
-    public bool CanKill => IsProcess && !IsProtectedVendor;
+    public bool CanKill => IsProcess && !IsProtectedVendor && ProcessNote is null;
     public bool CanDisable => Finding.Change is not null && !IsProtectedVendor;
 
     public string DisableText => Finding.Change?.Kind switch
