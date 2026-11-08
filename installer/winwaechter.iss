@@ -60,19 +60,18 @@ Filename: "{app}\WinWaechter.App.exe"; Flags: nowait skipifnotsilent
 
 [Code]
 const
-  FILE_ATTRIBUTE_REPARSE_POINT = $400;
-  INVALID_FILE_ATTRIBUTES = $FFFFFFFF;
+  INVALID_FILE_ATTRIBUTES = -1;   // 0xFFFFFFFF as a signed 32-bit value (FILE_ATTRIBUTE_* come with Inno)
 
 var
   KeepData: Boolean;
 
-function GetFileAttributesW(lpFileName: String): Cardinal;
+function GetFileAttributesW(lpFileName: String): Integer;
   external 'GetFileAttributesW@kernel32.dll stdcall';
 
 // True for junctions and symbolic links; False when the path does not exist.
 function IsReparsePoint(const Path: String): Boolean;
 var
-  Attr: Cardinal;
+  Attr: Integer;
 begin
   Attr := GetFileAttributesW(Path);
   Result := (Attr <> INVALID_FILE_ATTRIBUTES) and ((Attr and FILE_ATTRIBUTE_REPARSE_POINT) <> 0);
