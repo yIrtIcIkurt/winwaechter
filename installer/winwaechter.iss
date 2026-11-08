@@ -46,14 +46,6 @@ Name: "{autoprograms}\WinWächter"; Filename: "{app}\WinWaechter.App.exe"
 Name: "{autodesktop}\WinWächter"; Filename: "{app}\WinWaechter.App.exe"; Tasks: desktopicon
 
 [Run]
-; Data dir: owner Administrators, only Administrators/SYSTEM full, Users read (/L: never through a link).
-; A junction at the data dir aborts setup earlier (PrepareToInstall).
-Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\WinWaechter"" /setowner *S-1-5-32-544 /L"; Flags: runhidden waituntilterminated
-Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\WinWaechter"" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /L"; Flags: runhidden waituntilterminated
-; Everything below drops its own rules and inherits the root ACL. Owners are left alone on purpose:
-; a file a normal user planted keeps its owner, and the app ignores journals not owned by
-; Administrators/SYSTEM. The app takes over subfolder ownership itself at every start.
-Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\WinWaechter\*"" /reset /T /C /L /Q"; Flags: runhidden waituntilterminated
 ; Start after install (interactive and silent, e.g. self-update)
 Filename: "{app}\WinWaechter.App.exe"; Description: "WinWächter starten"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\WinWaechter.App.exe"; Flags: nowait skipifnotsilent
@@ -87,6 +79,47 @@ begin
   if IsReparsePoint(ExpandConstant('{commonappdata}')) or IsReparsePoint(DataDir) then
     Result := 'Der Datenordner ' + DataDir + ' ist eine Verknüpfung (Junction oder symbolischer Link). ' +
       'Aus Sicherheitsgründen wird WinWächter nicht installiert. Bitte die Verknüpfung entfernen und das Setup erneut starten.';
+end;
+
+procedure WarnLink(const DataDir: String);
+begin
+  SuppressibleMsgBox('Der Datenordner ' + DataDir + ' ist inzwischen eine Verknüpfung (Junction oder symbolischer Link). ' +
+    'Seine Rechte wurden aus Sicherheitsgründen nicht gesetzt. Bitte die Verknüpfung entfernen und das Setup erneut starten.',
+    mbError, MB_OK, IDOK);
+end;
+
+// Data dir: owner Administrators; only Administrators/SYSTEM full, Users read. Root first, then
+// (after a fresh link check right before it) the children drop their own rules and inherit the
+// root. /L: icacls never works through a link. Owners of files are left alone on purpose: a file a
+// normal user planted keeps its owner, and the app ignores journals not owned by
+// Administrators/SYSTEM. The app takes over subfolder ownership itself at every start.
+procedure SecureDataDir();
+var
+  DataDir, Icacls: String;
+  Code: Integer;
+begin
+  DataDir := ExpandConstant('{commonappdata}\WinWaechter');
+  Icacls := ExpandConstant('{sys}\icacls.exe');
+  if IsReparsePoint(ExpandConstant('{commonappdata}')) or IsReparsePoint(DataDir) then
+  begin
+    WarnLink(DataDir);
+    exit;
+  end;
+  Exec(Icacls, '"' + DataDir + '" /setowner *S-1-5-32-544 /L', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(Icacls, '"' + DataDir + '" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /L',
+    '', SW_HIDE, ewWaitUntilTerminated, Code);
+  // re-check right before touching the children
+  if IsReparsePoint(ExpandConstant('{commonappdata}')) or IsReparsePoint(DataDir) then
+  begin
+    WarnLink(DataDir);
+    exit;
+  end;
+  Exec(Icacls, '"' + DataDir + '\*" /reset /T /C /L /Q', '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then SecureDataDir();
 end;
 
 function InitializeUninstall(): Boolean;
