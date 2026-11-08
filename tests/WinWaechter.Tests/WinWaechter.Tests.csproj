@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- needed to render the App views in ViewSmokeTests -->
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,10 +16,15 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\WinWaechter.Core\WinWaechter.Core.csproj" />
     <ProjectReference Include="..\..\tools\ReleaseTool\ReleaseTool.csproj" />
+    <!-- view models live in the App project -->
+    <ProjectReference Include="..\..\src\WinWaechter.App\WinWaechter.App.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <!-- UseWPF drops these from the implicit usings -->
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
   </ItemGroup>
 
 </Project>
