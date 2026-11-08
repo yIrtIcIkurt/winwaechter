@@ -1,4 +1,63 @@
 ﻿{
-  "version": 1,
-  "rules": []
+  "protected": [
+    { "publisher": "Microsoft" },
+    { "publisher": "Dell" },
+    { "publisher": "Intel" },
+    { "publisher": "Realtek" },
+    { "publisher": "Haufe" },
+    { "publisher": "Lexware" },
+    { "publisher": "NVIDIA" },
+    { "publisher": "Advanced Micro Devices" },
+    { "path": "\\Windows\\" },
+    { "path": "\\Lexware\\" },
+    { "path": "\\Dell\\" },
+    { "path": "\\Windows Defender\\" },
+    { "name": "Lexware" },
+    { "name": "Dell" },
+    { "name": "SecurityHealth" }
+  ],
+  "expendableAutostart": [
+    { "name": "Steam" },
+    { "name": "EpicGamesLauncher" },
+    { "name": "Epic Games Launcher" },
+    { "name": "EADesktop" },
+    { "name": "EA Desktop" },
+    { "name": "Origin" },
+    { "name": "Ubisoft Connect" },
+    { "name": "UbisoftConnect" },
+    { "name": "upc", "path": "Ubisoft" },
+    { "name": "Battle.net" },
+    { "name": "RiotClient" },
+    { "name": "Riot Client" },
+    { "name": "GalaxyClient" },
+    { "name": "GOG Galaxy" },
+    { "name": "Discord" },
+    { "name": "Spotify" },
+    { "name": "MicrosoftTeams" },
+    { "name": "ms-teams" },
+    { "name": "AdobeAAMUpdater" },
+    { "name": "Adobe Updater" },
+    { "name": "Adobe Acrobat Update" },
+    { "name": "AdobeGCInvoker" },
+    { "name": "GoogleUpdate" },
+    { "name": "Google Update" }
+  ],
+  "pua": [
+    { "name": "Glary" },
+    { "publisher": "Glarysoft" },
+    { "name": "GUDelayStartup" },
+    { "name": "Driver Booster" },
+    { "name": "IObit" },
+    { "publisher": "IObit" },
+    { "name": "Advanced SystemCare" },
+    { "name": "_Bundle" },
+    { "path": "_Bundle" },
+    { "name": "FileZilla", "path": "bundle" }
+  ],
+  "minerNames": [
+    "xmrig", "xmr-stak", "nicehash", "excavator", "phoenixminer", "t-rex", "lolminer",
+    "nbminer", "gminer", "teamredminer", "ethminer", "cpuminer", "ccminer", "srbminer", "nanominer"
+  ],
+  "minerCommandLine": [ "stratum+tcp", "stratum+ssl", "--donate-level", "-a randomx", "--coin" ],
+  "poolPorts": [ 3333, 4444, 5555, 6666, 7777, 8888, 9999, 14433, 14444, 45560, 45700 ]
 }
