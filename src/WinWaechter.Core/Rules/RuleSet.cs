@@ -58,6 +58,9 @@ public sealed class RuleSet
 
     public IReadOnlySet<int> PoolPorts { get; }
 
+    /// <summary>Known miner program names (matched against exe file names by the heuristics).</summary>
+    public IReadOnlyList<string> MinerNames => _minerNames;
+
     RuleSet(Dto d)
     {
         // The protected list is the safety core: refuse to run without it.
