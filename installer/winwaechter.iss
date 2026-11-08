@@ -46,9 +46,11 @@ Name: "{autoprograms}\WinWächter"; Filename: "{app}\WinWaechter.App.exe"
 Name: "{autodesktop}\WinWächter"; Filename: "{app}\WinWaechter.App.exe"; Tasks: desktopicon
 
 [Run]
-; Start after install (interactive and silent, e.g. self-update)
-Filename: "{app}\WinWaechter.App.exe"; Description: "WinWächter starten"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\WinWaechter.App.exe"; Flags: nowait skipifnotsilent
+; Start after install (interactive and silent, e.g. self-update).
+; shellexec is required: the app's manifest demands admin rights, and plain
+; CreateProcess from the unelevated post-install context fails with error 740.
+Filename: "{app}\WinWaechter.App.exe"; Description: "WinWächter starten"; Flags: nowait postinstall skipifsilent shellexec
+Filename: "{app}\WinWaechter.App.exe"; Flags: nowait skipifnotsilent shellexec
 
 [Code]
 const
