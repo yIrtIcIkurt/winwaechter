@@ -58,6 +58,7 @@ public partial class App
         {
             var settings = AppSettings.Load(env.SettingsPath);
             ThemeManager.Start(this);
+            WheelScrolling.Register();
 
             _services = AppServices.Create(env, settings, new WpfDialogService(), new ExplorerShell(), () => Shutdown());
             var window = new ShellWindow { DataContext = _services.Shell };

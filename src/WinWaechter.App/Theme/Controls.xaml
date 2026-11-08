@@ -506,6 +506,8 @@
 
     <!-- ===== Session list ===== -->
     <Style x:Key="SessionList" TargetType="ListBox">
+        <!-- Pixel scrolling so WheelScrolling can scroll proportionally (touchpads). -->
+        <Setter Property="ScrollViewer.CanContentScroll" Value="False" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="0" />
