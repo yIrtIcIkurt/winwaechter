@@ -104,12 +104,12 @@
   "privacy": [
     {
       "id": "werbe-id", "title": "Werbe-ID für Apps", "recommended": true,
-      "explanation": "Apps können damit Werbung auf dich zuschneiden. Ausgeschaltet bekommen Apps keine Werbe-ID mehr.",
+      "explanation": "Apps können damit Werbung auf Sie zuschneiden. Ausgeschaltet bekommen Apps keine Werbe-ID mehr.",
       "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo", "name": "Enabled", "target": 0 } ]
     },
     {
       "id": "angebote-diagnose", "title": "Maßgeschneiderte Angebote aus Diagnosedaten", "recommended": true,
-      "explanation": "Windows nutzt deine Diagnosedaten, um dir passende Tipps und Werbung zu zeigen. Ausgeschaltet bleibt beides allgemein.",
+      "explanation": "Windows nutzt Ihre Diagnosedaten, um Ihnen passende Tipps und Werbung zu zeigen. Ausgeschaltet bleibt beides allgemein.",
       "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Privacy", "name": "TailoredExperiencesWithDiagnosticDataEnabled", "target": 0 } ]
     },
     {
@@ -142,32 +142,32 @@
     },
     {
       "id": "programmstarts", "title": "Programmstarts verfolgen (für Startmenü)", "recommended": false,
-      "explanation": "Windows merkt sich, welche Programme du startest. Ausgeschaltet verändert sich die Liste „Meistverwendet“ im Startmenü nicht mehr. Daher nicht vorgewählt.",
+      "explanation": "Windows merkt sich, welche Programme Sie starten. Ausgeschaltet verändert sich die Liste „Meistverwendet“ im Startmenü nicht mehr. Daher nicht vorgewählt.",
       "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "name": "Start_TrackProgs", "target": 0 } ]
     },
     {
       "id": "websuche", "title": "Bing-/Webvorschläge in der Suche", "recommended": true,
-      "explanation": "Das ist eine Richtlinie: Die Suche zeigt keine Webvorschläge mehr, auch die zuletzt gesuchten Begriffe im Explorer verschwinden. Wirkt nach Neustart des Explorers oder Abmelden. Die Einstellungen-App zeigt dann „Von deiner Organisation verwaltet“ und sperrt den Schalter.",
+      "explanation": "Das ist eine Richtlinie: Die Suche zeigt keine Webvorschläge mehr, auch die zuletzt gesuchten Begriffe im Explorer verschwinden. Wirkt nach Neustart des Explorers oder Abmelden. Die Einstellungen-App zeigt dann „Einige dieser Einstellungen werden von Ihrer Organisation verwaltet“ und sperrt den Schalter.",
       "values": [ { "hive": "HKCU", "key": "Software\\Policies\\Microsoft\\Windows\\Explorer", "name": "DisableSearchBoxSuggestions", "target": 1 } ]
     },
     {
       "id": "sprachliste", "title": "Sprachliste für Websites", "recommended": true,
-      "explanation": "Websites erfahren nicht mehr, welche Sprachen du eingerichtet hast.",
+      "explanation": "Websites erfahren nicht mehr, welche Sprachen Sie eingerichtet haben.",
       "values": [ { "hive": "HKCU", "key": "Control Panel\\International\\User Profile", "name": "HttpAcceptLanguageOptOut", "target": 1 } ]
     },
     {
       "id": "feedback", "title": "Feedback-Abfragen", "recommended": true,
-      "explanation": "Windows fragt dich nicht mehr nach Feedback.",
+      "explanation": "Windows fragt Sie nicht mehr nach Feedback.",
       "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Siuf\\Rules", "name": "NumberOfSIUFInPeriod", "target": 0 } ]
     },
     {
       "id": "recall", "title": "Recall (Momentaufnahmen speichern)", "recommended": true, "requires": "recall",
-      "explanation": "Das ist eine Richtlinie: Recall speichert keine Momentaufnahmen deines Bildschirms und lässt sich auch nicht einschalten. Die Einstellungen-App zeigt dann „Von deiner Organisation verwaltet“ und sperrt den Schalter.",
+      "explanation": "Das ist eine Richtlinie: Recall speichert keine Momentaufnahmen Ihres Bildschirms und lässt sich auch nicht einschalten. Die Einstellungen-App zeigt dann „Einige dieser Einstellungen werden von Ihrer Organisation verwaltet“ und sperrt den Schalter.",
       "values": [ { "hive": "HKCU", "key": "Software\\Policies\\Microsoft\\Windows\\WindowsAI", "name": "DisableAIDataAnalysis", "target": 1 } ]
     },
     {
       "id": "diagnosedaten", "title": "Diagnosedaten auf Minimum", "recommended": true,
-      "explanation": "Das ist eine Richtlinie: Windows sendet „nur erforderliche Diagnosedaten“. Die Einstellungen-App zeigt dann „Von deiner Organisation verwaltet“ und sperrt den Schalter.",
+      "explanation": "Das ist eine Richtlinie: Windows sendet „nur erforderliche Diagnosedaten“. Die Einstellungen-App zeigt dann „Einige dieser Einstellungen werden von Ihrer Organisation verwaltet“ und sperrt den Schalter.",
       "effective": { "hive": "HKLM", "key": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection", "name": "AllowTelemetry", "atMost": 1 },
       "values": [ { "hive": "HKLM", "key": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection", "name": "AllowTelemetry", "target": 1 } ]
     }

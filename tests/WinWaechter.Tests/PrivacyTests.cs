@@ -44,7 +44,11 @@ public sealed class PrivacyTests : IDisposable
         Assert.All(p.Single(s => s.Id == "diagnosedaten").Values, x => Assert.Equal(Hive.LocalMachine, x.Hive));
         Assert.Equal("recall", p.Single(s => s.Id == "recall").Requires);
         Assert.All(p.Where(s => s.Id is "websuche" or "recall" or "diagnosedaten"),
-            s => Assert.Contains("Von deiner Organisation verwaltet", s.Explanation));
+            s => Assert.Contains("„Einige dieser Einstellungen werden von Ihrer Organisation verwaltet“", s.Explanation));
+        // UI copy uses "Sie" or impersonal forms, never "du"
+        var duForm = new System.Text.RegularExpressions.Regex(@"\b(du|dich|dir|dein\w*)\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        Assert.All(p, s => Assert.False(duForm.IsMatch(s.Title + " " + s.Explanation), s.Id));
         Assert.True(_rules.IsLeftoverIgnored("Microsoft Office"));
         Assert.True(_rules.IsLeftoverIgnored("common files"));
         Assert.True(_rules.IsLeftoverIgnored(".NET Core"));
