@@ -1,6 +1,14 @@
 # WinWächter – Roadmap
 
-Stand: 2026-11-09 (Version 0.1.1)
+Stand: 2026-11-09 (Version 0.2.0)
+
+## 0.2.0 (veröffentlicht 2026-11-09)
+- [x] Gebaut und geprüft (464 Tests, Einzel- und Gesamtprüfung), Release v0.2.0, Selbst-Update 0.1.1 → 0.2.0 auf dem Rechner
+- [ ] Auf dem Rechner ansehen: neue Optimieren-Gruppen, „Wird frei“-Kachel (hell/dunkel)
+- [ ] Verwaiste Ordner/Einträge: jeden Vorschlag einzeln prüfen, bevor etwas verschoben wird
+- [ ] Datenschutz: zwei Einstellungen anwenden und rückgängig machen
+- [ ] Cache-Bereinigung + Rückgängig innerhalb eines Tages, danach automatisches Leeren prüfen
+Für später (aus den Prüfungen): Browser/Update-Prüfung auch beim Anwenden wiederholen; Browser an anderen Installationsorten (pro Benutzer, Store); `regvalue` ohne Plan (Absturzfenster); Auto-Leeren nur beim App-Start; Startmenü-Unterordner ohne Leserecht werden still übersprungen; fremde Aufgaben mit Benutzervariablen; Gruppensumme zählt auch blockierte Zeilen.
 
 ## Abschlusstest auf dem echten Rechner
 - [x] A: Installieren, Startmenü, „Apps“-Name, Zugriffsrechte `C:\ProgramData\WinWaechter` (2026-11-08)
@@ -15,7 +23,7 @@ Beim Test gefunden und behoben: Start nach Setup (740), zu schnelles Scrollen mi
 
 ## Nach 0.1.x (Entscheidung Nutzer 2026-11-08)
 - Signierte `rules.json` direkt aus dem eigenen GitHub-Repo aktualisieren (ohne neues Release, ohne Drittanbieter-Listen). Defender bleibt die Scan-Engine.
-- Ideen für 0.2.0 (Nutzer noch nicht entschieden): erweiterter Cleaner (Browser-Caches, Update-Cache, alte Installer in Downloads), Deinstallationsreste (verwaiste Ordner/Einträge, kein Registry-Cleaner), Datenschutz-Check, Sicherheits-Check, App-Übersicht, große Dateien/Duplikate, winget-Updates, wöchentliche Prüfung.
+- Weitere Ideen: Sicherheits-Check, App-Übersicht, große Dateien/Duplikate, winget-Updates, wöchentliche Prüfung.
 
 ## Bekannte kleine Punkte
 - Tag `v0.1.1` auf GitHub zeigt auf aa249ae statt 7114d33 (nur Quellcode-ZIP betroffen; Korrektur braucht Force-Push durch den Nutzer).
