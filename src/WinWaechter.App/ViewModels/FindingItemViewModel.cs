@@ -39,9 +39,31 @@ public sealed partial class FindingItemViewModel : ObservableObject
     }
 }
 
-/// <summary>Findings of one area (Autostart, Dienste, Aufgaben, Speicher).</summary>
-public sealed class FindingGroupViewModel(string title, IEnumerable<FindingItemViewModel> items)
+/// <summary>Findings of one heading: an area (Autostart, Dienste, Aufgaben, Speicher) or a FindingGroups group.</summary>
+public sealed class FindingGroupViewModel : ObservableObject
 {
-    public string Title { get; } = title;
-    public ObservableCollection<FindingItemViewModel> Items { get; } = new(items);
+    public FindingGroupViewModel(string title, IEnumerable<FindingItemViewModel> items, string? hint = null)
+    {
+        Title = title;
+        Hint = hint;
+        Items = new(items);
+        Items.CollectionChanged += (_, _) => OnPropertyChanged(nameof(SizeText));
+    }
+
+    public string Title { get; }
+
+    /// <summary>Short note under the title (e.g. for „Verwaiste Ordner“), null for none.</summary>
+    public string? Hint { get; }
+
+    public ObservableCollection<FindingItemViewModel> Items { get; }
+
+    /// <summary>Sum of the item sizes, null when no item has a size.</summary>
+    public string? SizeText
+    {
+        get
+        {
+            var sizes = Items.Select(i => i.Finding.SizeBytes).OfType<long>().ToList();
+            return sizes.Count == 0 ? null : Labels.Size(sizes.Sum());
+        }
+    }
 }

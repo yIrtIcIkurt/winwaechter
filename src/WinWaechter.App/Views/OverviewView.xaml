@@ -1,12 +1,15 @@
 <UserControl x:Class="WinWaechter.App.Views.OverviewView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
     <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
         <StackPanel Margin="48,56,48,32" MaxWidth="900" HorizontalAlignment="Left">
 
             <!-- The one loud element: a plain sentence about the state -->
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
@@ -63,11 +66,20 @@
                 </StackPanel>
                 <Rectangle Grid.Column="5" Width="1" Fill="{DynamicResource Line}" />
 
-                <StackPanel Grid.Column="6" Margin="20,0,0,0">
+                <StackPanel Grid.Column="6" Margin="20,0,16,0">
                     <TextBlock Style="{StaticResource Text.Label}" Text="Offene Vorschläge" />
                     <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding OpenSuggestionsText}" />
                 </StackPanel>
+                <Rectangle Grid.Column="7" Width="1" Fill="{DynamicResource Line}" />
+
+                <StackPanel Grid.Column="8" Margin="20,0,0,0">
+                    <TextBlock Style="{StaticResource Text.Label}" Text="Wird frei" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding FreeText}" />
+                </StackPanel>
             </Grid>
+
+            <TextBlock Margin="0,22,0,0" Style="{StaticResource Text.Small}" Text="{x:Static vm:OverviewViewModel.FreeNote}"
+                       Visibility="{Binding Optimize.HasScanned, Converter={StaticResource Vis}}" />
 
             <TextBlock Margin="0,22,0,0" Style="{StaticResource Text.Small}" Text="{Binding Protect.DefenderNote}"
                        Visibility="{Binding Protect.DefenderNote, Converter={StaticResource Vis}}" />

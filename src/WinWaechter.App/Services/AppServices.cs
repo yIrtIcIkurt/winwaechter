@@ -58,10 +58,17 @@ public sealed class AppServices
         var services = new ServiceScanner(sc, sig, rules, reg, fo);
         var tasks = new TaskScanner(ts, sig, rules, fo);
         var temp = new TempScanner(fo, user);
+        var paths = CleanerPaths.For(user);
+        var procs = new WinProcessList();
+        var cache = new CacheScanner(fo, paths, procs, sc, reg);
+        var leftovers = new LeftoverFolderScanner(fo, reg, rules, procs, sc, ts, LeftoverFolderScanner.DefaultRoots(paths));
         var restore = new RestorePointService();
 
+        // the Downloads folder is resolved per scan, so a moved folder is picked up without a restart
+        IReadOnlyList<Finding> Installers() => new InstallerScanner(fo, sig, DownloadsFolder.Resolve(reg, user)).Scan();
+
         var engine = new OptimizerEngine(
-            new Func<IReadOnlyList<Finding>>[] { autostart.Scan, services.Scan, tasks.Scan, temp.Scan },
+            new Func<IReadOnlyList<Finding>>[] { autostart.Scan, services.Scan, tasks.Scan, temp.Scan, cache.Scan, Installers, leftovers.Scan },
             store, factory, restore.TryCreate);
 
         var heuristics = new HeuristicScanner(new WmiProcessSource(), new TcpTableConnections(), sig, rules,

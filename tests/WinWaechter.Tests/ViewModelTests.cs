@@ -46,8 +46,9 @@ public sealed class ViewModelTests : IDisposable
         public void Inform(string title, string message, IReadOnlyList<string>? items = null) { }
     }
 
-    static Finding F(string id, bool preselected, FindingArea area = FindingArea.Autostart, Rating rating = Rating.Entbehrlich) =>
-        new(id, area, id, "HKCU\\Run\\" + id, ["Grund"], rating, preselected, new NoChange(id));
+    static Finding F(string id, bool preselected, FindingArea area = FindingArea.Autostart, Rating rating = Rating.Entbehrlich,
+        string? group = null, long? size = null) =>
+        new(id, area, id, "HKCU\\Run\\" + id, ["Grund"], rating, preselected, new NoChange(id), SizeBytes: size, Group: group);
 
     OptimizeViewModel Vm(IReadOnlyList<Finding> findings, Func<string, RestorePointResult>? rp = null, IDialogService? dialogs = null)
     {
@@ -425,12 +426,12 @@ public sealed class ViewModelTests : IDisposable
     }
 
     // One Ablage subfolder with a file, named by a temp record with the given status.
-    static void AblageFolder(SessionJournal j, string id, ChangeStatus status, string content)
+    static void AblageFolder(SessionJournal j, string id, ChangeStatus status, string content, string kind = "temp")
     {
         var dir = Path.Combine(j.Context.AblageDir, id);
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "x.tmp"), content);
-        j.Upsert(new ChangeRecord(id, "temp", "t", "Temp", new(), new() { ["ablage"] = dir }, status, DateTimeOffset.Now));
+        j.Upsert(new ChangeRecord(id, kind, "t", "Temp", new(), new() { ["ablage"] = dir }, status, DateTimeOffset.Now));
     }
 
     sealed class ConfirmRecorder : IDialogService
@@ -480,6 +481,113 @@ public sealed class ViewModelTests : IDisposable
         Assert.False(Directory.Exists(old));
         Assert.True(Directory.Exists(fresh));
         Assert.Equal(0, UpdateCleanup.PurgeOld(Path.Combine(_root, "missing"), UpdateCleanup.DefaultMaxAge));
+    }
+
+    // ---- 0.2 groups, "Wird frei", purge dialog ----
+
+    [Fact]
+    public async Task Groups_follow_fixed_order_and_sum_sizes()
+    {
+        var vm = Vm([
+            F("leftover", false, FindingArea.Speicher, Rating.Info, FindingGroups.OrphanFolders, 10),
+            F("edge", true, FindingArea.Speicher, group: FindingGroups.BrowserCache, size: 3),
+            F("chrome", true, FindingArea.Speicher, group: FindingGroups.BrowserCache, size: 4),
+            F("temp", true, FindingArea.Speicher, size: 1),
+            F("auto", true),
+        ]);
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        Assert.Equal(["Autostart", "Speicher", "Browser-Cache", "Verwaiste Ordner"], vm.Groups.Select(g => g.Title));
+        Assert.Equal(Labels.Size(7), vm.Groups.Single(g => g.Title == "Browser-Cache").SizeText);
+        Assert.Equal(LeftoverFolderScanner.GroupHint, vm.Groups.Single(g => g.Title == "Verwaiste Ordner").Hint);
+        Assert.Null(vm.Groups.Single(g => g.Title == "Browser-Cache").Hint);
+        Assert.Null(vm.Groups.Single(g => g.Title == "Autostart").SizeText);
+    }
+
+    [Fact]
+    public void Group_size_updates_when_items_are_removed()
+    {
+        var items = new[] { F("a", true, size: 3), F("b", true, size: 4) }.Select(f => new FindingItemViewModel(f)).ToList();
+        var g = new FindingGroupViewModel("Browser-Cache", items);
+        var changed = new List<string?>();
+        g.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        g.Items.Remove(items[0]);
+
+        Assert.Equal(Labels.Size(4), g.SizeText);
+        Assert.Contains(nameof(FindingGroupViewModel.SizeText), changed);
+    }
+
+    [Fact]
+    public async Task Orphan_entries_group_collects_entries_from_all_areas()
+    {
+        var vm = Vm([
+            F("run", true, FindingArea.Autostart, group: FindingGroups.OrphanEntries),
+            F("svc", true, FindingArea.Dienst, group: FindingGroups.OrphanEntries),
+            F("task", true, FindingArea.Aufgabe, group: FindingGroups.OrphanEntries),
+        ]);
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        var group = Assert.Single(vm.Groups);
+        Assert.Equal("Verwaiste Einträge", group.Title);
+        Assert.Equal(3, group.Items.Count);
+    }
+
+    [Fact]
+    public async Task SelectedBytes_counts_selected_items_with_change()
+    {
+        var noChange = new Finding("nc", FindingArea.Speicher, "nc", @"C:\x", ["Grund"], Rating.Info, true, null, SizeBytes: 9);
+        var vm = Vm([F("five", true, FindingArea.Speicher, size: 5), F("seven", false, FindingArea.Speicher, size: 7), noChange]);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        await vm.ScanCommand.ExecuteAsync(null);
+        Assert.Equal(5, vm.SelectedBytes);
+
+        raised.Clear();
+        vm.AllItems.Single(i => i.Title == "seven").IsSelected = true;
+        Assert.Equal(12, vm.SelectedBytes);
+        Assert.Contains(nameof(OptimizeViewModel.SelectedBytes), raised);
+    }
+
+    [Fact]
+    public async Task Overview_free_text_dash_before_scan_then_size()
+    {
+        var optimize = Vm([F("five", true, FindingArea.Speicher, size: 5), F("seven", false, FindingArea.Speicher, size: 7)]);
+        var update = new UpdateViewModel(new RecordingUpdates([], Path.Combine(_root, "x.exe")), new YesDialogs(), false, () => { }, _gate);
+        var overview = new OverviewViewModel(optimize, Protect(true, Engine()), update, () => { });
+        var raised = new List<string?>();
+        overview.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        Assert.Equal("–", overview.FreeText);
+
+        await optimize.ScanCommand.ExecuteAsync(null);
+        Assert.Equal(Labels.Size(5), overview.FreeText);
+
+        raised.Clear();
+        optimize.AllItems.Single(i => i.Title == "seven").IsSelected = true;
+        Assert.Equal(Labels.Size(12), overview.FreeText);
+        Assert.Contains(nameof(OverviewViewModel.FreeText), raised);
+    }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(-1, null)]
+    [InlineData(1, "Darin enthalten: 1 Programmordner aus „Verwaiste Ordner“.")]
+    [InlineData(3, "Darin enthalten: 3 Programmordner aus „Verwaiste Ordner“.")]
+    public void ProgramFoldersText_wording(int n, string? expected) =>
+        Assert.Equal(expected, HistoryViewModel.ProgramFoldersText(n));
+
+    [Fact]
+    public async Task Purge_dialog_names_program_folders()
+    {
+        var store = new SessionStore(_root);
+        AblageFolder(store.Create("T"), "prog", ChangeStatus.Applied, "12345", kind: "folder");
+        var dialogs = new ConfirmRecorder();
+        var h = new HistoryViewModel(store, Engine(), new AblageJanitor(store), dialogs, true, _gate);
+        await h.RefreshCommand.ExecuteAsync(null);
+
+        await h.PurgeAblageCommand.ExecuteAsync(null);
+
+        Assert.Contains("Darin enthalten: 1 Programmordner", dialogs.LastConfirm);
     }
 
     sealed class CallbackChange(string target, Action onApply) : IChange

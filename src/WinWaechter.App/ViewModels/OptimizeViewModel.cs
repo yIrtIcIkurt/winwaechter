@@ -5,6 +5,7 @@ using WinWaechter.App.Services;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
+using WinWaechter.Core.Optimizer.Storage;
 
 namespace WinWaechter.App.ViewModels;
 
@@ -17,6 +18,13 @@ public sealed partial class OptimizeViewModel : ObservableObject
         (FindingArea.Dienst, "Dienste"),
         (FindingArea.Aufgabe, "Aufgaben"),
         (FindingArea.Speicher, "Speicher"),
+    ];
+
+    // after the area headings; these collect findings by Finding.Group regardless of their area
+    static readonly string[] GroupOrder =
+    [
+        FindingGroups.BrowserCache, FindingGroups.WindowsRemnants, FindingGroups.OldInstallers,
+        FindingGroups.OrphanEntries, FindingGroups.OrphanFolders,
     ];
 
     readonly OptimizerEngine _engine;
@@ -71,6 +79,10 @@ public sealed partial class OptimizeViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ApplyText))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     private int _selectedCount;
+
+    /// <summary>Sum of SizeBytes of the selected items (only items with a change can be selected).</summary>
+    [ObservableProperty]
+    private long _selectedBytes;
 
     [ObservableProperty]
     private string? _lastSummary;
@@ -187,18 +199,26 @@ public sealed partial class OptimizeViewModel : ObservableObject
     {
         _all.Clear();
         Groups.Clear();
+        // unknown group names fall back to the area heading
+        bool InGroup(Finding f) => f.Group is not null && GroupOrder.Contains(f.Group);
         foreach (var (area, title) in Areas)
-        {
-            var items = findings.Where(f => f.Area == area)
-                .OrderByDescending(f => f.Preselected)
-                .ThenBy(f => f.Title, StringComparer.CurrentCultureIgnoreCase)
-                .Select(f => new FindingItemViewModel(f, UpdateSelection))
-                .ToList();
-            if (items.Count == 0) continue;
-            _all.AddRange(items);
-            Groups.Add(new FindingGroupViewModel(title, items));
-        }
+            AddGroup(title, findings.Where(f => f.Area == area && !InGroup(f)));
+        foreach (var group in GroupOrder)
+            AddGroup(group, findings.Where(f => f.Group == group),
+                group == FindingGroups.OrphanFolders ? LeftoverFolderScanner.GroupHint : null);
         AfterItemsChanged();
+    }
+
+    void AddGroup(string title, IEnumerable<Finding> findings, string? hint = null)
+    {
+        var items = findings
+            .OrderByDescending(f => f.Preselected)
+            .ThenBy(f => f.Title, StringComparer.CurrentCultureIgnoreCase)
+            .Select(f => new FindingItemViewModel(f, UpdateSelection))
+            .ToList();
+        if (items.Count == 0) return;
+        _all.AddRange(items);
+        Groups.Add(new FindingGroupViewModel(title, items, hint));
     }
 
     void RemoveItem(FindingItemViewModel item)
@@ -219,5 +239,10 @@ public sealed partial class OptimizeViewModel : ObservableObject
         FindingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    void UpdateSelection() => SelectedCount = _all.Count(i => i.IsSelected);
+    void UpdateSelection()
+    {
+        var selected = _all.Where(i => i.IsSelected && i.CanSelect).ToList();
+        SelectedCount = selected.Count;
+        SelectedBytes = selected.Sum(i => i.Finding.SizeBytes ?? 0);
+    }
 }

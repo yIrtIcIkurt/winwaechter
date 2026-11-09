@@ -119,6 +119,14 @@ public sealed partial class HistoryViewModel : ObservableObject
     internal static string? KeptFoldersText(int n) =>
         n <= 0 ? null : $"{n} Ordner aus unvollständigen Vorgängen bleiben erhalten.";
 
+    /// <summary>Whole program folders (Kind "folder") a purge would delete; named in the purge dialog.</summary>
+    int _programFolders;
+
+    internal static string? ProgramFoldersText(int n) =>
+        n <= 0 ? null
+        : n == 1 ? "Darin enthalten: 1 Programmordner aus „Verwaiste Ordner“."
+        : $"Darin enthalten: {n} Programmordner aus „Verwaiste Ordner“.";
+
     public bool IsEmpty => Sessions.Count == 0;
 
     bool _selectNewestNext;
@@ -156,6 +164,7 @@ public sealed partial class HistoryViewModel : ObservableObject
         AblageBytes = preview.PurgeableBytes;
         AblageText = Labels.Size(preview.PurgeableBytes);
         KeptText = KeptFoldersText(preview.KeptFolders);
+        _programFolders = preview.ProgramFolders;
         OnPropertyChanged(nameof(IsEmpty));
     }
 
@@ -215,6 +224,7 @@ public sealed partial class HistoryViewModel : ObservableObject
     private async Task PurgeAblageAsync()
     {
         var message = $"Alle Dateien in der Ablage ({AblageText}) werden endgültig gelöscht. Danach lassen sich diese Dateien nicht mehr wiederherstellen, auch nicht über den Verlauf.";
+        if (ProgramFoldersText(_programFolders) is { } programs) message += " " + programs;
         if (KeptText is not null) message += " " + KeptText;
         if (!_dialogs.Confirm("Ablage jetzt leeren", message, "Endgültig leeren", final: true))
             return;

@@ -19,6 +19,8 @@ public sealed partial class OverviewViewModel : ObservableObject
         optimize.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(OptimizeViewModel.IsBusy)) { Recompute(); CheckCommand.NotifyCanExecuteChanged(); }
+            else if (e.PropertyName is nameof(OptimizeViewModel.SelectedBytes) or nameof(OptimizeViewModel.HasScanned))
+                OnPropertyChanged(nameof(FreeText));
         };
     }
 
@@ -54,12 +56,18 @@ public sealed partial class OverviewViewModel : ObservableObject
     public int OpenSuggestions => Optimize.FindingCount + Protect.HeuristicCount;
     public string OpenSuggestionsText => Optimize.HasScanned || Protect.HeuristicScanned ? OpenSuggestions.ToString(Labels.De) : "–";
 
+    public const string FreeNote = "Caches werden nach 1 Tag endgültig entfernt, oder sofort über Verlauf → Ablage jetzt leeren.";
+
+    /// <summary>„Wird frei“: size of the selected findings, "–" before a scan.</summary>
+    public string FreeText => Optimize.HasScanned ? Labels.Size(Optimize.SelectedBytes) : "–";
+
     void Recompute()
     {
         OnPropertyChanged(nameof(Statement));
         OnPropertyChanged(nameof(StatementTone));
         OnPropertyChanged(nameof(OpenSuggestions));
         OnPropertyChanged(nameof(OpenSuggestionsText));
+        OnPropertyChanged(nameof(FreeText));
     }
 
     bool CanCheck() => !Optimize.IsBusy;

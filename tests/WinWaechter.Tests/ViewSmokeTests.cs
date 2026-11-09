@@ -85,6 +85,8 @@ public sealed class ViewSmokeTests : IDisposable
             new("b", FindingArea.Aufgabe, "Updater", @"\Vendor\Updater", ["versteckt"], Rating.Info, false, new NoChange("Updater")),
             new("c", FindingArea.Speicher, "Temp", @"C:\Users\x\AppData\Local\Temp", ["älter als 2 Tage"], Rating.Entbehrlich, true,
                 new NoChange("Temp"), SizeBytes: 123_456_789),
+            new("d", FindingArea.Speicher, "OldTool", @"C:\Program Files\OldTool", ["Kein installiertes Programm gefunden"], Rating.Info, false,
+                new NoChange("OldTool"), SizeBytes: 45_678, Group: FindingGroups.OrphanFolders),
         };
         var store = new SessionStore(_root);
         var j = store.Create("Optimierung");
@@ -115,7 +117,7 @@ public sealed class ViewSmokeTests : IDisposable
         protect.HeuristicScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         history.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         update.CheckCommand.ExecuteAsync(null).GetAwaiter().GetResult();
-        Assert.True(optimize.FindingCount == 3 && protect.HeuristicCount == 1 && history.Sessions.Count == 1 && update.IsAvailable);
+        Assert.True(optimize.FindingCount == 4 && protect.HeuristicCount == 1 && history.Sessions.Count == 1 && update.IsAvailable);
 
         foreach (var theme in new[] { "Light", "Dark" })
         {

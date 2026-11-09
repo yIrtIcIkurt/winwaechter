@@ -55,10 +55,21 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="0,8,0,18">
-                                <StackPanel Orientation="Horizontal" Margin="2,0,0,8">
-                                    <TextBlock Style="{StaticResource Text.Section}" Text="{Binding Title}" />
-                                    <TextBlock Margin="10,0,0,0" Style="{StaticResource Text.Label}" VerticalAlignment="Bottom" Padding="0,0,0,2"
-                                               Typography.NumeralAlignment="Tabular" Text="{Binding Items.Count}" />
+                                <StackPanel Margin="2,0,0,8">
+                                    <DockPanel>
+                                        <!-- group total, right-aligned with the row sizes -->
+                                        <TextBlock DockPanel.Dock="Right" Margin="16,0,16,0" VerticalAlignment="Bottom"
+                                                   Style="{StaticResource Text.Readout}" FontSize="{StaticResource SizeSection}"
+                                                   Text="{Binding SizeText}" Visibility="{Binding SizeText, Converter={StaticResource Vis}}" />
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Style="{StaticResource Text.Section}" Text="{Binding Title}" />
+                                            <TextBlock Margin="10,0,0,0" Style="{StaticResource Text.Label}" VerticalAlignment="Bottom" Padding="0,0,0,2"
+                                                       Typography.NumeralAlignment="Tabular" Text="{Binding Items.Count}" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}"
+                                               HorizontalAlignment="Left" Text="{Binding Hint}"
+                                               Visibility="{Binding Hint, Converter={StaticResource Vis}}" />
                                 </StackPanel>
                                 <Border Style="{StaticResource SurfaceBox}">
                                     <ItemsControl ItemsSource="{Binding Items}" Focusable="False" Margin="0,0,0,-1">
