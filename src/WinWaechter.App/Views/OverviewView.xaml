@@ -10,8 +10,6 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Control Style="{StaticResource ToneMark}" Tag="{Binding StatementTone}" Width="14" Height="14"
                          VerticalAlignment="Top" Margin="0,15,18,0" />
@@ -32,6 +30,8 @@
             <Rectangle Margin="0,56,0,0" Style="{StaticResource ScaleRule}" />
             <Grid Margin="0,18,0,0">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />

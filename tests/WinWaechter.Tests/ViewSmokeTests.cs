@@ -134,7 +134,9 @@ public sealed class ViewSmokeTests : IDisposable
                 Source = new Uri($"pack://application:,,,/WinWaechter.App;component/Theme/{theme}.xaml"),
             };
             Layout(new ShellWindow { DataContext = shell }.Content as FrameworkElement);
-            Layout(new OverviewView { DataContext = shell.Overview });
+            var overview = new OverviewView { DataContext = shell.Overview };
+            Layout(overview);
+            AssertFreeReadoutRightOfSuggestions(overview);
             Layout(new OptimizeView { DataContext = optimize });
             Layout(new ProtectView { DataContext = protect });
             Layout(new PrivacyView { DataContext = privacy });
@@ -144,6 +146,27 @@ public sealed class ViewSmokeTests : IDisposable
             Layout(dialog.Content as FrameworkElement);
         }
         app.Shutdown();
+    }
+
+    // "Wird frei" must sit in its own column right of "Offene Vorschläge", not on top of it
+    static void AssertFreeReadoutRightOfSuggestions(FrameworkElement overview)
+    {
+        var labels = FindAll<TextBlock>(overview).ToList();
+        var open = labels.Single(t => t.Text == "Offene Vorschläge");
+        var free = labels.Single(t => t.Text == "Wird frei");
+        double openX = open.TranslatePoint(new Point(0, 0), overview).X;
+        double freeX = free.TranslatePoint(new Point(0, 0), overview).X;
+        Assert.True(freeX > openX + open.ActualWidth, $"Wird frei at {freeX}, Offene Vorschläge at {openX} (+{open.ActualWidth})");
+    }
+
+    static IEnumerable<T> FindAll<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T t) yield return t;
+            foreach (var d in FindAll<T>(child)) yield return d;
+        }
     }
 
     static void Layout(FrameworkElement? e)
