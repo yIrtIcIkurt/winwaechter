@@ -89,9 +89,9 @@ public sealed class OptimizerEngine
         (r.Status == ChangeStatus.Applied || ((r.Status is ChangeStatus.Pending or ChangeStatus.Failed) && r.After.Count > 0))
         && !MovedNothing(r);
 
-    /// <summary>A temp/file record whose Apply found nothing to move.</summary>
+    /// <summary>An Ablage record (temp/file/cache/folder) whose Apply moved nothing (found nothing or a refused folder move).</summary>
     public static bool MovedNothing(ChangeRecord r) =>
-        r.Kind is "temp" or "file" && r.After.GetValueOrDefault("moved") == "0";
+        r.Kind is "temp" or "file" or "cache" or "folder" && r.After.GetValueOrDefault("moved") == "0";
 
     public UndoResult UndoSession(SessionJournal s) =>
         Undo(s, s.Records.Where(IsUndoable).Reverse().ToList());

@@ -29,6 +29,8 @@ public sealed class ChangeFactory : IChangeFactory
         f.Register("task", r => TaskDisableChange.FromRecord(r, ts));
         f.Register("temp", r => MoveToAblageChange.FromRecord(r, fo));
         f.Register("file", r => MoveToAblageChange.FromRecord(r, fo));
+        f.Register("cache", r => MoveToAblageChange.FromRecord(r, fo));
+        f.Register("folder", r => MoveToAblageChange.FromRecord(r, fo));
         f.Register("regvalue", r => RegValueChange.FromRecord(r, reg, rules));
         return f;
     }
