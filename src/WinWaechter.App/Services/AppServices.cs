@@ -51,7 +51,7 @@ public sealed class AppServices
             env.IsElevated ? FileOwner.IsAdminOrSystem : null,
             env.IsElevated ? FileOwner.SetAdmins : null);
         var defender = new DefenderClient(new ProcessRunner(), reg);
-        var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo);
+        var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo, rules);
         DefenderRegistration.Register(factory, defender);
 
         var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);

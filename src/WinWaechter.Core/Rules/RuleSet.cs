@@ -44,6 +44,35 @@ public sealed class RuleSet
         public List<string>? MinerNames { get; set; }
         public List<string>? MinerCommandLine { get; set; }
         public List<int>? PoolPorts { get; set; }
+        public List<string>? LeftoverIgnore { get; set; }
+        public List<PrivacyDto>? Privacy { get; set; }
+    }
+
+    sealed class PrivacyDto
+    {
+        public string? Id { get; set; }
+        public string? Title { get; set; }
+        public string? Explanation { get; set; }
+        public bool Recommended { get; set; }
+        public string? Requires { get; set; }
+        public PrivacyEffectiveDto? Effective { get; set; }
+        public List<PrivacyValueDto>? Values { get; set; }
+    }
+
+    sealed class PrivacyValueDto
+    {
+        public string? Hive { get; set; }
+        public string? Key { get; set; }
+        public string? Name { get; set; }
+        public int Target { get; set; }
+    }
+
+    sealed class PrivacyEffectiveDto
+    {
+        public string? Hive { get; set; }
+        public string? Key { get; set; }
+        public string? Name { get; set; }
+        public int AtMost { get; set; }
     }
 
     sealed class MatcherDto
@@ -72,6 +101,55 @@ public sealed class RuleSet
         _minerNames = (d.MinerNames ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
         _minerCmd = (d.MinerCommandLine ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
         PoolPorts = new HashSet<int>(d.PoolPorts ?? []);
+        LeftoverIgnore = (d.LeftoverIgnore ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
+        Privacy = (d.Privacy ?? []).Select(ToSetting).ToArray();
+    }
+
+    // The fixed list of registry values the privacy feature may ever write.
+    static PrivacySetting ToSetting(PrivacyDto p)
+    {
+        if (string.IsNullOrWhiteSpace(p.Id) || string.IsNullOrWhiteSpace(p.Title) || p.Values is not { Count: > 0 })
+            throw new InvalidDataException("rules.json: ungültiger Eintrag in \"privacy\".");
+        var values = p.Values.Select(v =>
+        {
+            if (string.IsNullOrWhiteSpace(v.Key) || string.IsNullOrWhiteSpace(v.Name))
+                throw new InvalidDataException($"rules.json: Wert ohne Schlüssel/Name in \"{p.Id}\".");
+            return new PrivacyValue(ToHive(v.Hive), v.Key.Trim('\\'), v.Name, v.Target);
+        }).ToArray();
+        PrivacyEffective? eff = null;
+        if (p.Effective is { } e)
+        {
+            if (string.IsNullOrWhiteSpace(e.Key) || string.IsNullOrWhiteSpace(e.Name))
+                throw new InvalidDataException($"rules.json: \"effective\" ohne Schlüssel/Name in \"{p.Id}\".");
+            eff = new PrivacyEffective(ToHive(e.Hive), e.Key.Trim('\\'), e.Name, e.AtMost);
+        }
+        return new PrivacySetting(p.Id, p.Title, p.Explanation ?? "", p.Recommended, p.Requires, values, eff);
+    }
+
+    static Hive ToHive(string? s) => s switch
+    {
+        "HKCU" => Hive.CurrentUser,
+        "HKLM" => Hive.LocalMachine,
+        _ => throw new InvalidDataException($"rules.json: unbekannter Registry-Zweig \"{s}\" (nur HKCU/HKLM)."),
+    };
+
+    /// <summary>Privacy settings (fixed list; the only registry values the privacy feature may write).</summary>
+    public IReadOnlyList<PrivacySetting> Privacy { get; }
+
+    /// <summary>Folder-name patterns the leftover scan skips ("X*" = prefix, else exact).</summary>
+    public IReadOnlyList<string> LeftoverIgnore { get; }
+
+    public bool IsLeftoverIgnored(string folderName) =>
+        LeftoverIgnore.Any(p => p.EndsWith('*')
+            ? folderName.StartsWith(p[..^1], StringComparison.OrdinalIgnoreCase)
+            : string.Equals(folderName, p, StringComparison.OrdinalIgnoreCase));
+
+    public PrivacyValue? FindPrivacyValue(Hive h, string key, string name)
+    {
+        key = key.Trim('\\');
+        return Privacy.SelectMany(s => s.Values).FirstOrDefault(v =>
+            v.Hive == h && string.Equals(v.Key, key, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(v.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 
     static Matcher[] ToMatchers(List<MatcherDto>? list) =>

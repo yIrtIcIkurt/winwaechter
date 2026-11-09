@@ -93,5 +93,83 @@
     "nbminer", "gminer", "teamredminer", "ethminer", "cpuminer", "ccminer", "srbminer", "nanominer"
   ],
   "minerCommandLine": [ "stratum+tcp", "stratum+ssl", "--donate-level", "-a randomx", "--coin" ],
-  "poolPorts": [ 3333, 4444, 5555, 6666, 7777, 8888, 9999, 14433, 14444, 45560, 45700 ]
+  "poolPorts": [ 3333, 4444, 5555, 6666, 7777, 8888, 9999, 14433, 14444, 45560, 45700 ],
+  "leftoverIgnore": [
+    "Microsoft*", "Windows*", "Common Files", "Packages", "Temp", "Programs", "Package Cache", "Comms",
+    "ConnectedDevicesPlatform", "D3DSCache", "PlaceholderTileLogoFolder", "Publishers", "Mozilla", "Google",
+    "Opera Software", "npm", "pip", "uv", "NuGet", "dotnet", ".NET*", "JetBrains", "Steam", "WindowsApps",
+    "ModifiableWindowsApps", "Reference Assemblies", "MSBuild", "Internet Explorer", "Uninstall Information",
+    "Dell", "Intel", "Realtek", "NVIDIA*", "AMD", "Lexware", "Haufe*", "WinWaechter"
+  ],
+  "privacy": [
+    {
+      "id": "werbe-id", "title": "Werbe-ID für Apps", "recommended": true,
+      "explanation": "Apps können damit Werbung auf dich zuschneiden. Ausgeschaltet bekommen Apps keine Werbe-ID mehr.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo", "name": "Enabled", "target": 0 } ]
+    },
+    {
+      "id": "angebote-diagnose", "title": "Maßgeschneiderte Angebote aus Diagnosedaten", "recommended": true,
+      "explanation": "Windows nutzt deine Diagnosedaten, um dir passende Tipps und Werbung zu zeigen. Ausgeschaltet bleibt beides allgemein.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Privacy", "name": "TailoredExperiencesWithDiagnosticDataEnabled", "target": 0 } ]
+    },
+    {
+      "id": "vorschlaege", "title": "Vorschläge in Einstellungen und auf dem Sperrbildschirm", "recommended": true,
+      "explanation": "Blendet Vorschläge, Werbung und Spotlight-Hinweise in den Einstellungen und auf dem Sperrbildschirm aus.",
+      "values": [
+        { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SubscribedContent-338393Enabled", "target": 0 },
+        { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SubscribedContent-353694Enabled", "target": 0 },
+        { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SubscribedContent-353696Enabled", "target": 0 },
+        { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SubscribedContent-338388Enabled", "target": 0 }
+      ]
+    },
+    {
+      "id": "vorschlags-apps", "title": "Automatisch installierte Vorschlags-Apps", "recommended": true,
+      "explanation": "Verhindert, dass Windows ungefragt Vorschlags-Apps nachinstalliert. Bereits installierte Apps bleiben unberührt.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SilentInstalledAppsEnabled", "target": 0 } ]
+    },
+    {
+      "id": "tipps", "title": "Tipps und Hinweise", "recommended": true,
+      "explanation": "Schaltet Tipps, Tricks und Vorschläge von Windows ab.",
+      "values": [
+        { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SubscribedContent-338389Enabled", "target": 0 },
+        { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SoftLandingEnabled", "target": 0 }
+      ]
+    },
+    {
+      "id": "start-empfehlungen", "title": "Empfehlungen im Startmenü", "recommended": true,
+      "explanation": "Blendet den Bereich mit empfohlenen Apps und Dateien im Startmenü aus.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "name": "Start_IrisRecommendations", "target": 0 } ]
+    },
+    {
+      "id": "programmstarts", "title": "Programmstarts verfolgen (für Startmenü)", "recommended": false,
+      "explanation": "Windows merkt sich, welche Programme du startest. Ausgeschaltet verändert sich die Liste „Meistverwendet“ im Startmenü nicht mehr. Daher nicht vorgewählt.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "name": "Start_TrackProgs", "target": 0 } ]
+    },
+    {
+      "id": "websuche", "title": "Bing-/Webvorschläge in der Suche", "recommended": true,
+      "explanation": "Das ist eine Richtlinie: Die Suche zeigt keine Webvorschläge mehr, auch die zuletzt gesuchten Begriffe im Explorer verschwinden. Wirkt nach Neustart des Explorers oder Abmelden. Die Einstellungen-App zeigt dann „Von deiner Organisation verwaltet“ und sperrt den Schalter.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Policies\\Microsoft\\Windows\\Explorer", "name": "DisableSearchBoxSuggestions", "target": 1 } ]
+    },
+    {
+      "id": "sprachliste", "title": "Sprachliste für Websites", "recommended": true,
+      "explanation": "Websites erfahren nicht mehr, welche Sprachen du eingerichtet hast.",
+      "values": [ { "hive": "HKCU", "key": "Control Panel\\International\\User Profile", "name": "HttpAcceptLanguageOptOut", "target": 1 } ]
+    },
+    {
+      "id": "feedback", "title": "Feedback-Abfragen", "recommended": true,
+      "explanation": "Windows fragt dich nicht mehr nach Feedback.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Siuf\\Rules", "name": "NumberOfSIUFInPeriod", "target": 0 } ]
+    },
+    {
+      "id": "recall", "title": "Recall (Momentaufnahmen speichern)", "recommended": true, "requires": "recall",
+      "explanation": "Das ist eine Richtlinie: Recall speichert keine Momentaufnahmen deines Bildschirms und lässt sich auch nicht einschalten. Die Einstellungen-App zeigt dann „Von deiner Organisation verwaltet“ und sperrt den Schalter.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Policies\\Microsoft\\Windows\\WindowsAI", "name": "DisableAIDataAnalysis", "target": 1 } ]
+    },
+    {
+      "id": "diagnosedaten", "title": "Diagnosedaten auf Minimum", "recommended": true,
+      "explanation": "Das ist eine Richtlinie: Windows sendet „nur erforderliche Diagnosedaten“. Die Einstellungen-App zeigt dann „Von deiner Organisation verwaltet“ und sperrt den Schalter.",
+      "effective": { "hive": "HKLM", "key": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection", "name": "AllowTelemetry", "atMost": 1 },
+      "values": [ { "hive": "HKLM", "key": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection", "name": "AllowTelemetry", "target": 1 } ]
+    }
+  ]
 }

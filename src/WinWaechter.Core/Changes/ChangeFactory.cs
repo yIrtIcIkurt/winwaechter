@@ -1,5 +1,7 @@
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer.Autostart;
+using WinWaechter.Core.Privacy;
+using WinWaechter.Core.Rules;
 using WinWaechter.Core.Optimizer.Services;
 using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Optimizer.Tasks;
@@ -19,7 +21,7 @@ public sealed class ChangeFactory : IChangeFactory
             ? f(r)
             : throw new InvalidOperationException($"Unbekannte Änderungsart \"{r.Kind}\" – kann nicht rückgängig gemacht werden.");
 
-    public static ChangeFactory CreateDefault(IRegistry reg, IServiceControl sc, ITaskStore ts, IFileOps fo)
+    public static ChangeFactory CreateDefault(IRegistry reg, IServiceControl sc, ITaskStore ts, IFileOps fo, RuleSet rules)
     {
         var f = new ChangeFactory();
         f.Register("autostart", r => StartupApprovedChange.FromRecord(r, reg));
@@ -27,6 +29,7 @@ public sealed class ChangeFactory : IChangeFactory
         f.Register("task", r => TaskDisableChange.FromRecord(r, ts));
         f.Register("temp", r => MoveToAblageChange.FromRecord(r, fo));
         f.Register("file", r => MoveToAblageChange.FromRecord(r, fo));
+        f.Register("regvalue", r => RegValueChange.FromRecord(r, reg, rules));
         return f;
     }
 }
