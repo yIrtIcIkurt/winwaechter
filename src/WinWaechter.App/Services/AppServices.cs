@@ -57,7 +57,7 @@ public sealed class AppServices
 
         var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);
         var services = new ServiceScanner(sc, sig, rules, reg, fo);
-        var tasks = new TaskScanner(ts, sig, rules, fo);
+        var tasks = new TaskScanner(ts, sig, rules, fo, user);
         var temp = new TempScanner(fo, user);
         var paths = CleanerPaths.For(user);
         var procs = new WinProcessList();

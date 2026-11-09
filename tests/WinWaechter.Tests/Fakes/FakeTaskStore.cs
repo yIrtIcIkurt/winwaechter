@@ -20,8 +20,8 @@ public sealed class FakeTaskStore : ITaskStore
     }
 
     public FakeTaskStore Add(string path, bool enabled = true, bool hidden = false,
-        string? actionExe = null, string? actionArgs = null, string? author = null) =>
-        Add(new TaskInfo(path, path[(path.LastIndexOf('\\') + 1)..], enabled, hidden, actionExe, actionArgs, author));
+        string? actionExe = null, string? actionArgs = null, string? author = null, string? userId = null) =>
+        Add(new TaskInfo(path, path[(path.LastIndexOf('\\') + 1)..], enabled, hidden, actionExe, actionArgs, author, userId));
 
     public bool Remove(string path)
     {

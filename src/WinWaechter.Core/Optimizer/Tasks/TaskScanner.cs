@@ -11,10 +11,11 @@ public sealed class TaskScanner
     readonly ISignatureVerifier _sig;
     readonly RuleSet _rules;
     readonly IFileOps _files;
+    readonly IUserContext _user;
 
-    public TaskScanner(ITaskStore store, ISignatureVerifier sig, RuleSet rules, IFileOps files)
+    public TaskScanner(ITaskStore store, ISignatureVerifier sig, RuleSet rules, IFileOps files, IUserContext user)
     {
-        _store = store; _sig = sig; _rules = rules; _files = files;
+        _store = store; _sig = sig; _rules = rules; _files = files; _user = user;
     }
 
     public IReadOnlyList<Finding> Scan()
@@ -26,9 +27,13 @@ public sealed class TaskScanner
             if (!t.Enabled || t.Path.StartsWith(@"\Microsoft\", StringComparison.OrdinalIgnoreCase)) continue;
 
             var location = $"{t.ActionExe} {t.ActionArgs}".Trim();
-            var exe = string.IsNullOrWhiteSpace(t.ActionExe)
+            // per-user variables only resolve reliably for tasks that run as the interactive user;
+            // for any other task the presence of its program stays unknown (never an orphan)
+            var ownTask = !PathNormalizer.HasUserVariable(t.ActionExe) || RunsAsInteractiveUser(t);
+            var action = ownTask && t.ActionExe is not null ? PathNormalizer.ExpandUserVariables(t.ActionExe, _user) : t.ActionExe;
+            var exe = string.IsNullOrWhiteSpace(action)
                 ? null
-                : PathNormalizer.NormalizePath(CommandLineParser.ExtractExePath(t.ActionExe) ?? t.ActionExe);
+                : PathNormalizer.NormalizePath(CommandLineParser.ExtractExePath(action) ?? action);
 
             var change = new TaskDisableChange(_store, t.Path);
             var id = $"task|{t.Path}";
@@ -45,7 +50,7 @@ public sealed class TaskScanner
 
             if (IsUnder(exe, windows)) continue;
 
-            if (OrphanRules.IsOrphan(exe, _files, windows))
+            if (ownTask && OrphanRules.IsOrphan(exe, _files, windows, _user))
             {
                 // Program file is gone: no signature to check, only the protected list can veto.
                 if (_rules.Classify(new ItemFacts(t.Name, exe, t.Author, location)) == RuleVerdict.Protected) continue;
@@ -103,6 +108,22 @@ public sealed class TaskScanner
                 Publisher: sig.Publisher));
         }
         return result;
+    }
+
+    // Principal (or, without one, the author) names the interactive user, as SID or account name.
+    bool RunsAsInteractiveUser(TaskInfo t)
+    {
+        var id = string.IsNullOrWhiteSpace(t.UserId) ? t.Author : t.UserId;
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        id = id.Trim();
+        if (string.Equals(id, _user.Sid, StringComparison.OrdinalIgnoreCase)) return true;
+        if (id.StartsWith("S-1-", StringComparison.OrdinalIgnoreCase)) return false;
+        try
+        {
+            var sid = new System.Security.Principal.NTAccount(id).Translate(typeof(System.Security.Principal.SecurityIdentifier));
+            return string.Equals(sid.Value, _user.Sid, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception) { return false; } // unknown account name
     }
 
     static bool IsUnder(string path, string dir) =>

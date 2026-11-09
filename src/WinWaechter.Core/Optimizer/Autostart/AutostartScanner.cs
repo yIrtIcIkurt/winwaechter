@@ -38,7 +38,9 @@ public sealed class AutostartScanner
         foreach (var name in _reg.ValueNames(hive, runKey))
         {
             if (_reg.Get(hive, runKey, name) is not string cmd || string.IsNullOrWhiteSpace(cmd)) continue;
-            Add(result, hive, approvedSub, name, name, cmd, CommandLineParser.ExtractExePath(cmd));
+            // per-user variables belong to the interactive user, not the elevated process user
+            Add(result, hive, approvedSub, name, name, cmd,
+                CommandLineParser.ExtractExePath(PathNormalizer.ExpandUserVariables(cmd, _user)));
         }
     }
 
@@ -60,7 +62,7 @@ public sealed class AutostartScanner
         string location, string? exe)
     {
         // A missing program file has no signature to check.
-        var orphan = OrphanRules.IsOrphan(exe, _files, Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+        var orphan = OrphanRules.IsOrphan(exe, _files, Environment.GetFolderPath(Environment.SpecialFolder.Windows), _user);
         SignatureInfo? sig = null;
         if (!orphan && !string.IsNullOrWhiteSpace(exe))
             try { sig = _sig.Verify(exe); } catch { sig = null; }

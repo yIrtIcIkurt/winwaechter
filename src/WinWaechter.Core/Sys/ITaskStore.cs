@@ -1,6 +1,8 @@
 namespace WinWaechter.Core.Sys;
 
-public sealed record TaskInfo(string Path, string Name, bool Enabled, bool Hidden, string? ActionExe, string? ActionArgs, string? Author);
+// UserId: the account the task runs as (principal), as stored by Task Scheduler (SID or name); null if unknown.
+public sealed record TaskInfo(string Path, string Name, bool Enabled, bool Hidden, string? ActionExe, string? ActionArgs, string? Author,
+    string? UserId = null);
 
 public interface ITaskStore
 {

@@ -18,7 +18,7 @@ public sealed class TaskTests : IDisposable
     public TaskTests() => Directory.CreateDirectory(_root);
     public void Dispose() { try { Directory.Delete(_root, true); } catch { } }
 
-    TaskScanner Scanner() => new(_store, _sig, RuleSet.Default, _files);
+    TaskScanner Scanner() => new(_store, _sig, RuleSet.Default, _files, new FakeUserContext(_root));
     SessionContext Ctx() => new(Path.Combine(_root, "session"));
     TaskDisableChange Change(string path = @"\CuaDriver") => new(_store, path);
 

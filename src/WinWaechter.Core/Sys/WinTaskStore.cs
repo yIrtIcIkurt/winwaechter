@@ -83,6 +83,6 @@ public sealed class WinTaskStore : ITaskStore
         var exec = def.Actions.OfType<ExecAction>().FirstOrDefault();
         return new TaskInfo(t.Path, t.Name, t.Enabled, def.Settings.Hidden,
             exec?.Path, string.IsNullOrEmpty(exec?.Arguments) ? null : exec.Arguments,
-            def.RegistrationInfo.Author);
+            def.RegistrationInfo.Author, string.IsNullOrWhiteSpace(def.Principal.UserId) ? null : def.Principal.UserId);
     }
 }
