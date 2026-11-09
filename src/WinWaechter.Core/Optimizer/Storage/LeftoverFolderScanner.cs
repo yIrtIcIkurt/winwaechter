@@ -7,8 +7,8 @@ namespace WinWaechter.Core.Optimizer.Storage;
 /// <summary>
 /// Offers top-level program folders that no installed program claims any more (never preselected, Info).
 /// Deliberately conservative: when in doubt a folder is kept, and nothing is offered at all when any
-/// source (uninstall entries, Appx list, processes, services, tasks, Run keys) cannot be read completely
-/// or the native HKLM Uninstall key yields no entry.
+/// source (uninstall entries, Appx list, processes, services, tasks, Run keys, Start Menu and Startup
+/// shortcuts, System/User PATH) cannot be read completely or the native HKLM Uninstall key yields no entry.
 /// </summary>
 public sealed class LeftoverFolderScanner
 {
@@ -22,7 +22,15 @@ public sealed class LeftoverFolderScanner
     readonly IProcessList _procs;
     readonly IServiceControl _services;
     readonly ITaskStore _tasks;
+    readonly IUserContext _user;
+    readonly IShortcutResolver _lnk;
     readonly IReadOnlyList<string> _roots;
+
+    static readonly (Hive Hive, string Key)[] PathKeys =
+    [
+        (Hive.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+        (Hive.CurrentUser, "Environment"),
+    ];
 
     static readonly (Hive Hive, string Key)[] RunKeys =
     [
@@ -34,9 +42,11 @@ public sealed class LeftoverFolderScanner
         (Hive.LocalMachine, @"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce"),
     ];
 
-    public LeftoverFolderScanner(IFileOps f, IRegistry reg, RuleSet rules, IProcessList procs, IServiceControl services, ITaskStore tasks, IReadOnlyList<string> roots)
+    public LeftoverFolderScanner(IFileOps f, IRegistry reg, RuleSet rules, IProcessList procs, IServiceControl services, ITaskStore tasks,
+        IUserContext user, IShortcutResolver lnk, IReadOnlyList<string> roots)
     {
-        _files = f; _reg = reg; _rules = rules; _procs = procs; _services = services; _tasks = tasks; _roots = roots;
+        _files = f; _reg = reg; _rules = rules; _procs = procs; _services = services; _tasks = tasks;
+        _user = user; _lnk = lnk; _roots = roots;
     }
 
     /// <summary>Program Files (64/32 bit) and the per-user Programs folder; AppData and ProgramData are never scanned.</summary>
@@ -102,6 +112,12 @@ public sealed class LeftoverFolderScanner
             foreach (var (h, key) in RunKeys)
                 foreach (var name in _reg.ValueNames(h, key))
                     raw.Add(_reg.Get(h, key, name) as string);
+            foreach (var lnk in ShortcutFiles()) raw.Add(_lnk.ResolveTarget(lnk));
+            // PATH entries are folders: a trailing "\" lets "<dir>\" match the entry itself
+            foreach (var (h, key) in PathKeys)
+                if (_reg.Get(h, key, "Path") is string path)
+                    foreach (var entry in path.Split(';'))
+                        if (entry.Trim().Trim('"') is { Length: > 0 } e) raw.Add(e.TrimEnd('\\') + "\\");
         }
         catch (Exception) { return null; }
 
@@ -111,8 +127,34 @@ public sealed class LeftoverFolderScanner
             used.Add(r!);
             used.Add(PathNormalizer.NormalizePath(r!));
             used.Add(Environment.ExpandEnvironmentVariables(r!));
+            // per-user variables as the interactive user sees them (the process may run as another account)
+            var forUser = PathNormalizer.ExpandUserVariables(r!, _user);
+            used.Add(Environment.ExpandEnvironmentVariables(forUser));
+            used.Add(PathNormalizer.NormalizeForUser(r!, _user));
         }
         return used;
+    }
+
+    // .lnk files in both Start Menu "Programs" folders (recursive, Startup included). The Startup folders
+    // sit directly below them. Any enumeration error propagates, so the caller offers nothing.
+    List<string> ShortcutFiles()
+    {
+        var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var startup in new[] { _user.StartupDir, _user.CommonStartupDir })
+        {
+            if (string.IsNullOrWhiteSpace(startup)) continue;
+            Walk(startup, found);
+            if (Path.GetDirectoryName(startup.TrimEnd('\\')) is { Length: > 0 } programs) Walk(programs, found);
+        }
+        return found.ToList();
+    }
+
+    void Walk(string dir, HashSet<string> found)
+    {
+        foreach (var f in _files.EnumerateTopLevel(dir))
+            if (f.Extension.Equals(".lnk", StringComparison.OrdinalIgnoreCase)) found.Add(f.FullName);
+        foreach (var d in _files.EnumerateTopLevelDirs(dir))
+            if ((d.Attributes & FileAttributes.ReparsePoint) == 0) Walk(d.FullName, found);
     }
 
     IReadOnlyList<DirectoryInfo> SafeDirs(string root)

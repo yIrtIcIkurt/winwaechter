@@ -19,11 +19,14 @@ public sealed class LeftoverTests : IDisposable
     readonly FakeProcessList _procs = new();
     readonly FakeServiceControl _services = new();
     readonly FakeTaskStore _tasks = new();
+    readonly FakeShortcutResolver _lnk = new();
+    readonly FakeUserContext _user;
 
     public LeftoverTests()
     {
         _pf = Path.Combine(_root, "pf");
         Directory.CreateDirectory(_pf);
+        _user = new FakeUserContext(Path.Combine(_root, "user"));
         _reg.Seed(Hive.LocalMachine, Uninstall + @"\{Bar}", "DisplayName", "Bar Studio 2.1");
         _reg.Seed(Hive.LocalMachine, Uninstall + @"\{Bar}", "Publisher", "Baz Ltd");
     }
@@ -49,7 +52,72 @@ public sealed class LeftoverTests : IDisposable
     }
 
     IReadOnlyList<Finding> Scan(RuleSet? rules = null, IRegistry? reg = null) =>
-        new LeftoverFolderScanner(_files, reg ?? _reg, rules ?? RuleSet.Default, _procs, _services, _tasks, [_pf]).Scan();
+        new LeftoverFolderScanner(_files, reg ?? _reg, rules ?? RuleSet.Default, _procs, _services, _tasks, _user, _lnk, [_pf]).Scan();
+
+    // Writes an (empty) .lnk file and lets the fake resolver point it at target.
+    void Shortcut(string lnkPath, string target)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(lnkPath)!);
+        File.WriteAllBytes(lnkPath, [0]);
+        _lnk.Set(lnkPath, target);
+    }
+
+    string UserPrograms => Path.GetDirectoryName(_user.StartupDir)!;
+    string CommonPrograms => Path.GetDirectoryName(_user.CommonStartupDir)!;
+    const string SystemEnv = @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
+
+    [Fact]
+    public void Folder_targeted_by_a_start_menu_or_startup_shortcut_is_kept()
+    {
+        var a = Make("Foo", "foo.exe");
+        var b = Make("Qux", "qux.exe");
+        var c = Make("Zed", "zed.exe");
+        var d = Make("Wob", "wob.exe");
+        Make("Lonely", "lonely.exe");
+        Shortcut(Path.Combine(UserPrograms, "Foo Tools", "Sub", "Foo.lnk"), Path.Combine(a, "foo.exe"));
+        Shortcut(Path.Combine(CommonPrograms, "Qux.lnk"), Path.Combine(b, "qux.exe"));
+        Shortcut(Path.Combine(_user.StartupDir, "Zed.lnk"), Path.Combine(c, "zed.exe"));
+        Shortcut(Path.Combine(_user.CommonStartupDir, "Wob.lnk"), Path.Combine(d, "wob.exe"));
+
+        Assert.Equal("Lonely", Assert.Single(Scan()).Title);
+    }
+
+    [Fact]
+    public void Unreadable_start_menu_means_no_leftover_findings()
+    {
+        Make("Foo", "foo.exe");
+        Directory.CreateDirectory(UserPrograms);
+        _files.UnreadableDirs.Add(UserPrograms);
+
+        Assert.Empty(Scan());
+    }
+
+    [Fact]
+    public void Folder_on_system_or_user_PATH_is_kept()
+    {
+        var sys = Make("Tool", "tool.exe");
+        Make("Mine", "mine.exe");
+        Make("Lonely", "lonely.exe");
+        _reg.Seed(Hive.LocalMachine, SystemEnv, "Path", $@"C:\Windows\system32;{sys};", Microsoft.Win32.RegistryValueKind.ExpandString);
+        // per-user variable resolved for the interactive user (whose profile is _root\user)
+        _reg.Seed(Hive.CurrentUser, "Environment", "Path", @"%USERPROFILE%\..\pf\Mine\bin", Microsoft.Win32.RegistryValueKind.ExpandString);
+
+        Assert.Equal("Lonely", Assert.Single(Scan()).Title);
+    }
+
+    [Fact]
+    public void Nodejs_without_install_location_but_on_PATH_is_kept()
+    {
+        _reg.Seed(Hive.LocalMachine, Uninstall + @"\{Node}", "DisplayName", "Node.js");
+        _reg.Seed(Hive.LocalMachine, Uninstall + @"\{Node}", "Publisher", "Node.js Foundation");
+        var dir = Make("nodejs", "node.exe");
+
+        // the name alone does not match "Node.js"
+        Assert.Equal("nodejs", Assert.Single(Scan()).Title);
+
+        _reg.Seed(Hive.LocalMachine, SystemEnv, "Path", $@"C:\Windows;{dir}\", Microsoft.Win32.RegistryValueKind.ExpandString);
+        Assert.Empty(Scan());
+    }
 
     // Default rules with an empty leftoverIgnore list: only the protected list can block a folder then.
     RuleSet RulesWithoutIgnoreList()

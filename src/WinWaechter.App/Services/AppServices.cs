@@ -62,7 +62,7 @@ public sealed class AppServices
         var paths = CleanerPaths.For(user);
         var procs = new WinProcessList();
         var cache = new CacheScanner(fo, paths, procs, sc, reg);
-        var leftovers = new LeftoverFolderScanner(fo, reg, rules, procs, sc, ts, LeftoverFolderScanner.DefaultRoots(paths));
+        var leftovers = new LeftoverFolderScanner(fo, reg, rules, procs, sc, ts, user, lnk, LeftoverFolderScanner.DefaultRoots(paths));
         var restore = new RestorePointService();
 
         // the Downloads folder is resolved per scan, so a moved folder is picked up without a restart

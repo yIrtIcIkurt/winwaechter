@@ -33,6 +33,17 @@ public sealed class FakeFileOps : IFileOps
     /// <summary>Exists reports true for everything (scanner tests with made-up program paths).</summary>
     public bool ReportAllPresent { get; set; }
 
+    /// <summary>Enumerating one of these folders (or anything below it) throws UnauthorizedAccessException.</summary>
+    public HashSet<string> UnreadableDirs { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    void ThrowIfUnreadable(string dir)
+    {
+        var full = Path.GetFullPath(dir).TrimEnd('\\');
+        if (UnreadableDirs.Any(u => full.Equals(u.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
+                || full.StartsWith(u.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)))
+            throw new UnauthorizedAccessException($"Zugriff verweigert: {dir}");
+    }
+
     readonly WinFileOps _real = new();
 
     public bool IsVolumeReady(string path)
@@ -42,7 +53,11 @@ public sealed class FakeFileOps : IFileOps
         return !string.IsNullOrEmpty(root) && !root.StartsWith(@"\\", StringComparison.Ordinal) && !NotReady.Contains(root);
     }
 
-    public IEnumerable<DirectoryInfo> EnumerateTopLevelDirs(string dir) => _real.EnumerateTopLevelDirs(dir).ToList();
+    public IEnumerable<DirectoryInfo> EnumerateTopLevelDirs(string dir)
+    {
+        ThrowIfUnreadable(dir);
+        return _real.EnumerateTopLevelDirs(dir).ToList();
+    }
 
     public FolderFacts? InspectFolder(string dir)
     {
@@ -68,6 +83,7 @@ public sealed class FakeFileOps : IFileOps
 
     public IEnumerable<FileInfo> EnumerateOlderThan(string dir, TimeSpan age)
     {
+        ThrowIfUnreadable(dir);
         if (!Directory.Exists(dir)) return [];
         var cutoff = DateTime.UtcNow - age;
         return new DirectoryInfo(dir)
@@ -76,10 +92,13 @@ public sealed class FakeFileOps : IFileOps
             .ToList();
     }
 
-    public IEnumerable<FileInfo> EnumerateTopLevel(string dir) =>
-        Directory.Exists(dir)
+    public IEnumerable<FileInfo> EnumerateTopLevel(string dir)
+    {
+        ThrowIfUnreadable(dir);
+        return Directory.Exists(dir)
             ? new DirectoryInfo(dir).EnumerateFiles("*", new EnumerationOptions { AttributesToSkip = 0 }).ToList()
             : [];
+    }
 
     public void Move(string src, string dst)
     {
