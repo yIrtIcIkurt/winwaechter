@@ -6,5 +6,8 @@ public sealed class FakeProcessList(params RunningProcess[] processes) : IProces
 {
     public List<RunningProcess> List { get; } = [.. processes];
 
-    public IReadOnlyList<RunningProcess> Snapshot() => List.ToList();
+    /// <summary>When set, Snapshot throws it.</summary>
+    public Exception? Throw { get; set; }
+
+    public IReadOnlyList<RunningProcess> Snapshot() => Throw is { } e ? throw e : List.ToList();
 }

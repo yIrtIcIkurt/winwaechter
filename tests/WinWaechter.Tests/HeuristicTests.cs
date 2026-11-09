@@ -16,6 +16,8 @@ public sealed class HeuristicTests : IDisposable
     readonly FakeServiceControl _services = new();
     readonly FakeRegistry _reg = new();
     readonly FakeFileOps _files = new();
+    // persistence scanners: test programs need not exist on disk (orphan check)
+    readonly FakeFileOps _present = new() { ReportAllPresent = true };
     readonly FakeUserContext _user;
     readonly FakeProcesses _procs = new();
     readonly FakeConnections _conns = new();
@@ -42,9 +44,9 @@ public sealed class HeuristicTests : IDisposable
     }
 
     HeuristicScanner Scanner() => new(_procs, _conns, _sig, RuleSet.Default, _user, _files,
-        new AutostartScanner(_reg, _user, _sig, RuleSet.Default, _files, new FakeShortcutResolver()),
-        new TaskScanner(_tasks, _sig, RuleSet.Default),
-        new ServiceScanner(_services, _sig, RuleSet.Default, _reg));
+        new AutostartScanner(_reg, _user, _sig, RuleSet.Default, _present, new FakeShortcutResolver()),
+        new TaskScanner(_tasks, _sig, RuleSet.Default, _present),
+        new ServiceScanner(_services, _sig, RuleSet.Default, _reg, _present));
 
     Task<IReadOnlyList<Finding>> Scan() => Scanner().ScanAsync(null, CancellationToken.None);
 

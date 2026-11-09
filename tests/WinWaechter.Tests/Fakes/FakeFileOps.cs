@@ -30,6 +30,9 @@ public sealed class FakeFileOps : IFileOps
 
     public List<(string Src, string Dst)> DirMoveCalls { get; } = [];
 
+    /// <summary>Exists reports true for everything (scanner tests with made-up program paths).</summary>
+    public bool ReportAllPresent { get; set; }
+
     readonly WinFileOps _real = new();
 
     public bool IsVolumeReady(string path)
@@ -89,7 +92,7 @@ public sealed class FakeFileOps : IFileOps
         File.Move(src, dst, overwrite: false);
     }
 
-    public bool Exists(string path) => File.Exists(path) || Directory.Exists(path);
+    public bool Exists(string path) => ReportAllPresent || File.Exists(path) || Directory.Exists(path);
 
     public bool HasReparsePointInChain(string path, string stopAtRoot)
     {

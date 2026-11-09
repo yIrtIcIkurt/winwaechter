@@ -12,12 +12,13 @@ public sealed class TaskTests : IDisposable
 {
     readonly string _root = Path.Combine(Path.GetTempPath(), "ww-tasks-" + Guid.NewGuid().ToString("N"));
     readonly FakeTaskStore _store = new();
+    readonly FakeFileOps _files = new() { ReportAllPresent = true };
     readonly FakeSignatures _sig = new();
 
     public TaskTests() => Directory.CreateDirectory(_root);
     public void Dispose() { try { Directory.Delete(_root, true); } catch { } }
 
-    TaskScanner Scanner() => new(_store, _sig, RuleSet.Default);
+    TaskScanner Scanner() => new(_store, _sig, RuleSet.Default, _files);
     SessionContext Ctx() => new(Path.Combine(_root, "session"));
     TaskDisableChange Change(string path = @"\CuaDriver") => new(_store, path);
 

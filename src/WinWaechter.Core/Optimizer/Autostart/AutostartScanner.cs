@@ -59,8 +59,10 @@ public sealed class AutostartScanner
     void Add(List<Finding> result, Hive hive, string approvedSub, string valueName, string title,
         string location, string? exe)
     {
+        // A missing program file has no signature to check.
+        var orphan = OrphanRules.IsOrphan(exe, _files, Environment.GetFolderPath(Environment.SpecialFolder.Windows));
         SignatureInfo? sig = null;
-        if (!string.IsNullOrWhiteSpace(exe))
+        if (!orphan && !string.IsNullOrWhiteSpace(exe))
             try { sig = _sig.Verify(exe); } catch { sig = null; }
 
         var verdict = _rules.Classify(new ItemFacts(title, exe, sig?.Publisher, location));
@@ -70,14 +72,18 @@ public sealed class AutostartScanner
         var status = ReadStatus(hive, approvedKey, valueName);
         var id = $"autostart|{(hive == Hive.CurrentUser ? "HKCU" : "HKLM")}|{approvedSub}|{valueName}";
 
-        var reasons = new List<string>
+        var reasons = orphan ? [OrphanRules.OrphanReason] : new List<string>
         {
             sig is not null ? SignatureReason(sig) : "Signatur: Programmdatei nicht ermittelbar",
         };
 
         Rating rating;
         bool preselect;
-        switch (verdict)
+        if (orphan)
+        {
+            rating = Rating.Entbehrlich; preselect = true;
+        }
+        else switch (verdict)
         {
             case RuleVerdict.Expendable:
                 rating = Rating.Entbehrlich; preselect = true; reasons.Add("Entbehrlicher Autostart laut Regelliste"); break;
@@ -102,7 +108,7 @@ public sealed class AutostartScanner
         }
 
         result.Add(new Finding(id, FindingArea.Autostart, title, location, reasons, rating, preselect, change,
-            Publisher: sig?.Publisher));
+            Publisher: sig?.Publisher, Group: orphan ? FindingGroups.OrphanEntries : null));
     }
 
     enum ApprovedStatus { Enabled, Disabled, Unclear }

@@ -55,8 +55,8 @@ public sealed class AppServices
         DefenderRegistration.Register(factory, defender);
 
         var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);
-        var services = new ServiceScanner(sc, sig, rules, reg);
-        var tasks = new TaskScanner(ts, sig, rules);
+        var services = new ServiceScanner(sc, sig, rules, reg, fo);
+        var tasks = new TaskScanner(ts, sig, rules, fo);
         var temp = new TempScanner(fo, user);
         var restore = new RestorePointService();
 

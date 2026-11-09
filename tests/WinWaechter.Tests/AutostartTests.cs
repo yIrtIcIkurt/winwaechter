@@ -17,6 +17,7 @@ public sealed class AutostartTests : IDisposable
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "ww-autostart-" + Guid.NewGuid().ToString("N"));
     readonly FakeRegistry _reg = new();
+    readonly FakeFileOps _files = new() { ReportAllPresent = true };
     readonly FakeSignatures _sig = new();
     readonly FakeShortcutResolver _lnk = new();
     readonly FakeUserContext _user;
@@ -29,7 +30,7 @@ public sealed class AutostartTests : IDisposable
 
     public void Dispose() { try { Directory.Delete(_root, true); } catch { } }
 
-    AutostartScanner Scanner() => new(_reg, _user, _sig, RuleSet.Default, new FakeFileOps(), _lnk);
+    AutostartScanner Scanner() => new(_reg, _user, _sig, RuleSet.Default, _files, _lnk);
     SessionContext Ctx() => new(Path.Combine(_root, "session"));
 
     static byte[] Bytes(byte b0) { var x = new byte[12]; x[0] = b0; return x; }

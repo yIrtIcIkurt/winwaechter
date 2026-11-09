@@ -97,6 +97,19 @@ public sealed class CacheScannerTests : IDisposable
     }
 
     [Fact]
+    public void Failing_process_snapshot_fails_closed_as_browser_running()
+    {
+        SeedEdge();
+        _procs.Throw = new InvalidOperationException("snapshot failed");
+
+        var f = Only("Browser-Cache Edge");
+
+        Assert.Null(f.Change);
+        Assert.Equal(Rating.Info, f.Rating);
+        Assert.False(f.Preselected);
+    }
+
+    [Fact]
     public void Webview2_does_not_block_edge()
     {
         SeedEdge();

@@ -171,10 +171,15 @@ public sealed class CacheScanner
 
     // ---- result ----
 
+    // Fail closed: if the process list cannot be read, every browser counts as running.
     IReadOnlyList<RunningProcess> SafeSnapshot()
     {
         try { return _procs.Snapshot(); }
-        catch (Exception) { return []; }
+        catch (Exception)
+        {
+            return new[] { "msedge.exe", "chrome.exe", "opera.exe", "firefox.exe" }
+                .Select(n => new RunningProcess(n, null)).ToList();
+        }
     }
 
     static void Add(List<Finding> result, Target t)

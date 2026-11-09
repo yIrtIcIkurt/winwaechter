@@ -10,10 +10,11 @@ public sealed class TaskScanner
     readonly ITaskStore _store;
     readonly ISignatureVerifier _sig;
     readonly RuleSet _rules;
+    readonly IFileOps _files;
 
-    public TaskScanner(ITaskStore store, ISignatureVerifier sig, RuleSet rules)
+    public TaskScanner(ITaskStore store, ISignatureVerifier sig, RuleSet rules, IFileOps files)
     {
-        _store = store; _sig = sig; _rules = rules;
+        _store = store; _sig = sig; _rules = rules; _files = files;
     }
 
     public IReadOnlyList<Finding> Scan()
@@ -43,6 +44,15 @@ public sealed class TaskScanner
             }
 
             if (IsUnder(exe, windows)) continue;
+
+            if (OrphanRules.IsOrphan(exe, _files, windows))
+            {
+                // Program file is gone: no signature to check, only the protected list can veto.
+                if (_rules.Classify(new ItemFacts(t.Name, exe, t.Author, location)) == RuleVerdict.Protected) continue;
+                result.Add(new Finding(id, FindingArea.Aufgabe, t.Name, location, [OrphanRules.OrphanReason],
+                    Rating.Entbehrlich, true, change, Group: FindingGroups.OrphanEntries));
+                continue;
+            }
 
             SignatureInfo sig;
             try { sig = _sig.Verify(exe); } catch { sig = new SignatureInfo(SignatureState.Unknown, null, false); }

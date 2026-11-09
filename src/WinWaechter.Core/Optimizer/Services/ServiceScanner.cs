@@ -11,11 +11,12 @@ public sealed class ServiceScanner
     readonly ISignatureVerifier _sig;
     readonly RuleSet _rules;
     readonly IRegistry _reg;
+    readonly IFileOps _files;
 
     // reg is only handed to the changes (service key backup).
-    public ServiceScanner(IServiceControl sc, ISignatureVerifier sig, RuleSet rules, IRegistry reg)
+    public ServiceScanner(IServiceControl sc, ISignatureVerifier sig, RuleSet rules, IRegistry reg, IFileOps files)
     {
-        _sc = sc; _sig = sig; _rules = rules; _reg = reg;
+        _sc = sc; _sig = sig; _rules = rules; _reg = reg; _files = files;
     }
 
     public IReadOnlyList<Finding> Scan()
@@ -28,6 +29,16 @@ public sealed class ServiceScanner
 
             var file = FileToCheck(s);
             if (string.IsNullOrWhiteSpace(file) || IsUnder(file, windows)) continue;
+
+            if (OrphanRules.IsOrphan(file, _files, windows))
+            {
+                // Program file is gone: no signature to check, only the protected list can veto.
+                if (_rules.Classify(new ItemFacts(s.DisplayName, file, null, s.ImagePath)) == RuleVerdict.Protected) continue;
+                result.Add(new Finding($"service|{s.Name}", FindingArea.Dienst, s.DisplayName, s.ImagePath,
+                    [OrphanRules.OrphanReason], Rating.Entbehrlich, true, new ServiceStartModeChange(_sc, _reg, s.Name),
+                    Group: FindingGroups.OrphanEntries));
+                continue;
+            }
 
             SignatureInfo sig;
             try { sig = _sig.Verify(file); } catch { sig = new SignatureInfo(SignatureState.Unknown, null, false); }

@@ -60,6 +60,10 @@ public sealed class WinFileOps : IFileOps
     public IEnumerable<DirectoryInfo> EnumerateTopLevelDirs(string dir) =>
         Directory.Exists(dir) ? new DirectoryInfo(dir).EnumerateDirectories("*", TopLevel) : [];
 
+    // Mapped network drives are never asked (IsReady can hang when they are disconnected).
+    internal static bool VolumeUsable(DriveType type, Func<bool> isReady) =>
+        type != DriveType.Network && isReady();
+
     public bool IsVolumeReady(string path)
     {
         try
@@ -68,7 +72,9 @@ public sealed class WinFileOps : IFileOps
             var full = Path.GetFullPath(path);
             if (full.StartsWith(@"\\", StringComparison.Ordinal)) return false;
             var root = Path.GetPathRoot(full);
-            return !string.IsNullOrEmpty(root) && new DriveInfo(root).IsReady;
+            if (string.IsNullOrEmpty(root)) return false;
+            var drive = new DriveInfo(root);
+            return VolumeUsable(drive.DriveType, () => drive.IsReady);
         }
         catch (Exception)
         {

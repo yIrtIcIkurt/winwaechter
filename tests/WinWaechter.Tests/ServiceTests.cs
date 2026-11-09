@@ -14,11 +14,12 @@ public sealed class ServiceTests : IDisposable
     readonly FakeServiceControl _sc = new();
     readonly FakeSignatures _sig = new();
     readonly FakeRegistry _reg = new();
+    readonly FakeFileOps _files = new() { ReportAllPresent = true };
 
     public ServiceTests() => Directory.CreateDirectory(_root);
     public void Dispose() { try { Directory.Delete(_root, true); } catch { } }
 
-    ServiceScanner Scanner() => new(_sc, _sig, RuleSet.Default, _reg);
+    ServiceScanner Scanner() => new(_sc, _sig, RuleSet.Default, _reg, _files);
     SessionContext Ctx() => new(Path.Combine(_root, "session"));
     ServiceStartModeChange Change(string name = "Glary") => new(_sc, _reg, name);
 
