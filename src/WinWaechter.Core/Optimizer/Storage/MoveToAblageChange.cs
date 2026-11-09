@@ -183,7 +183,11 @@ public sealed class MoveToAblageChange : IChange
         List<FileInfo> candidates;
         if (_single)
         {
-            if (!File.Exists(_path)) throw new InvalidOperationException($"Datei „{_path}“ existiert nicht mehr.");
+            if (!File.Exists(_path))
+            {
+                if (_kind == "cache") return VanishedFile(id, paths);   // engine goes on (ruling R7)
+                throw new InvalidOperationException($"Datei „{_path}“ existiert nicht mehr.");
+            }
             candidates = [new FileInfo(_path)];
         }
         else candidates = Candidates();
@@ -233,6 +237,32 @@ public sealed class MoveToAblageChange : IChange
             ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
+    // A single cache file that is gone by the time Apply runs: nothing to move, no sidecar, no Ablage folder.
+    ChangeRecord VanishedFile(string id, Dictionary<string, string?> paths)
+    {
+        var reason = $"Datei „{Path.GetFileName(_path)}“ existiert nicht mehr. Es wurde nichts verschoben.";
+        FileLog.Warn(reason);
+        var after = new Dictionary<string, string?>(paths)
+        {
+            ["moved"] = "0", ["skipped"] = "0", ["bytes"] = "0", ["reason"] = reason,
+        };
+        return new ChangeRecord(id, Kind, Target, Description, BeforeValues(), after, ChangeStatus.Applied, DateTimeOffset.Now);
+    }
+
+    // Removes the empty sidecar and the empty Ablage folder a refused move leaves behind; nothing else.
+    static void RemoveEmptyLeftovers(string sidecar, string ablageRoot)
+    {
+        try
+        {
+            if (File.Exists(sidecar) && new FileInfo(sidecar).Length == 0) File.Delete(sidecar);
+            if (Directory.Exists(ablageRoot) && !Directory.EnumerateFileSystemEntries(ablageRoot).Any()) Directory.Delete(ablageRoot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            FileLog.Warn("Leere Reste der Ablage nicht entfernt", ex);
+        }
+    }
+
     // One MoveDirectory of the whole folder. A refused or failed move does not throw (ruling R7):
     // the record says moved = "0" plus a German reason, so the engine goes on with the other changes.
     ChangeRecord ApplyFolder(SessionContext ctx, string id, Dictionary<string, string?> paths)
@@ -263,6 +293,7 @@ public sealed class MoveToAblageChange : IChange
         {
             var reason = $"Ordner „{name}“ konnte nicht verschoben werden ({why}). Es wurde nichts verschoben.";
             FileLog.Warn(reason);
+            RemoveEmptyLeftovers(sidecar, root);
             return Result(false, 0, reason);
         }
 
@@ -279,7 +310,7 @@ public sealed class MoveToAblageChange : IChange
         {
             _files.MoveDirectory(folder, stored);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             File.WriteAllBytes(sidecar, []);   // nothing moved, nothing to restore
             FileLog.Warn($"Ordner nicht verschoben: {folder}", ex);

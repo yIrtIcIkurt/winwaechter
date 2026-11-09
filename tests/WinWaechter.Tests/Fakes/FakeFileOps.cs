@@ -25,6 +25,9 @@ public sealed class FakeFileOps : IFileOps
     /// <summary>InspectFolder returns null for these (access denied).</summary>
     public HashSet<string> DeniedDirs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>When set, MoveDirectory throws it (e.g. ArgumentException for a rejected path).</summary>
+    public Exception? ThrowOnMoveDirectory { get; set; }
+
     public List<(string Src, string Dst)> DirMoveCalls { get; } = [];
 
     readonly WinFileOps _real = new();
@@ -53,6 +56,7 @@ public sealed class FakeFileOps : IFileOps
     public void MoveDirectory(string src, string dst)
     {
         DirMoveCalls.Add((src, dst));
+        if (ThrowOnMoveDirectory is { } boom) throw boom;
         var full = Path.GetFullPath(src).TrimEnd('\\');
         if (LockedDirs.Contains(full)) throw new IOException($"Ordner in Benutzung: {src}");
         if (Junctions.Contains(full)) throw new IOException($"Ordner ist eine Verknüpfung: {src}");

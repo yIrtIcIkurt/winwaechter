@@ -147,9 +147,58 @@ public sealed class AblageKindsTests : IDisposable
         Assert.Contains("„Foo“", rec.After["reason"]);
         Assert.Contains("nichts verschoben", rec.After["reason"]);
         Assert.True(File.Exists(Path.Combine(foo, "app.exe")));
-        Assert.Equal("", File.ReadAllText(rec.After["sidecar"]!));
+        Assert.False(File.Exists(rec.After["sidecar"]!));   // empty leftovers are cleaned up
+        Assert.False(Directory.Exists(rec.After["ablage"]!));
         Assert.True(OptimizerEngine.MovedNothing(rec));
         Assert.False(OptimizerEngine.IsUndoable(rec));
+    }
+
+    [Fact]
+    public void ForCacheFile_vanished_file_does_not_throw()
+    {
+        var dump = Make(@"windows\MEMORY.DMP", 3, "dump");
+        var change = MoveToAblageChange.ForCacheFile(_ops, dump);
+        File.Delete(dump);
+
+        var rec = change.Apply(Ctx());
+
+        Assert.Equal(ChangeStatus.Applied, rec.Status);
+        Assert.Equal("0", rec.After["moved"]);
+        Assert.Contains("nicht mehr", rec.After["reason"]);
+        Assert.True(OptimizerEngine.MovedNothing(rec));
+    }
+
+    [Fact]
+    public void ForFolder_rejected_path_does_not_throw_and_cleans_up()
+    {
+        var foo = MakeProgramFolder();
+        var fake = new FakeFileOps();
+        fake.ThrowOnMoveDirectory = new ArgumentException("bad path");
+
+        var rec = MoveToAblageChange.ForFolder(fake, foo).Apply(Ctx());
+
+        Assert.Equal("0", rec.After["moved"]);
+        Assert.False(File.Exists(rec.After["sidecar"]!));
+        Assert.False(Directory.Exists(rec.After["ablage"]!));
+        Assert.True(Directory.Exists(foo));
+    }
+
+    [Fact]
+    public void ForFolder_refusal_keeps_nonempty_ablage_folder()
+    {
+        var foo = MakeProgramFolder();
+        var ctx = Ctx();
+        var fake = new FakeFileOps();
+        fake.LockedDirs.Add(foo);
+        var change = MoveToAblageChange.ForFolder(fake, foo);
+        var ablage = change.Plan(ctx).After["ablage"]!;
+        Directory.CreateDirectory(ablage);
+        File.WriteAllText(Path.Combine(ablage, "keep.txt"), "x");
+
+        var rec = change.Apply(ctx);
+
+        Assert.Equal("0", rec.After["moved"]);
+        Assert.True(File.Exists(Path.Combine(ablage, "keep.txt")));   // never deletes anything but empty leftovers
     }
 
     [Fact]
