@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Sys;
 
@@ -48,12 +49,12 @@ public sealed class CacheScanner
     {
         var local = _p.LocalAppData;
         var edgeRoot = Path.Combine(local, "Microsoft", "Edge", "User Data");
-        yield return Browser("Browser-Cache Edge", edgeRoot, ChromiumIncludes(edgeRoot), running, "msedge.exe",
+        yield return Browser("Browser-Cache Edge", edgeRoot, SafeIncludes(edgeRoot, () => ChromiumIncludes(edgeRoot)), running, "msedge.exe",
             [Path.Combine(_p.ProgramFilesX86, "Microsoft", "Edge", "Application"), Path.Combine(_p.ProgramFiles, "Microsoft", "Edge", "Application")],
             EdgeBlocked);
 
         var chromeRoot = Path.Combine(local, "Google", "Chrome", "User Data");
-        yield return Browser("Browser-Cache Chrome", chromeRoot, ChromiumIncludes(chromeRoot), running, "chrome.exe",
+        yield return Browser("Browser-Cache Chrome", chromeRoot, SafeIncludes(chromeRoot, () => ChromiumIncludes(chromeRoot)), running, "chrome.exe",
             [Path.Combine(_p.ProgramFiles, "Google", "Chrome", "Application"), Path.Combine(_p.ProgramFilesX86, "Google", "Chrome", "Application"),
              Path.Combine(local, "Google", "Chrome", "Application")],
             BrowserBlocked);
@@ -70,7 +71,8 @@ public sealed class CacheScanner
             [Path.Combine(local, "Programs", "Opera"), Path.Combine(_p.ProgramFiles, "Opera")], BrowserBlocked);
 
         var ffRoot = Path.Combine(local, "Mozilla", "Firefox", "Profiles");
-        var ff = _files.EnumerateTopLevelDirs(ffRoot).Select(d => Path.Combine(d.FullName, "cache2")).Where(Directory.Exists).ToList();
+        var ff = SafeIncludes(ffRoot, () =>
+            _files.EnumerateTopLevelDirs(ffRoot).Select(d => Path.Combine(d.FullName, "cache2")).Where(Directory.Exists).ToList());
         yield return Browser("Browser-Cache Firefox", ffRoot, ff, running, "firefox.exe",
             [Path.Combine(_p.ProgramFiles, "Mozilla Firefox"), Path.Combine(_p.ProgramFilesX86, "Mozilla Firefox")], BrowserBlocked);
 
@@ -88,6 +90,17 @@ public sealed class CacheScanner
     }
 
     // ---- browsers ----
+
+    // An unreadable browser folder skips only that browser, not the whole scan.
+    static List<string> SafeIncludes(string root, Func<List<string>> build)
+    {
+        try { return build(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            FileLog.Warn($"Browser-Cache übersprungen, Ordner nicht lesbar: {root}", ex);
+            return [];
+        }
+    }
 
     List<string> ChromiumIncludes(string root)
     {

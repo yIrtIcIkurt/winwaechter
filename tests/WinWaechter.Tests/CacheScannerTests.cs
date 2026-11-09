@@ -56,6 +56,21 @@ public sealed class CacheScannerTests : IDisposable
     // ---- browsers ----
 
     [Fact]
+    public void Unreadable_browser_folder_skips_only_that_browser()
+    {
+        SeedEdge();
+        Make(Local(@"Mozilla\Firefox\Profiles\abc.default\cache2\x"), 5);
+        Make(Local(@"Google\Chrome\User Data\Default\Cache\y"), 7);
+        _ops.UnreadableDirs.Add(EdgeData);
+        _ops.UnreadableDirs.Add(Local(@"Mozilla\Firefox\Profiles"));
+
+        var all = Scan();
+        Assert.DoesNotContain(all, f => f.Title == "Browser-Cache Edge");
+        Assert.DoesNotContain(all, f => f.Title == "Browser-Cache Firefox");
+        Assert.Equal(7, Assert.Single(all, f => f.Title == "Browser-Cache Chrome").SizeBytes);
+    }
+
+    [Fact]
     public void Edge_cache_offered_with_profiles_and_shader_caches()
     {
         SeedEdge();
