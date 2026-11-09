@@ -16,6 +16,49 @@ public sealed class FakeFileOps : IFileOps
     /// <summary>Directories that count as reparse points (junctions) in HasReparsePointInChain.</summary>
     public HashSet<string> Junctions { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Roots (e.g. "C:\") whose volume counts as not ready.</summary>
+    public HashSet<string> NotReady { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>MoveDirectory on one of these throws IOException (folder in use).</summary>
+    public HashSet<string> LockedDirs { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>InspectFolder returns null for these (access denied).</summary>
+    public HashSet<string> DeniedDirs { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public List<(string Src, string Dst)> DirMoveCalls { get; } = [];
+
+    readonly WinFileOps _real = new();
+
+    public bool IsVolumeReady(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathRooted(path)) return false;
+        var root = Path.GetPathRoot(Path.GetFullPath(path));
+        return !string.IsNullOrEmpty(root) && !root.StartsWith(@"\\", StringComparison.Ordinal) && !NotReady.Contains(root);
+    }
+
+    public IEnumerable<DirectoryInfo> EnumerateTopLevelDirs(string dir) => _real.EnumerateTopLevelDirs(dir).ToList();
+
+    public FolderFacts? InspectFolder(string dir)
+    {
+        var full = Path.GetFullPath(dir).TrimEnd('\\');
+        if (DeniedDirs.Contains(full) || Junctions.Contains(full)) return null;
+        var facts = _real.InspectFolder(dir);
+        // a faked junction anywhere below counts as a reparse point
+        if (facts is not null && !facts.HasReparsePoints
+            && Junctions.Any(j => j.StartsWith(full + "\\", StringComparison.OrdinalIgnoreCase)))
+            facts = facts with { HasReparsePoints = true };
+        return facts;
+    }
+
+    public void MoveDirectory(string src, string dst)
+    {
+        DirMoveCalls.Add((src, dst));
+        var full = Path.GetFullPath(src).TrimEnd('\\');
+        if (LockedDirs.Contains(full)) throw new IOException($"Ordner in Benutzung: {src}");
+        if (Junctions.Contains(full)) throw new IOException($"Ordner ist eine Verknüpfung: {src}");
+        _real.MoveDirectory(src, dst);
+    }
+
     public IEnumerable<FileInfo> EnumerateOlderThan(string dir, TimeSpan age)
     {
         if (!Directory.Exists(dir)) return [];

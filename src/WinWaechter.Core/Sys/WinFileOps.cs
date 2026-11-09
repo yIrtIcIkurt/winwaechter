@@ -18,6 +18,14 @@ public sealed class WinFileOps : IFileOps
         AttributesToSkip = 0,
     };
 
+    // Inspect must see problems, so inaccessible entries throw instead of being skipped.
+    static readonly EnumerationOptions Inspect = new()
+    {
+        RecurseSubdirectories = false,
+        IgnoreInaccessible = false,
+        AttributesToSkip = 0,
+    };
+
     public IEnumerable<FileInfo> EnumerateOlderThan(string dir, TimeSpan age)
     {
         if (!Directory.Exists(dir)) return [];
@@ -47,6 +55,74 @@ public sealed class WinFileOps : IFileOps
             Directory.CreateDirectory(LongPath(d));
             if (IsReparsePoint(d)) throw new IOException($"Ordner „{d}“ ist eine Verknüpfung, Verschieben abgebrochen.");
         }
+    }
+
+    public IEnumerable<DirectoryInfo> EnumerateTopLevelDirs(string dir) =>
+        Directory.Exists(dir) ? new DirectoryInfo(dir).EnumerateDirectories("*", TopLevel) : [];
+
+    public bool IsVolumeReady(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Path.IsPathRooted(path)) return false;
+            var full = Path.GetFullPath(path);
+            if (full.StartsWith(@"\\", StringComparison.Ordinal)) return false;
+            var root = Path.GetPathRoot(full);
+            return !string.IsNullOrEmpty(root) && new DriveInfo(root).IsReady;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    // Manual walk: never descends into reparse points; any access problem makes the whole result null.
+    public FolderFacts? InspectFolder(string dir)
+    {
+        try
+        {
+            var root = new DirectoryInfo(LongPath(dir));
+            if (!root.Exists || (root.Attributes & FileAttributes.ReparsePoint) != 0) return null;
+            long bytes = 0;
+            var files = 0;
+            var latest = root.LastWriteTimeUtc;
+            bool binaries = false, reparse = false;
+            var stack = new Stack<DirectoryInfo>();
+            stack.Push(root);
+            while (stack.Count > 0)
+            {
+                var d = stack.Pop();
+                foreach (var e in d.EnumerateFileSystemInfos("*", Inspect))
+                {
+                    if ((e.Attributes & FileAttributes.ReparsePoint) != 0) { reparse = true; continue; }
+                    if (e.LastWriteTimeUtc > latest) latest = e.LastWriteTimeUtc;
+                    if (e is DirectoryInfo sub) { stack.Push(sub); continue; }
+                    var f = (FileInfo)e;
+                    bytes += f.Length;
+                    files++;
+                    if (f.Extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                        || f.Extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)) binaries = true;
+                }
+            }
+            return new FolderFacts(bytes, files, latest, binaries, reparse);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    public void MoveDirectory(string src, string dst)
+    {
+        var s = Path.GetFullPath(src);
+        var d = Path.GetFullPath(dst);
+        if (IsReparsePoint(s)) throw new IOException($"Ordner „{s}“ ist eine Verknüpfung, Verschieben abgebrochen.");
+        if (!string.Equals(Path.GetPathRoot(s), Path.GetPathRoot(d), StringComparison.OrdinalIgnoreCase))
+            throw new IOException($"Quelle und Ziel liegen auf verschiedenen Laufwerken: {s} -> {d}");
+        if (Directory.Exists(LongPath(d)) || File.Exists(LongPath(d))) throw new IOException($"Ziel existiert bereits: {d}");
+        var parent = Path.GetDirectoryName(d);
+        if (!string.IsNullOrEmpty(parent)) CreateChain(parent);
+        Directory.Move(LongPath(s), LongPath(d));
     }
 
     public bool Exists(string path)

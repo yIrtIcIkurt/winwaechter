@@ -19,6 +19,26 @@ public sealed class FakeRegistry : IRegistry
         return this;
     }
 
+    // Creates an empty key.
+    public FakeRegistry SeedKey(Hive h, string key)
+    {
+        Values(h, key, create: true);
+        return this;
+    }
+
+    public RegistryValueKind? GetKind(Hive h, string key, string name) => KindOf(h, key, name);
+
+    // Direct children of key, derived from all known key paths.
+    public IReadOnlyList<string> SubKeyNames(Hive h, string key)
+    {
+        var prefix = key.Trim('\\') + "\\";
+        return _keys.Keys
+            .Where(k => k.Item1 == h && k.Item2.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Select(k => k.Item2[prefix.Length..].Split('\\')[0])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     public RegistryValueKind? KindOf(Hive h, string key, string name) =>
         Values(h, key, create: false)?.TryGetValue(name, out var v) == true ? v.Kind : null;
 

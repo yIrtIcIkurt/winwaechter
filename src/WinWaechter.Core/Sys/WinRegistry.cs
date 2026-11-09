@@ -21,6 +21,26 @@ public sealed class WinRegistry(IUserContext user) : IRegistry
         return k?.GetValueNames() ?? [];
     }
 
+    public RegistryValueKind? GetKind(Hive h, string key, string name)
+    {
+        try
+        {
+            using var k = Open(h, key, writable: false);
+            if (k?.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames) is null) return null;
+            return k.GetValueKind(name);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    public IReadOnlyList<string> SubKeyNames(Hive h, string key)
+    {
+        using var k = Open(h, key, writable: false);
+        return k?.GetSubKeyNames() ?? [];
+    }
+
     // Raw value: REG_EXPAND_SZ stays unexpanded so it can be written back unchanged.
     public object? Get(Hive h, string key, string name)
     {
