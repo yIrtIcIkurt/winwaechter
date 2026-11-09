@@ -69,16 +69,24 @@ public sealed class OrphanTests : IDisposable
     }
 
     [Fact]
-    public void Unc_or_unready_drive_is_not_orphan()
+    public void Unc_path_is_not_orphan()
     {
-        _reg.Seed(Hive.CurrentUser, Run, "Nas", @"\nas\x\a.exe");
-        var root = Path.GetPathRoot(_root)!;
-        _files.NotReady.Add(root);
+        _reg.Seed(Hive.CurrentUser, Run, "Nas", @"\\nas\x\a.exe");
+
+        var f = Assert.Single(Autostarts());
+        Assert.Null(f.Group);
+        Assert.DoesNotContain(OrphanRules.OrphanReason, f.Reasons);
+    }
+
+    [Fact]
+    public void Unready_drive_is_not_orphan()
+    {
+        _files.NotReady.Add(Path.GetPathRoot(_root)!);
         _reg.Seed(Hive.CurrentUser, Run, "Gone", $"\"{Gone("g.exe")}\"");
 
-        var all = Autostarts();
-        Assert.Equal(2, all.Count);
-        Assert.All(all, f => Assert.Null(f.Group));
+        var f = Assert.Single(Autostarts());
+        Assert.Null(f.Group);
+        Assert.DoesNotContain(OrphanRules.OrphanReason, f.Reasons);
     }
 
     [Fact]
