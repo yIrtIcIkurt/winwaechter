@@ -23,11 +23,12 @@ public sealed partial class NavItem(string title, string glyph, object page, Act
 /// <summary>Window-level state: navigation, update banner, admin notice.</summary>
 public sealed partial class ShellViewModel : ObservableObject
 {
-    public ShellViewModel(OptimizeViewModel optimize, ProtectViewModel protect, HistoryViewModel history,
-        SettingsViewModel settings, UpdateViewModel update, bool isElevated)
+    public ShellViewModel(OptimizeViewModel optimize, ProtectViewModel protect, PrivacyViewModel privacy,
+        HistoryViewModel history, SettingsViewModel settings, UpdateViewModel update, bool isElevated)
     {
         Optimize = optimize;
         Protect = protect;
+        Privacy = privacy;
         History = history;
         Settings = settings;
         Update = update;
@@ -39,6 +40,7 @@ public sealed partial class ShellViewModel : ObservableObject
             new NavItem("Übersicht", "\uE80F", Overview, OnSelected),
             new NavItem("Optimieren", "\uE90F", optimize, OnSelected),
             new NavItem("Schutz", "\uEA18", protect, OnSelected),
+            new NavItem("Datenschutz", "", privacy, OnSelected),
             new NavItem("Verlauf", "\uE81C", history, OnSelected),
         ];
         SettingsNav = new NavItem("Einstellungen", "\uE713", settings, OnSelected);
@@ -47,11 +49,13 @@ public sealed partial class ShellViewModel : ObservableObject
         // the history must show what other pages just changed, with the new session selected
         optimize.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         protect.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
+        privacy.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
     }
 
     public OverviewViewModel Overview { get; }
     public OptimizeViewModel Optimize { get; }
     public ProtectViewModel Protect { get; }
+    public PrivacyViewModel Privacy { get; }
     public HistoryViewModel History { get; }
     public SettingsViewModel Settings { get; }
     public UpdateViewModel Update { get; }
@@ -69,6 +73,9 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         foreach (var n in Nav) if (!ReferenceEquals(n, item)) n.IsSelected = false;
         CurrentPage = item.Page;
+        // the privacy page reads the settings the first time it is shown
+        if (ReferenceEquals(item.Page, Privacy) && Privacy.Rows.Count == 0 && !Privacy.RefreshCommand.IsRunning)
+            Privacy.RefreshCommand.Execute(null);
     }
 
     public void Navigate(object page)

@@ -1,0 +1,80 @@
+<UserControl x:Class="WinWaechter.App.Views.PrivacyView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
+    <DockPanel>
+        <!-- Header -->
+        <StackPanel DockPanel.Dock="Top" Margin="{StaticResource PagePadding}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource Button.Quiet}" Content="Neu lesen" Margin="0,0,8,0" Command="{Binding RefreshCommand}" />
+                    <Button Content="Empfohlene auswählen" Command="{Binding SelectRecommendedCommand}" />
+                </StackPanel>
+                <TextBlock Style="{StaticResource Text.PageTitle}" Text="Datenschutz" />
+            </DockPanel>
+            <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
+                       Text="Windows-Einstellungen, die Daten für Werbung, Vorschläge und Diagnose nutzen. Vorausgewählt ist nichts; jede Änderung lässt sich im Verlauf rückgängig machen." />
+            <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{x:Static vm:PrivacyViewModel.RestartNote}" />
+            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" Text="{x:Static vm:PrivacyViewModel.ElevationHint}"
+                       Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}" />
+            <StackPanel Margin="0,18,0,0" Visibility="{Binding IsBusy, Converter={StaticResource Vis}}">
+                <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding ProgressText}"
+                           AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Footer with the apply action -->
+        <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Line}" Background="{DynamicResource Canvas}"
+                Padding="32,12,32,14">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Primary}" Content="{Binding ApplyText}" Command="{Binding ApplyCommand}" />
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding AdminNotice}"
+                               Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}" />
+                    <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding GateHint}"
+                               Visibility="{Binding GateHint, Converter={StaticResource Vis}}" />
+                    <TextBlock Style="{StaticResource Text.Small}" Text="{Binding LastSummary}"
+                               Visibility="{Binding LastSummary, Converter={StaticResource Vis}}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Settings -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+            <StackPanel Margin="32,8,32,24">
+                <Border Style="{StaticResource SurfaceBox}" Visibility="{Binding Rows.Count, Converter={StaticResource Vis}}">
+                    <ItemsControl ItemsSource="{Binding Rows}" Focusable="False" Margin="0,0,0,-1">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource RowDivider}" Padding="16,12,16,12">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox VerticalAlignment="Top" Margin="0,1,14,0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                  IsEnabled="{Binding CanSelect}" ToolTip="ausschalten"
+                                                  AutomationProperties.Name="{Binding Title, StringFormat={}{0} ausschalten}" />
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                            <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap"
+                                                       MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding Explanation}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Margin="16,0,0,0" HorizontalAlignment="Right">
+                                            <ContentControl Style="{StaticResource Chip}" Tag="{Binding StateTone}" Content="{Binding StateText}"
+                                                            HorizontalAlignment="Right" />
+                                            <ContentControl Margin="0,6,0,0" Style="{StaticResource Chip}" Tag="{x:Static vm:Tone.Calm}" Content="empfohlen"
+                                                            HorizontalAlignment="Right" Visibility="{Binding IsRecommended, Converter={StaticResource Vis}}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

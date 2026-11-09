@@ -8,6 +8,8 @@ using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Storage;
+using WinWaechter.Core.Privacy;
+using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Update;
 using WinWaechter.Tests.Fakes;
@@ -105,19 +107,25 @@ public sealed class ViewSmokeTests : IDisposable
         };
         var protect = new ProtectViewModel(new FakeDefender(), (_, _) => Task.FromResult<IReadOnlyList<Finding>>(heur),
             engine, _ => 0, dialogs, canChange: false, gate);
+        var reg = new FakeRegistry();
+        var privacy = new PrivacyViewModel(_ => Task.FromResult(new PrivacyScanner(reg, RuleSet.Default).Scan(_ => true)),
+            engine, dialogs, canChange: false, gate);
         var history = new HistoryViewModel(store, engine, new AblageJanitor(store), dialogs, canChange: false, gate);
         var env = new AppEnvironment(false, _root, new SemVer(0, 1, 0));
         var update = new UpdateViewModel(new Updates(), dialogs, canInstall: false, () => { }, gate);
         var settings = new SettingsViewModel(new AppSettings(), env, update, new Shell());
-        var shell = new ShellViewModel(optimize, protect, history, settings, update, isElevated: false);
+        var shell = new ShellViewModel(optimize, protect, privacy, history, settings, update, isElevated: false);
 
         // fill the view models (no sync context here, so the commands finish inline or on the pool)
         optimize.ScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         protect.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         protect.HeuristicScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         history.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        privacy.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        privacy.SelectRecommendedCommand.Execute(null);
         update.CheckCommand.ExecuteAsync(null).GetAwaiter().GetResult();
-        Assert.True(optimize.FindingCount == 4 && protect.HeuristicCount == 1 && history.Sessions.Count == 1 && update.IsAvailable);
+        Assert.True(optimize.FindingCount == 4 && protect.HeuristicCount == 1 && history.Sessions.Count == 1 && update.IsAvailable
+            && privacy.Rows.Count > 0);
 
         foreach (var theme in new[] { "Light", "Dark" })
         {
@@ -129,6 +137,7 @@ public sealed class ViewSmokeTests : IDisposable
             Layout(new OverviewView { DataContext = shell.Overview });
             Layout(new OptimizeView { DataContext = optimize });
             Layout(new ProtectView { DataContext = protect });
+            Layout(new PrivacyView { DataContext = privacy });
             Layout(new HistoryView { DataContext = history });
             Layout(new SettingsView { DataContext = settings });
             var dialog = new MessageDialog("Titel", "Text", ["Eins", "Zwei"], "Anwenden", final: true);

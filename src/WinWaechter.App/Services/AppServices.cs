@@ -7,6 +7,7 @@ using WinWaechter.Core.Optimizer.Autostart;
 using WinWaechter.Core.Optimizer.Services;
 using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Optimizer.Tasks;
+using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Security.Heuristics;
@@ -80,12 +81,18 @@ public sealed class AppServices
         // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
         var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),
             engine, ProcessTools.KillByPath, dialogs, canChange, gate);
+        // the DISM probe and the registry reads stay off the UI thread
+        var privacy = new PrivacyViewModel(ct => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
+        {
+            var recall = await RecallProbe.IsPresentAsync(new ProcessRunner(), ct);
+            return new PrivacyScanner(reg, rules).Scan(r => r == "recall" && recall);
+        }, ct), engine, dialogs, canChange, gate);
         var janitor = new AblageJanitor(store);
         var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate);
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
         var settingsVm = new SettingsViewModel(settings, env, update, shell);
 
         return new AppServices(env, settings, janitor, gate,
-            new ShellViewModel(optimize, protect, history, settingsVm, update, env.IsElevated));
+            new ShellViewModel(optimize, protect, privacy, history, settingsVm, update, env.IsElevated));
     }
 }

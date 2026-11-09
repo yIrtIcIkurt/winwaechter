@@ -13,7 +13,7 @@
                 <TextBlock Style="{StaticResource Text.PageTitle}" Text="Optimieren" />
             </DockPanel>
             <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
-                       Text="Vorschläge mit Begründung. Vorausgewählt ist nur, was die Regelliste als entbehrlich kennt, und alte Temp-Dateien. Unbekanntes erscheint ohne Häkchen." />
+                       Text="Vorschläge mit Begründung. Vorausgewählt ist nur, was die Regelliste als entbehrlich kennt, dazu alte Temp-Dateien, Caches und verwaiste Einträge. Alte Installer, verwaiste Ordner und Unbekanntes erscheinen ohne Häkchen." />
             <StackPanel Margin="0,18,0,0" Visibility="{Binding IsBusy, Converter={StaticResource Vis}}">
                 <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
                 <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding ProgressText}"
@@ -46,7 +46,7 @@
             <StackPanel Margin="32,0,32,24">
                 <TextBlock Style="{StaticResource Text.Muted}" Margin="0,8,0,0"
                            Visibility="{Binding HasScanned, Converter={StaticResource Vis}, ConverterParameter=not}"
-                           Text="Noch nicht geprüft. „Prüfen“ liest Autostarts, Dienste, Aufgaben und Temp-Dateien, ohne etwas zu ändern." />
+                           Text="Noch nicht geprüft. „Prüfen“ liest Autostarts, Dienste, Aufgaben, Temp-Dateien, Browser- und Windows-Caches, alte Installer und Deinstallationsreste, ohne etwas zu ändern." />
                 <TextBlock Style="{StaticResource Text.Muted}" Margin="0,8,0,0"
                            Visibility="{Binding IsEmpty, Converter={StaticResource Vis}}"
                            Text="Nichts gefunden, was sich gefahrlos ändern ließe." />

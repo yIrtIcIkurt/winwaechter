@@ -20,7 +20,7 @@
             </Grid>
 
             <TextBlock Margin="32,16,0,0" Style="{StaticResource Text.Prose}"
-                       Text="„Prüfen“ untersucht Autostarts, Dienste, geplante Aufgaben, Temp-Dateien und laufende Programme. Geändert wird erst, wenn Sie eine Vorschau bestätigen." />
+                       Text="„Prüfen“ untersucht Autostarts, Dienste, geplante Aufgaben, Temp-Dateien, Browser- und Windows-Caches, alte Installer, Deinstallationsreste und laufende Programme. Geändert wird erst, wenn Sie eine Vorschau bestätigen." />
 
             <StackPanel Margin="32,28,0,0" Orientation="Horizontal">
                 <Button Style="{StaticResource Button.Large}" Content="Prüfen" Command="{Binding CheckCommand}" />
