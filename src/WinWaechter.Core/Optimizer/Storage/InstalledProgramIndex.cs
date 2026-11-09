@@ -16,34 +16,46 @@ public sealed class InstalledProgramIndex
 
     readonly List<string> _texts;
 
-    InstalledProgramIndex(List<string> texts, int uninstallEntries)
+    InstalledProgramIndex(List<string> texts, int uninstallEntries, int machineEntries, bool readFailed)
     {
         _texts = texts;
         UninstallEntryCount = uninstallEntries;
+        MachineEntryCount = machineEntries;
+        ReadFailed = readFailed;
     }
 
     /// <summary>Uninstall entries with at least one readable field (Appx packages not counted).</summary>
     public int UninstallEntryCount { get; }
 
+    /// <summary>Of those, the entries under the native HKLM Uninstall key (64-bit view).</summary>
+    public int MachineEntryCount { get; }
+
+    /// <summary>True when any subkey list or value could not be read; the index is then incomplete.</summary>
+    public bool ReadFailed { get; }
+
     public static InstalledProgramIndex Load(IRegistry reg)
     {
         var texts = new List<string>();
-        var entries = 0;
+        int entries = 0, machine = 0;
+        var failed = false;
         foreach (var (hive, key) in new[] { (Hive.LocalMachine, UninstallKey), (Hive.LocalMachine, Wow64UninstallKey), (Hive.CurrentUser, UninstallKey) })
         {
-            foreach (var sub in SafeSubKeys(reg, hive, key))
+            foreach (var sub in SubKeys(reg, hive, key, ref failed))
             {
-                var values = Fields.Select(n => SafeString(reg, hive, key + "\\" + sub, n))
-                    .Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => Normalize(v!)).Where(v => v.Length > 0).ToList();
+                var values = new List<string>();
+                foreach (var field in Fields)
+                    if (Read(reg, hive, key + "\\" + sub, field, ref failed) is { } v && Normalize(v) is { Length: > 0 } n)
+                        values.Add(n);
                 if (values.Count == 0) continue;
                 entries++;
+                if (hive == Hive.LocalMachine && key == UninstallKey) machine++;
                 texts.AddRange(values);
                 // the key name is often the product name; one more match only keeps more folders
                 texts.Add(Normalize(sub));
             }
         }
-        texts.AddRange(SafeSubKeys(reg, Hive.CurrentUser, AppxPackagesKey).Select(Normalize));
-        return new InstalledProgramIndex(texts.Where(t => t.Length > 0).Distinct().ToList(), entries);
+        texts.AddRange(SubKeys(reg, Hive.CurrentUser, AppxPackagesKey, ref failed).Select(Normalize));
+        return new InstalledProgramIndex(texts.Where(t => t.Length > 0).Distinct().ToList(), entries, machine, failed);
     }
 
     /// <summary>True when any installed program text contains the folder name at a word start (names under 3 chars always match).</summary>
@@ -80,16 +92,16 @@ public sealed class InstalledProgramIndex
         return sb.ToString();
     }
 
-    // A key we cannot read contributes nothing (and thus never counts as an entry).
-    static IReadOnlyList<string> SafeSubKeys(IRegistry reg, Hive h, string key)
+    // Any read error is remembered: the caller must not trust an incomplete index.
+    static IReadOnlyList<string> SubKeys(IRegistry reg, Hive h, string key, ref bool failed)
     {
         try { return reg.SubKeyNames(h, key); }
-        catch (Exception) { return []; }
+        catch (Exception) { failed = true; return []; }
     }
 
-    static string? SafeString(IRegistry reg, Hive h, string key, string name)
+    static string? Read(IRegistry reg, Hive h, string key, string name, ref bool failed)
     {
         try { return reg.Get(h, key, name) as string; }
-        catch (Exception) { return null; }
+        catch (Exception) { failed = true; return null; }
     }
 }

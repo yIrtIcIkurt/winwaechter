@@ -21,7 +21,10 @@ public sealed class FakeServiceControl : IServiceControl
 
     public bool Remove(string name) => _services.Remove(name);
 
-    public IReadOnlyList<ServiceInfo> List() => _services.Values.ToList();
+    /// <summary>When set, List throws it.</summary>
+    public Exception? ListError { get; set; }
+
+    public IReadOnlyList<ServiceInfo> List() => ListError is { } e ? throw e : _services.Values.ToList();
 
     /// <summary>When set, Get throws it (simulates a service the SCM refuses to open).</summary>
     public Exception? GetError { get; set; }

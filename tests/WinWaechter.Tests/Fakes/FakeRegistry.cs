@@ -12,6 +12,14 @@ public sealed class FakeRegistry : IRegistry
     public List<(Hive Hive, string Key, string Name)> DeleteCalls { get; } = [];
     public List<(Hive Hive, string Key, string File)> ExportCalls { get; } = [];
 
+    /// <summary>SubKeyNames, ValueNames and Get on these keys throw (simulates an unreadable key).</summary>
+    public HashSet<string> ThrowingKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    void ThrowIfUnreadable(string key)
+    {
+        if (ThrowingKeys.Contains(key.Trim('\\'))) throw new System.Security.SecurityException($"Zugriff verweigert: {key}");
+    }
+
     // Pre-fills a value without recording a call.
     public FakeRegistry Seed(Hive h, string key, string name, object value, RegistryValueKind kind = RegistryValueKind.String)
     {
@@ -31,6 +39,7 @@ public sealed class FakeRegistry : IRegistry
     // Direct children of key, derived from all known key paths.
     public IReadOnlyList<string> SubKeyNames(Hive h, string key)
     {
+        ThrowIfUnreadable(key);
         var prefix = key.Trim('\\') + "\\";
         return _keys.Keys
             .Where(k => k.Item1 == h && k.Item2.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -44,10 +53,17 @@ public sealed class FakeRegistry : IRegistry
 
     public bool KeyExists(Hive h, string key) => Values(h, key, create: false) is not null;
 
-    public IReadOnlyList<string> ValueNames(Hive h, string key) => Values(h, key, create: false)?.Keys.ToList() ?? [];
+    public IReadOnlyList<string> ValueNames(Hive h, string key)
+    {
+        ThrowIfUnreadable(key);
+        return Values(h, key, create: false)?.Keys.ToList() ?? [];
+    }
 
-    public object? Get(Hive h, string key, string name) =>
-        Values(h, key, create: false)?.TryGetValue(name, out var v) == true ? v.Value : null;
+    public object? Get(Hive h, string key, string name)
+    {
+        ThrowIfUnreadable(key);
+        return Values(h, key, create: false)?.TryGetValue(name, out var v) == true ? v.Value : null;
+    }
 
     public void Set(Hive h, string key, string name, object value, RegistryValueKind kind)
     {

@@ -30,7 +30,10 @@ public sealed class FakeTaskStore : ITaskStore
         return true;
     }
 
-    public IReadOnlyList<TaskInfo> List() => _tasks.Values.ToList();
+    /// <summary>When set, List throws it.</summary>
+    public Exception? ListError { get; set; }
+
+    public IReadOnlyList<TaskInfo> List() => ListError is { } e ? throw e : _tasks.Values.ToList();
 
     public TaskInfo? Get(string path) => _tasks.GetValueOrDefault(path);
 

@@ -17,6 +17,8 @@ public sealed class LeftoverTests : IDisposable
     readonly FakeRegistry _reg = new();
     readonly FakeFileOps _files = new();
     readonly FakeProcessList _procs = new();
+    readonly FakeServiceControl _services = new();
+    readonly FakeTaskStore _tasks = new();
 
     public LeftoverTests()
     {
@@ -46,8 +48,8 @@ public sealed class LeftoverTests : IDisposable
         foreach (var d in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)) Directory.SetLastWriteTimeUtc(d, t);
     }
 
-    IReadOnlyList<Finding> Scan(RuleSet? rules = null) =>
-        new LeftoverFolderScanner(_files, _reg, rules ?? RuleSet.Default, _procs, [_pf]).Scan();
+    IReadOnlyList<Finding> Scan(RuleSet? rules = null, IRegistry? reg = null) =>
+        new LeftoverFolderScanner(_files, reg ?? _reg, rules ?? RuleSet.Default, _procs, _services, _tasks, [_pf]).Scan();
 
     // Default rules with an empty leftoverIgnore list: only the protected list can block a folder then.
     RuleSet RulesWithoutIgnoreList()
@@ -182,15 +184,118 @@ public sealed class LeftoverTests : IDisposable
     [Fact]
     public void No_uninstall_entries_means_no_leftover_findings()
     {
-        _reg.Delete(Hive.LocalMachine, Uninstall + @"\{Bar}", "DisplayName");
-        _reg.Delete(Hive.LocalMachine, Uninstall + @"\{Bar}", "Publisher");
         var empty = new FakeRegistry();
         Make("Foo", "foo.dll");
 
-        Assert.Empty(new LeftoverFolderScanner(_files, empty, RuleSet.Default, _procs, [_pf]).Scan());
         Assert.Equal(0, InstalledProgramIndex.Load(empty).UninstallEntryCount);
-        // an entry key without any readable field does not count either
+        Assert.Empty(Scan(reg: empty));
+    }
+
+    [Fact]
+    public void Entry_key_without_readable_fields_does_not_count()
+    {
+        _reg.Delete(Hive.LocalMachine, Uninstall + @"\{Bar}", "DisplayName");
+        _reg.Delete(Hive.LocalMachine, Uninstall + @"\{Bar}", "Publisher");
+        Make("Foo", "foo.dll");
+
         Assert.Equal(0, InstalledProgramIndex.Load(_reg).UninstallEntryCount);
+        Assert.Empty(Scan());
+    }
+
+    [Fact]
+    public void Unreadable_machine_uninstall_key_means_no_findings()
+    {
+        _reg.Seed(Hive.CurrentUser, Uninstall + @"\{U}", "DisplayName", "User Tool");
+        _reg.ThrowingKeys.Add(Uninstall);
+        Make("Foo");
+
+        Assert.True(InstalledProgramIndex.Load(_reg).ReadFailed);
+        Assert.Empty(Scan());
+    }
+
+    [Fact]
+    public void Unreadable_wow64_uninstall_key_means_no_findings()
+    {
+        _reg.ThrowingKeys.Add(@"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall");
+        Make("Foo");
+
+        Assert.Empty(Scan());
+    }
+
+    [Fact]
+    public void Only_user_entries_without_machine_entries_means_no_findings()
+    {
+        var reg = new FakeRegistry();
+        reg.Seed(Hive.CurrentUser, Uninstall + @"\{U}", "DisplayName", "User Tool");
+        Make("Foo");
+
+        var index = InstalledProgramIndex.Load(reg);
+        Assert.Equal(1, index.UninstallEntryCount);
+        Assert.Equal(0, index.MachineEntryCount);
+        Assert.Empty(Scan(reg: reg));
+    }
+
+    [Fact]
+    public void One_unreadable_entry_value_means_no_findings()
+    {
+        _reg.Seed(Hive.LocalMachine, Uninstall + @"\{Broken}", "DisplayName", "Broken Thing");
+        _reg.ThrowingKeys.Add(Uninstall + @"\{Broken}");
+        Make("Foo");
+
+        Assert.Empty(Scan());
+    }
+
+    [Fact]
+    public void Unreadable_appx_list_means_no_findings()
+    {
+        _reg.ThrowingKeys.Add(Packages);
+        Make("Foo");
+
+        Assert.Empty(Scan());
+    }
+
+    [Fact]
+    public void Folder_used_by_a_service_task_or_autostart_is_kept()
+    {
+        var svc = Make("SvcHost Thing", "svc.exe");
+        _services.Add("Thing", imagePath: $"\"{Path.Combine(svc, "svc.exe")}\" -k run");
+        var dllSvc = Make("DllOnly", "core.dll");
+        _services.Add("DllSvc", imagePath: @"%SystemRoot%\System32\svchost.exe -k x", serviceDll: Path.Combine(dllSvc, "core.dll"));
+        var task = Make("Nightly", "job.exe");
+        _tasks.Add(@"\Nightly Job", actionExe: Path.Combine(task, "job.exe"));
+        var run = Make("Tray Helper", "tray.exe");
+        _reg.Seed(Hive.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Run", "Tray", $"\"{Path.Combine(run, "tray.exe")}\" /min");
+        var run32 = Make("Old Helper", "old.exe");
+        _reg.Seed(Hive.LocalMachine, @"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run", "Old", Path.Combine(run32, "old.exe"));
+        Make("Foo");
+
+        Assert.Equal("Foo", Assert.Single(Scan()).Title);
+    }
+
+    [Fact]
+    public void Unreadable_service_list_means_no_findings()
+    {
+        Make("Foo");
+        _services.ListError = new InvalidOperationException("SCM");
+
+        Assert.Empty(Scan());
+    }
+
+    [Fact]
+    public void Unreadable_task_list_means_no_findings()
+    {
+        Make("Foo");
+        _tasks.ListError = new InvalidOperationException("Taskplaner");
+
+        Assert.Empty(Scan());
+    }
+
+    [Fact]
+    public void Unreadable_run_key_means_no_findings()
+    {
+        _reg.ThrowingKeys.Add(@"Software\Microsoft\Windows\CurrentVersion\Run");
+        Make("Foo");
+
         Assert.Empty(Scan());
     }
 
@@ -242,6 +347,8 @@ public sealed class LeftoverTests : IDisposable
 
         // same folder twice (32-bit layout) is listed once
         Assert.Equal(2, LeftoverFolderScanner.DefaultRoots(p with { ProgramFilesX86 = p.ProgramFiles }).Count);
+        // a blank LocalAppData must not turn into a relative "Programs" root
+        Assert.Equal([@"C:\Program Files", @"C:\Program Files (x86)"], LeftoverFolderScanner.DefaultRoots(p with { LocalAppData = " " }));
     }
 
     [Theory]
