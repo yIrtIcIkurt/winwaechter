@@ -9,8 +9,11 @@ public sealed class ProgramInventory(IRegistry reg, RuleSet rules)
 {
     static readonly string[] UpdateTypes = ["Update", "Hotfix", "Security Update"];
 
-    /// <summary>Visible programs sorted by name; subkeys that cannot be read are skipped.</summary>
-    public IReadOnlyList<InstalledProgram> Read()
+    /// <summary>
+    /// Visible programs sorted by name; subkeys that cannot be read are skipped. includeHidden also returns
+    /// system components, updates and nameless entries (named after their key), e.g. for folder-overlap checks.
+    /// </summary>
+    public IReadOnlyList<InstalledProgram> Read(bool includeHidden = false)
     {
         var list = new List<InstalledProgram>();
         foreach (var (hive, root) in UninstallRoots.All)
@@ -22,7 +25,7 @@ public sealed class ProgramInventory(IRegistry reg, RuleSet rules)
             {
                 try
                 {
-                    if (ReadEntry(hive, root, name) is { } p) list.Add(p);
+                    if (ReadEntry(hive, root, name, includeHidden) is { } p) list.Add(p);
                 }
                 catch (Exception) { /* unreadable entry: skip */ }
             }
@@ -31,14 +34,18 @@ public sealed class ProgramInventory(IRegistry reg, RuleSet rules)
         return list;
     }
 
-    InstalledProgram? ReadEntry(Hive hive, string root, string name)
+    InstalledProgram? ReadEntry(Hive hive, string root, string name, bool includeHidden)
     {
         var key = root + "\\" + name;
-        if (Dword(hive, key, "SystemComponent") == 1) return null;
-        if (reg.Get(hive, key, "ParentKeyName") is not null) return null;
         var display = Str(hive, key, "DisplayName")?.Trim();
-        if (string.IsNullOrEmpty(display)) return null;
-        if (Str(hive, key, "ReleaseType") is { } rt && UpdateTypes.Contains(rt.Trim(), StringComparer.OrdinalIgnoreCase)) return null;
+        if (!includeHidden)
+        {
+            if (Dword(hive, key, "SystemComponent") == 1) return null;
+            if (reg.Get(hive, key, "ParentKeyName") is not null) return null;
+            if (string.IsNullOrEmpty(display)) return null;
+            if (Str(hive, key, "ReleaseType") is { } rt && UpdateTypes.Contains(rt.Trim(), StringComparer.OrdinalIgnoreCase)) return null;
+        }
+        if (string.IsNullOrEmpty(display)) display = name;
 
         var publisher = Str(hive, key, "Publisher");
         var location = Str(hive, key, "InstallLocation");

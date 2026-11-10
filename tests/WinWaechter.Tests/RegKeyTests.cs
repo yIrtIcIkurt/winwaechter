@@ -138,6 +138,37 @@ public sealed class RegKeyTests : IDisposable
     }
 
     [Fact]
+    public void Apply_refuses_value_data_that_does_not_match_its_kind()
+    {
+        var ctx = Ctx();
+        foreach (var (data, kind) in new (object, RegistryValueKind)[]
+                 {
+                     ("kein-wert", RegistryValueKind.DWord), ("x", RegistryValueKind.Binary),
+                     (5, RegistryValueKind.String), (new string?[] { "a", null }, RegistryValueKind.MultiString),
+                 })
+        {
+            var reg = new FakeRegistry();
+            reg.Seed(Hive.LocalMachine, Key, "V", data, kind);
+            var ex = Assert.Throws<InvalidOperationException>(() => new RegKeyChange(reg, Hive.LocalMachine, Key, "x").Apply(ctx));
+            Assert.Contains("kann nicht vollständig gesichert werden", ex.Message);
+            Assert.Empty(reg.DeleteTreeCalls);
+        }
+    }
+
+    [Fact]
+    public void Undo_of_backup_without_hash_asks_for_manual_check()
+    {
+        SeedAllKinds();
+        var ctx = Ctx();
+        var rec = Change().Apply(ctx);
+        var noHash = rec with { After = new() { ["backup"] = rec.After["backup"] } };
+        var ex = Assert.Throws<InvalidOperationException>(() => RegKeyChange.FromRecord(noHash, _reg).Undo(noHash, ctx));
+        Assert.Equal($"Sicherung ohne Prüfsumme – bitte manuell prüfen: {Path.GetFullPath(rec.After["backup"]!)}", ex.Message);
+        Assert.False(_reg.KeyExists(Hive.LocalMachine, Key));
+        Assert.Empty(_reg.CreateKeyCalls);
+    }
+
+    [Fact]
     public void Apply_on_missing_key_writes_nothing()
     {
         var ctx = Ctx();
@@ -420,6 +451,35 @@ public sealed class RegKeyTests : IDisposable
         var plan3 = Planner(() => []).Plan(running, [running]);
         Assert.Equal(["regkey"], plan3.Changes.Select(c => c.Kind));
         Assert.Contains(plan3.Notes, n => n.Contains("Der Ordner ist nicht vollständig lesbar oder enthält Verknüpfungen."));
+    }
+
+    [Fact]
+    public void Forced_plan_refuses_msi_and_protected_programs_itself()
+    {
+        var dir = FooFolder();
+        var msi = SeededProg(dir) with { WindowsInstaller = true };
+        var prot = SeededProg(dir) with { Flag = ProgramFlag.Protected };
+        var trace = F("auto", dir + @"\foo.exe", Auto("foo"));
+
+        var a = Planner(() => [trace]).Plan(msi, [msi]);
+        Assert.Empty(a.Changes);
+        Assert.Null(a.Folder);
+        Assert.Equal([ForcedRemovalPlanner.MsiRefused], a.Notes);
+
+        var b = Planner(() => [trace]).Plan(prot, [prot]);
+        Assert.Empty(b.Changes);
+        Assert.Null(b.Folder);
+        Assert.Equal([ForcedRemovalPlanner.ProtectedRefused], b.Notes);
+    }
+
+    [Fact]
+    public void Forced_plan_notes_a_failed_trace_scan()
+    {
+        var dir = FooFolder();
+        var p = SeededProg(dir);
+        var plan = Planner(() => throw new InvalidOperationException("WMI")).Plan(p, [p]);
+        Assert.Equal(["folder", "regkey"], plan.Changes.Select(c => c.Kind));
+        Assert.Equal(["Programmspuren konnten nicht gesucht werden."], plan.Notes);
     }
 
     [Fact]

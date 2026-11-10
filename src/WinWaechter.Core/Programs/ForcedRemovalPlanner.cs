@@ -23,6 +23,9 @@ public sealed class ForcedRemovalPlanner
     public const string FolderUnreadable = "Der Ordner ist nicht vollständig lesbar oder enthält Verknüpfungen.";
     public const string FolderInUse = "Ein Programm aus diesem Ordner läuft gerade. Bitte zuerst beenden.";
     public const string ProcessesUnknown = "Laufende Programme konnten nicht geprüft werden.";
+    public const string MsiRefused = "Für Windows-Installer-Programme (MSI) ist nur die offizielle Deinstallation möglich.";
+    public const string ProtectedRefused = "Geschützte Programme werden nicht erzwungen entfernt.";
+    public const string TracesUnknown = "Programmspuren konnten nicht gesucht werden.";
 
     // order in which traces are applied
     static readonly string[] TraceKinds = ["service", "task", "autostart"];
@@ -46,6 +49,9 @@ public sealed class ForcedRemovalPlanner
 
     public ForcedRemovalPlan Plan(InstalledProgram p, IReadOnlyList<InstalledProgram> all)
     {
+        // refused here as well, whatever the caller checked before
+        if (p.Flag == ProgramFlag.Protected) return new(p, [], null, [ProtectedRefused]);
+        if (p.WindowsInstaller) return new(p, [], null, [MsiRefused]);
         if (!_reg.KeyExists(p.Hive, p.RegistryKey)) return new(p, [], null, [EntryGone]);
 
         var notes = new List<string>();
@@ -57,7 +63,7 @@ public sealed class ForcedRemovalPlanner
         if (check.Folder is { } folder)
         {
             // traces may point into the folder even when the folder itself is gone
-            changes.AddRange(Traces(folder));
+            changes.AddRange(Traces(folder, notes));
             if (WhyNotMove(folder) is { } why) notes.Add(FolderPrefix + why);
             else
             {
@@ -71,13 +77,14 @@ public sealed class ForcedRemovalPlanner
     }
 
     // services, then tasks, then autostarts; one change per finding
-    List<IChange> Traces(string folder)
+    List<IChange> Traces(string folder, List<string> notes)
     {
         IReadOnlyList<Finding> scanned;
         try { scanned = _traceScan(); }
         catch (Exception ex)
         {
             FileLog.Warn("Suche nach Programmspuren fehlgeschlagen", ex);
+            notes.Add(TracesUnknown);
             scanned = [];
         }
         var found = ProgramTraces.InFolder(scanned, folder)

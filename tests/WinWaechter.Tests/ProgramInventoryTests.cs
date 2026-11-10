@@ -52,6 +52,27 @@ public sealed class ProgramInventoryTests
     }
 
     [Fact]
+    public void Read_with_hidden_entries_returns_everything()
+    {
+        var r = UninstallRoots.Native;
+        Entry(Hive.LocalMachine, r, "Sys", "Sys Comp");
+        _reg.Seed(Hive.LocalMachine, r + @"\Sys", "SystemComponent", 1, RegistryValueKind.DWord);
+        Entry(Hive.LocalMachine, r, "Child", "Child");
+        _reg.Seed(Hive.LocalMachine, r + @"\Child", "ParentKeyName", "X");
+        _reg.Seed(Hive.LocalMachine, r + @"\NoName", "InstallLocation", @"C:\Program Files\NoName");
+        Entry(Hive.LocalMachine, r, "Upd", "Upd");
+        _reg.Seed(Hive.LocalMachine, r + @"\Upd", "ReleaseType", "Hotfix");
+        Entry(Hive.LocalMachine, r, "Ok", "Normal Program");
+
+        Assert.Single(Inv().Read());
+        var all = Inv().Read(includeHidden: true);
+        Assert.Equal(5, all.Count);
+        var noName = all.Single(p => p.KeyName == "NoName");
+        Assert.Equal("NoName", noName.DisplayName);
+        Assert.Equal(@"C:\Program Files\NoName", noName.InstallLocation);
+    }
+
+    [Fact]
     public void Parses_date_size_and_msi_flag()
     {
         var r = UninstallRoots.Native;

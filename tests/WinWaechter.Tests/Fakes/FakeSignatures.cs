@@ -10,6 +10,9 @@ public sealed class FakeSignatures : ISignatureVerifier
     public SignatureInfo Default { get; set; } = new(SignatureState.Unknown, null, false);
     public List<string> VerifyCalls { get; } = [];
 
+    /// <summary>When set, Verify throws it.</summary>
+    public Exception? Throw { get; set; }
+
     public FakeSignatures Set(string path, SignatureInfo info)
     {
         _byPath[path] = info;
@@ -23,6 +26,7 @@ public sealed class FakeSignatures : ISignatureVerifier
     public SignatureInfo Verify(string path)
     {
         VerifyCalls.Add(path);
+        if (Throw is { } e) throw e;
         return _byPath.GetValueOrDefault(path, Default);
     }
 }

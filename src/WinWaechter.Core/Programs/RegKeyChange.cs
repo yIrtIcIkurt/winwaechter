@@ -128,10 +128,10 @@ public sealed class RegKeyChange : IChange
         {
             var kind = _reg.GetKind(_hive, key, valueName);
             var data = _reg.Get(_hive, key, valueName);
-            if (kind is null || data is null || kind == RegistryValueKind.Unknown)
+            if (kind is null || data is null || kind == RegistryValueKind.Unknown || Encode(kind.Value, data) is not { } encoded)
                 throw new InvalidOperationException(
                     $"Der Wert „{valueName}“ des Eintrags kann nicht vollständig gesichert werden. Es wurde nichts geändert.");
-            values.Add(new RegValueSnapshot(valueName, kind.Value.ToString(), Encode(kind.Value, data)));
+            values.Add(new RegValueSnapshot(valueName, kind.Value.ToString(), encoded));
         }
         var subKeys = new List<RegKeySnapshot>();
         foreach (var sub in _reg.SubKeyNames(_hive, key))
@@ -145,13 +145,17 @@ public sealed class RegKeyChange : IChange
 
     static bool IsPlainName(string? name) => !string.IsNullOrEmpty(name) && !name.Contains('\\') && name is not ("." or "..");
 
-    static string Encode(RegistryValueKind kind, object data) => kind switch
+    // Null when the data does not have the type its kind needs (it could not be written back exactly).
+    static string? Encode(RegistryValueKind kind, object data) => (kind, data) switch
     {
-        RegistryValueKind.String or RegistryValueKind.ExpandString => (string)data,
-        RegistryValueKind.DWord => Convert.ToInt32(data, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture),
-        RegistryValueKind.QWord => Convert.ToInt64(data, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture),
-        RegistryValueKind.MultiString => JsonSerializer.Serialize((string[])data),
-        _ => Convert.ToBase64String((byte[])data),   // Binary, None
+        (RegistryValueKind.String or RegistryValueKind.ExpandString, string s) => s,
+        (RegistryValueKind.DWord, int i) => i.ToString(CultureInfo.InvariantCulture),
+        (RegistryValueKind.DWord, uint u) => unchecked((int)u).ToString(CultureInfo.InvariantCulture),
+        (RegistryValueKind.QWord, long l) => l.ToString(CultureInfo.InvariantCulture),
+        (RegistryValueKind.QWord, ulong u) => unchecked((long)u).ToString(CultureInfo.InvariantCulture),
+        (RegistryValueKind.MultiString, string[] a) when a.All(x => x is not null) => JsonSerializer.Serialize(a),
+        (RegistryValueKind.Binary or RegistryValueKind.None, byte[] b) => Convert.ToBase64String(b),
+        _ => null,
     };
 
     static object Decode(RegValueSnapshot v, RegistryValueKind kind) => kind switch
@@ -180,13 +184,16 @@ public sealed class RegKeyChange : IChange
             throw new InvalidOperationException("Die Sicherung des Eintrags liegt außerhalb der Sitzung, Wiederherstellung abgelehnt.");
         if (!File.Exists(full))
             throw new InvalidOperationException("Die Sicherung des Eintrags fehlt, Wiederherstellung nicht möglich.");
+        // a backup file without its hash cannot be checked: never restored automatically
+        if (expected is null)
+            throw new InvalidOperationException($"Sicherung ohne Prüfsumme – bitte manuell prüfen: {full}");
         if (!ctx.IsTrustedFile(full))
             throw new InvalidOperationException("Die Sicherung des Eintrags stammt nicht von WinWächter, Wiederherstellung abgelehnt.");
 
         // hash and parse the very same bytes
         var bytes = File.ReadAllBytes(full);
         var actual = Convert.ToHexStringLower(SHA256.HashData(bytes));
-        if (expected is null || !string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Die Sicherung des Eintrags wurde verändert, Wiederherstellung abgelehnt.");
 
         RegKeySnapshot? snapshot;
