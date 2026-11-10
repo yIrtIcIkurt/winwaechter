@@ -441,6 +441,21 @@ public sealed class SecurityNetTests : IDisposable
     }
 
     [Fact]
+    public void Names_lose_format_characters_and_never_end_in_half_a_surrogate_pair()
+    {
+        // U+202E would flip the rest of the name around, U+200B hides itself
+        Assert.Equal("Safeexe.txt", BrowserExtensionScanner.CleanName("Safe‮exe.txt​", "id"));
+        Assert.Equal("id", BrowserExtensionScanner.CleanName("‮⁦", "id"));
+
+        var emoji = new string('x', BrowserExtensionScanner.MaxNameLength - 1) + "\U0001F600tail";
+        var cut = BrowserExtensionScanner.CleanName(emoji, "id");
+        Assert.Equal(BrowserExtensionScanner.MaxNameLength - 1, cut.Length);
+        Assert.False(char.IsHighSurrogate(cut[^1]));
+        var fits = new string('x', BrowserExtensionScanner.MaxNameLength - 2) + "\U0001F600tail";
+        Assert.EndsWith("\U0001F600", BrowserExtensionScanner.CleanName(fits, "id"));
+    }
+
+    [Fact]
     public async Task Defender_read_does_not_wait_for_security_center()
     {
         var (s, _, center, def, _, _, _) = Sources();

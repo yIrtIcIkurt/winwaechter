@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using WinWaechter.Core.Logging;
@@ -52,13 +53,17 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
     /// <summary>Chromium extension ids are 32 letters a–p; only those are used to build paths.</summary>
     public static bool IsChromiumId(string id) => ChromiumIdPattern().IsMatch(id);
 
-    // Display names come from files anyone can write: no control characters, bounded length.
-    static string CleanName(string name, string id)
+    // Display names come from files anyone can write: no control or format characters (e.g. U+202E
+    // right-to-left override), bounded length without splitting a surrogate pair.
+    internal static string CleanName(string name, string id)
     {
         static string Clean(string t)
         {
-            var c = new string(t.Where(ch => !char.IsControl(ch)).ToArray()).Trim();
-            return c.Length > MaxNameLength ? c[..MaxNameLength] : c;
+            var c = new string(t.Where(ch => !char.IsControl(ch)
+                && CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.Format).ToArray()).Trim();
+            if (c.Length <= MaxNameLength) return c;
+            var cut = char.IsHighSurrogate(c[MaxNameLength - 1]) ? MaxNameLength - 1 : MaxNameLength;
+            return c[..cut].TrimEnd();
         }
         var n = Clean(name);
         if (n.Length == 0) n = Clean(id);
