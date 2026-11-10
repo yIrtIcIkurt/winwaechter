@@ -6,7 +6,7 @@
 - Neue Seite „Sicherheit“: Ampel für Firewall, Defender, SmartScreen, Benutzerkontensteuerung, Remotedesktop, Verschlüsselung, Windows-Updates, lauschende Programme und Browser-Erweiterungen; Übersicht zeigt die Anzahl.
 - Regeln lassen sich signiert von GitHub aktualisieren; neue Regeln können den Schutz nur erweitern.
 - Rückgängig zeigt den Fortschritt; Defender-Funde mit unbekanntem Status werden verständlich benannt; App-Icon in Fenster und Seitenleiste.
-- Einstellungen: Abschnitt „Über WinWächter“ mit Autor und Link zum Projekt.
+- Einstellungen: Abschnitt „Über WinWächter“ mit Autor und Projektadresse (zum Kopieren).
 
 ## 0.2.1
 - Aufräumen: Bei Zwischenspeicher-Funden steht jetzt der tatsächlich verschobene Ordner als Ort (bei mehreren der erste plus „+n weitere“), nicht mehr der gemeinsame Oberordner.
