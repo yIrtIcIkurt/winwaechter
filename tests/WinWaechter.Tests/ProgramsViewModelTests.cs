@@ -155,6 +155,30 @@ public sealed class ProgramsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task WinWaechter_itself_is_treated_like_a_protected_entry()
+    {
+        var byName = P("WinWächter 0.3.0", publisher: null);
+        var byPublisher = P("Some Tool", publisher: "Tahsin Yilmaz");
+        var byFolder = new InstalledProgram(Hive.LocalMachine, Root, "Own_is1", "Renamed", "Other", "1.0", null, null,
+            "\"" + Exe + "\"", "\"" + AppContext.BaseDirectory.TrimEnd('\\').ToUpperInvariant() + "\"", null, false, ProgramFlag.None);
+        _actions.PlanFor = _ => new UninstallPlan(UninstallRoute.OpenSettings, null, UninstallPlanner.MissingReason, true);
+        var vm = await Loaded(byName, byPublisher, byFolder, P("Foo"));
+
+        foreach (var row in vm.Items.Where(r => r.Name != "Foo"))
+        {
+            Assert.False(row.CanUninstall, row.Name);
+            Assert.False(row.CanForceRemove, row.Name);
+            Assert.Equal("Das ist WinWächter selbst – bitte über die Windows-Einstellungen deinstallieren.", row.ProtectedHint);
+            Assert.False(vm.UninstallCommand.CanExecute(row));
+            await vm.UninstallCommand.ExecuteAsync(row);
+            Assert.False(vm.ForceRemoveCommand.CanExecute(row));
+        }
+        Assert.Empty(_actions.Planned);
+        Assert.True(Row(vm, "Foo").CanUninstall);
+        Assert.Null(Row(vm, "Foo").ProtectedHint);
+    }
+
+    [Fact]
     public async Task Settings_route_opens_appsfeatures_and_sets_pending()
     {
         var p = P("Foo");

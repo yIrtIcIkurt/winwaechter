@@ -14,10 +14,13 @@ namespace WinWaechter.App.ViewModels;
 public sealed partial class ProgramItemViewModel : ObservableObject
 {
     public const string ProtectedHintText = "Geschützt – bei Bedarf über Windows-Einstellungen → Apps deinstallieren";
+    public const string OwnEntryHintText = "Das ist WinWächter selbst – bitte über die Windows-Einstellungen deinstallieren.";
 
-    public ProgramItemViewModel(InstalledProgram p)
+    /// <param name="appDir">The app's own folder (default: AppContext.BaseDirectory), to recognise its own entry.</param>
+    public ProgramItemViewModel(InstalledProgram p, string? appDir = null)
     {
         Program = p;
+        IsOwnEntry = OwnEntry.Is(p, appDir ?? AppContext.BaseDirectory);
         DateText = p.InstallDate is { } d ? d.ToString("dd.MM.yyyy", Labels.De) : "";
         SizeText = p.SizeBytes is { } b ? Labels.Size(b) : "";
         (FlagText, FlagTone) = p.Flag switch
@@ -37,15 +40,23 @@ public sealed partial class ProgramItemViewModel : ObservableObject
     public string SizeText { get; }
     public string? FlagText { get; }
     public Tone FlagTone { get; }
-    public bool CanUninstall => Program.Flag != ProgramFlag.Protected;
-    public string? ProtectedHint => CanUninstall ? null : ProtectedHintText;
+    /// <summary>WinWaechter's own entry: treated like a protected one.</summary>
+    public bool IsOwnEntry { get; }
+    public bool CanUninstall => Program.Flag != ProgramFlag.Protected && !IsOwnEntry;
+    public string? ProtectedHint => IsOwnEntry ? OwnEntryHintText : CanUninstall ? null : ProtectedHintText;
 
     /// <summary>Herausgeber · Version · Datum · Größe, empty parts left out.</summary>
     public string Details => string.Join(" · ",
         new[] { Publisher, Version, DateText, SizeText }.Where(s => !string.IsNullOrWhiteSpace(s)));
 
-    [ObservableProperty]
     private bool _canForceRemove;
+
+    /// <summary>„Erzwungen entfernen“ offered; never for protected entries or WinWaechter itself.</summary>
+    public bool CanForceRemove
+    {
+        get => _canForceRemove;
+        set => SetProperty(ref _canForceRemove, value && CanUninstall);
+    }
 }
 
 public enum ProgramSort { Name, Size, Date }
@@ -466,7 +477,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
     }
 
     bool CanForceRemove(ProgramItemViewModel? item) =>
-        CanAct() && item is { CanForceRemove: true } && item.Program.Flag != ProgramFlag.Protected && !item.Program.WindowsInstaller;
+        CanAct() && item is { CanForceRemove: true, CanUninstall: true } && !item.Program.WindowsInstaller;
 
     static FindingArea AreaOf(string kind) => kind switch
     {
