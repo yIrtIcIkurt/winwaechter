@@ -6,12 +6,17 @@ namespace WinWaechter.Tests.Fakes;
 public sealed class FakeUninstallLauncher : IUninstallLauncher
 {
     public List<UninstallCommand> Calls { get; } = [];
+    public List<string?> InstallLocations { get; } = [];
     public int ExitCode { get; set; }
     public bool ChildrenStillRunning { get; set; }
 
-    public Task<UninstallOutcome> RunAsync(UninstallCommand cmd)
+    public Task<UninstallOutcome> RunAsync(UninstallCommand cmd, string? installLocation = null)
     {
-        lock (Calls) Calls.Add(cmd);
+        lock (Calls)
+        {
+            Calls.Add(cmd);
+            InstallLocations.Add(installLocation);
+        }
         return Task.FromResult(UninstallExit.Interpret(ExitCode, ChildrenStillRunning));
     }
 }

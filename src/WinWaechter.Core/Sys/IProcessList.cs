@@ -36,7 +36,7 @@ public sealed class WinProcessList : IProcessList
         return result;
     }
 
-    static string? PathOf(int pid)
+    internal static string? PathOf(int pid)
     {
         try
         {

@@ -57,7 +57,7 @@ public sealed class ProgramService : IProgramActions
     {
         if (plan.Route != UninstallRoute.Launch || plan.Command is not { } cmd)
             throw new InvalidOperationException("Dieses Deinstallationsprogramm startet WinWächter nicht selbst.");
-        return _launcher.RunAsync(cmd);
+        return _launcher.RunAsync(cmd, plan.InstallLocation);
     }
 
     // Hidden entries (components, updates) count as well: a folder one of them uses is never offered.

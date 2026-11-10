@@ -10,6 +10,7 @@ internal static class JobNative
     public const uint CREATE_SUSPENDED = 0x00000004;
     public const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     public const int JobObjectBasicAccountingInformation = 1;
+    public const int JobObjectBasicProcessIdList = 3;
     public const uint INFINITE = 0xFFFFFFFF;
     public const uint WAIT_OBJECT_0 = 0;
 
@@ -57,6 +58,12 @@ internal static class JobNative
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool QueryInformationJobObject(SafeKernelHandle job, int infoClass,
         out JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info, int length, IntPtr returnLength);
+
+    // JobObjectBasicProcessIdList into a raw buffer: two DWORDs (assigned, listed), then ULONG_PTR process ids.
+    [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true, EntryPoint = "QueryInformationJobObject")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool QueryJobProcessIds(SafeKernelHandle job, int infoClass, IntPtr buffer, int length,
+        IntPtr returnLength);
 
     [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "CreateProcessW")]
     [return: MarshalAs(UnmanagedType.Bool)]

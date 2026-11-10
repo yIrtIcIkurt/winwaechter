@@ -189,6 +189,15 @@ public sealed class UninstallTests : IDisposable
         Assert.Equal("Das Deinstallationsprogramm fehlt.", plan.Reason);
     }
 
+    [Fact]
+    public void Launch_plans_carry_the_install_location()
+    {
+        var exe = Touch(Path.Combine(_paths.ProgramFiles, "Foo", "uninst.exe"));
+        var folder = Path.Combine(_paths.ProgramFiles, "Foo");
+        Assert.Equal(folder, Plan(Prog("\"" + exe + "\"") with { InstallLocation = folder }).InstallLocation);
+        Assert.Equal(folder, Plan(Prog("MsiExec.exe /X" + Guid) with { InstallLocation = folder }).InstallLocation);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -393,19 +402,78 @@ public sealed class UninstallTests : IDisposable
         var poll = TimeSpan.FromMilliseconds(10);
         var grace = TimeSpan.FromMilliseconds(300);
 
-        // root ended, a child keeps running forever: back after the grace period, flag set
+        const string Browser = @"C:\Program Files\Browser\browser.exe";
+        static IReadOnlyList<string?> Running(int n, string? path) => Enumerable.Repeat(path, n).ToList();
+        static bool NeverUninstaller(string? _) => false;
+
+        // root ended, a browser keeps running forever: back after the grace period, flag set
         var sw = Stopwatch.StartNew();
-        Assert.True(await JobUninstallLauncher.WaitForJobAsync(() => true, () => 1, grace, poll));
+        Assert.True(await JobUninstallLauncher.WaitForJobAsync(() => true, () => Running(1, Browser), NeverUninstaller, grace, poll));
         Assert.True(sw.Elapsed >= grace && sw.Elapsed < TimeSpan.FromSeconds(5), $"returned after {sw.Elapsed}");
 
         // root still running past the grace period, then everything ends: waited for all, no flag
         var polls = 0;
-        Assert.False(await JobUninstallLauncher.WaitForJobAsync(() => false, () => ++polls < 60 ? 2u : 0u, grace, poll));
+        Assert.False(await JobUninstallLauncher.WaitForJobAsync(() => false, () => Running(++polls < 60 ? 2 : 0, Browser),
+            NeverUninstaller, grace, poll));
         Assert.Equal(60, polls);
 
         // root ended, child ends within the grace period: no flag
         var left = 5;
-        Assert.False(await JobUninstallLauncher.WaitForJobAsync(() => true, () => (uint)Math.Max(0, left--), grace, poll));
+        Assert.False(await JobUninstallLauncher.WaitForJobAsync(() => true, () => Running(Math.Max(0, left--), Browser),
+            NeverUninstaller, grace, poll));
+    }
+
+    [Fact]
+    public async Task Job_wait_keeps_waiting_for_uninstaller_copies_past_the_grace_period()
+    {
+        var poll = TimeSpan.FromMilliseconds(10);
+        var grace = TimeSpan.FromMilliseconds(100);
+        var dirs = JobUninstallLauncher.UninstallerDirs(new UninstallCommand(@"C:\Program Files\Foo\uninst.exe", ""), null);
+        bool IsUninstaller(string? p) => JobUninstallLauncher.IsUninstallerProcess(p, dirs);
+        var temp = Path.Combine(Path.GetTempPath(), "~nsu.tmp", "Au_.exe");
+
+        // root ended, the real uninstaller runs from %TEMP%: still waiting long after the grace period
+        foreach (var copy in new string?[] { temp, @"C:\Program Files\Foo\_iu14D2N.tmp", null })
+        {
+            var sw = Stopwatch.StartNew();
+            var polls = 0;
+            var flag = await JobUninstallLauncher.WaitForJobAsync(() => true, () =>
+            {
+                polls++;
+                // the copy runs for 5 grace periods, then a survey browser stays open
+                if (sw.Elapsed < grace * 5) return [copy, @"C:\Program Files\Browser\browser.exe"];
+                return [@"C:\Program Files\Browser\browser.exe"];
+            }, IsUninstaller, grace, poll);
+            Assert.True(flag, copy);
+            Assert.True(sw.Elapsed >= grace * 6, $"{copy}: returned after {sw.Elapsed}");
+        }
+    }
+
+    [Fact]
+    public void Uninstaller_processes_are_temp_copies_its_own_folders_or_unreadable()
+    {
+        var sysRoot = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var dirs = JobUninstallLauncher.UninstallerDirs(new UninstallCommand(Path.Combine(pf, "Foo", "bin", "uninst.exe"), ""),
+            "\"" + Path.Combine(pf, "Foo") + "\\\"");
+        bool Is(string? p) => JobUninstallLauncher.IsUninstallerProcess(p, dirs);
+
+        Assert.True(Is(null));
+        Assert.True(Is(""));
+        Assert.True(Is(Path.Combine(Path.GetTempPath(), "Au_.exe")));
+        Assert.True(Is(Path.Combine(sysRoot, "Temp", "x", "setup.exe")));
+        Assert.True(Is(@"D:\Users\someone\AppData\Local\Temp\_iu14D2N.tmp"));
+        Assert.True(Is(Path.Combine(pf, "Foo", "helper.exe")));
+        Assert.True(Is(Path.Combine(pf, "FOO", "bin", "uninst.exe")));
+        Assert.False(Is(Path.Combine(pf, "Foobar", "x.exe")));
+        Assert.False(Is(Path.Combine(pf, "Browser", "browser.exe")));
+        Assert.False(Is(Path.Combine(sysRoot, "explorer.exe")));
+
+        // msiexec under %SystemRoot% and a Program Files root as InstallLocation never cover other programs
+        var msi = JobUninstallLauncher.UninstallerDirs(new UninstallCommand(Path.Combine(sysRoot, "System32", "msiexec.exe"), "/X"), pf);
+        Assert.False(JobUninstallLauncher.IsUninstallerProcess(Path.Combine(sysRoot, "System32", "dllhost.exe"), msi));
+        Assert.False(JobUninstallLauncher.IsUninstallerProcess(Path.Combine(pf, "Browser", "browser.exe"), msi));
+        Assert.True(JobUninstallLauncher.IsUninstallerProcess(Path.Combine(Path.GetTempPath(), "x.exe"), msi));
     }
 
     [Fact]

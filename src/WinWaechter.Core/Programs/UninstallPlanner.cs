@@ -4,8 +4,10 @@ namespace WinWaechter.Core.Programs;
 
 public enum UninstallRoute { Launch, OpenSettings }
 
-/// <summary>Launch = WinWaechter starts Command itself; OpenSettings = send the user to ms-settings:appsfeatures.</summary>
-public sealed record UninstallPlan(UninstallRoute Route, UninstallCommand? Command, string Reason, bool UninstallerMissing);
+/// <summary>Launch = WinWaechter starts Command itself; OpenSettings = send the user to ms-settings:appsfeatures.
+/// InstallLocation (Launch only): the program folder, so the launcher can tell its uninstaller copies apart.</summary>
+public sealed record UninstallPlan(UninstallRoute Route, UninstallCommand? Command, string Reason, bool UninstallerMissing,
+    string? InstallLocation = null);
 
 public static class UninstallPlanner
 {
@@ -26,7 +28,7 @@ public static class UninstallPlanner
             var msiexec = Path.Combine(paths.SystemRoot, "System32", MsiExecName);
             if (!p.IsMachineEntry || !IsTrusted(msiexec, Root(paths.SystemRoot), trust))
                 return Settings(UserWritableReason);
-            return new(UninstallRoute.Launch, new UninstallCommand(msiexec, "/X" + guid), "", false);
+            return new(UninstallRoute.Launch, new UninstallCommand(msiexec, "/X" + guid), "", false, p.InstallLocation);
         }
 
         // no command at all: the uninstaller is missing (forced removal may be offered, spec 1.3)
@@ -50,7 +52,7 @@ public static class UninstallPlanner
         if (!p.IsMachineEntry || AdminRoot(full, paths) is not { } root || !IsTrusted(full, root, trust))
             return Settings(UserWritableReason);
 
-        return new(UninstallRoute.Launch, cmd with { Exe = full }, "", false);
+        return new(UninstallRoute.Launch, cmd with { Exe = full }, "", false, p.InstallLocation);
     }
 
     static UninstallPlan Settings(string reason) => new(UninstallRoute.OpenSettings, null, reason, false);

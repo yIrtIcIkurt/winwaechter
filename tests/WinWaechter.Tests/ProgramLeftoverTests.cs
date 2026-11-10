@@ -181,11 +181,12 @@ public sealed class ProgramLeftoverTests : IDisposable
         Assert.Empty(launcher.Calls);
 
         var cmd = new UninstallCommand(_pf + @"\Foo\unins.exe", "/x");
-        var launch = new UninstallPlan(UninstallRoute.Launch, cmd, "", false);
+        var launch = new UninstallPlan(UninstallRoute.Launch, cmd, "", false, _pf + @"\Foo");
         var outcome = await svc.RunUninstallerAsync(launch);
         Assert.Equal(3010, outcome.ExitCode);
         Assert.True(outcome.RestartRequired);
         Assert.Equal([cmd], launcher.Calls);
+        Assert.Equal([_pf + @"\Foo"], launcher.InstallLocations);   // the launcher knows the program folder
     }
 
     [Fact]
