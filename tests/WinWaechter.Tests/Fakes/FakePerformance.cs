@@ -50,3 +50,25 @@ public sealed class FakeAppDisplayNames : IAppDisplayNames
     public string Resolve(string packageFamilyName) =>
         Names.TryGetValue(packageFamilyName, out var n) ? n : packageFamilyName.Split('_')[0];
 }
+
+public sealed class FakeSystemSources : ISystemSources
+{
+    public CpuTimes? CpuValue { get; set; } = new(0, 0, 0);
+    public (long Used, long Total)? MemoryValue { get; set; } = (8L << 30, 16L << 30);
+    public double? DiskValue { get; set; } = 10;
+    public List<ProcTime> Procs { get; set; } = [];
+    public int Cores { get; set; } = 1;
+    public bool ThrowCpu { get; set; }
+    public bool ThrowDisk { get; set; }
+    public int CpuCalls { get; private set; }
+
+    public CpuTimes? Cpu()
+    {
+        CpuCalls++;
+        return ThrowCpu ? throw new InvalidOperationException("cpu boom") : CpuValue;
+    }
+
+    public (long Used, long Total)? Memory() => MemoryValue;
+    public double? DiskBusy() => ThrowDisk ? throw new InvalidOperationException("disk boom") : DiskValue;
+    public IReadOnlyList<ProcTime> Processes() => Procs;
+}
