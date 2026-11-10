@@ -1,4 +1,5 @@
 using System.Text;
+using WinWaechter.Core.Programs;
 using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Optimizer.Storage;
@@ -9,8 +10,6 @@ namespace WinWaechter.Core.Optimizer.Storage;
 /// </summary>
 public sealed class InstalledProgramIndex
 {
-    const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
-    const string Wow64UninstallKey = @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall";
     const string AppxPackagesKey = @"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages";
     static readonly string[] Fields = ["DisplayName", "Publisher", "InstallLocation", "DisplayIcon", "UninstallString"];
 
@@ -38,7 +37,7 @@ public sealed class InstalledProgramIndex
         var texts = new List<string>();
         int entries = 0, machine = 0;
         var failed = false;
-        foreach (var (hive, key) in new[] { (Hive.LocalMachine, UninstallKey), (Hive.LocalMachine, Wow64UninstallKey), (Hive.CurrentUser, UninstallKey) })
+        foreach (var (hive, key) in UninstallRoots.All)
         {
             foreach (var sub in SubKeys(reg, hive, key, ref failed))
             {
@@ -48,7 +47,7 @@ public sealed class InstalledProgramIndex
                         values.Add(n);
                 if (values.Count == 0) continue;
                 entries++;
-                if (hive == Hive.LocalMachine && key == UninstallKey) machine++;
+                if (hive == Hive.LocalMachine && key == UninstallRoots.Native) machine++;
                 texts.AddRange(values);
                 // the key name is often the product name; one more match only keeps more folders
                 texts.Add(Normalize(sub));
