@@ -273,7 +273,10 @@ public sealed class SecurityCoreTests : IDisposable
 
         var waiting = SecurityChecks.Encryption(new(0, 1));
         Assert.Equal(Light.Yellow, waiting.Light);
-        Assert.Equal("Verschlüsselt, wartet auf Aktivierung", waiting.Finding);
+        Assert.Equal("Verschlüsselt, Schutz derzeit nicht aktiv (z. B. angehalten oder wartet auf Aktivierung)", waiting.Finding);
+        // protection suspended on a fully encrypted drive reads the same
+        Assert.Equal(waiting.Finding, SecurityChecks.Encryption(new(0, 1)).Finding);
+        Assert.Equal(Light.Yellow, SecurityChecks.Encryption(new(0, 2)).Light);
 
         var off = SecurityChecks.Encryption(new(0, 0));
         Assert.Equal(Light.Yellow, off.Light);

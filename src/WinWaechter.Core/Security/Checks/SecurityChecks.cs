@@ -104,7 +104,8 @@ public static class SecurityChecks
         if (s.ProtectionStatus == 1)
             return Row(Light.Green, "Systemlaufwerk verschlüsselt", "Bei Verlust des Geräts sind Ihre Daten ohne Anmeldung nicht lesbar.");
         if (s.ConversionStatus != 0)
-            return Row(Light.Yellow, "Verschlüsselt, wartet auf Aktivierung", "Das Laufwerk ist verschlüsselt, der Schutz ist aber noch nicht aktiv.");
+            return Row(Light.Yellow, "Verschlüsselt, Schutz derzeit nicht aktiv (z. B. angehalten oder wartet auf Aktivierung)",
+                "Das Laufwerk ist verschlüsselt, der Schutz ist aber derzeit nicht aktiv.");
         return Row(Light.Yellow, "Systemlaufwerk nicht verschlüsselt", "Bei Verlust des Geräts könnten Dritte Ihre Daten auslesen.");
     }
 
