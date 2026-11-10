@@ -1,5 +1,5 @@
 {
-  "rulesVersion": 1,
+  "rulesVersion": 2,
   "minAppVersion": "0.3.0",
   "protected": [
     { "publisher": "Microsoft" }, { "publisher": "Dell" }, { "publisher": "Intel" }, { "publisher": "Realtek" },
@@ -80,6 +80,7 @@
   ],
   "pua": [
     { "name": "Glary" },
+    { "name": "Restoro" },
     { "publisher": "Glarysoft" },
     { "name": "GUDelayStartup" },
     { "name": "Driver Booster" },
