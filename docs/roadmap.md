@@ -1,6 +1,6 @@
 # WinWächter – Roadmap
 
-Stand: 2026-11-09 (Version 0.2.0)
+Stand: 2026-11-10 (Version 0.3.1)
 
 ## 0.2.0 (veröffentlicht 2026-11-09)
 - [x] Gebaut und geprüft (464 Tests, Einzel- und Gesamtprüfung), Release v0.2.0, Selbst-Update 0.1.1 → 0.2.0 auf dem Rechner
@@ -27,10 +27,19 @@ Für später (aus den Prüfungen): Browser/Update-Prüfung auch beim Anwenden wi
 
 Beim Test gefunden und behoben: Start nach Setup (740), zu schnelles Scrollen mit Touchpad, „Prozess beenden“ blieb klickbar, Verlauf wählte nach dem Anwenden die alte Sitzung.
 
-## 0.3.0 (in Arbeit, Entscheidung Nutzer 2026-11-10)
+## 0.3.0 (veröffentlicht 2026-11-10, 10791df)
 App-Übersicht + offizielles/erzwungenes Deinstallieren mit Reste-Suche, Sicherheits-Check (Ampel), Regeln-Update von GitHub, Feinschliff + Icon. Design: `docs/superpowers/specs/2026-11-10-winwaechter-0.3-design.md`.
 
 Dazu: Autor „Tahsin Yilmaz“ (Über-Bereich, Installer, Dateieigenschaften, README).
+- [x] Selbst-Update 0.2.1 → 0.3.0 auf dem Rechner, Dateieigenschaften + Apps-Eintrag mit Autor
+- [x] Regel-Update live: Regeln Version 2 (Restoro) geladen, Cache in `ProgramData\WinWaechter\Regeln` (Besitzer Administratoren, gleiche Bytes wie GitHub), nach Neustart „Regeln: Version 2“ (2026-11-10)
+- [ ] Programme- und Sicherheit-Seite hell/dunkel, 150 %, Tastatur
+
+## 0.3.1 (Fehlerbehebung)
+- Geräteverschlüsselung war immer „Nicht prüfbar“: WMI-Abfrage ohne Schlüssel `DeviceID` → `GetConversionStatus` scheiterte.
+- Firewall bei fremdem Schutzprogramm bleibt grün, auch wenn die Windows-Firewall nicht lesbar ist.
+- WMI-Ergebnislisten werden freigegeben; Regel-Tests zählen ab der mitgelieferten Version.
+- [ ] Auf dem Rechner prüfen: Zeile „Geräteverschlüsselung“ zeigt Grün/Gelb statt Grau.
 
 ## 0.4.0 (geplant, Entscheidung Nutzer 2026-11-10)
 Neue Seite „Leistung“: Energiemodus (Netz/Akku), visuelle Effekte, Startzeit-Bericht, Live-Monitor (CPU/RAM/Datenträger/Top-Verbraucher), Hintergrund-Apps, Spielmodus + GPU-Planung, Ruhezustand-Datei (mit Hinweis), Speicheroptimierung. Alles einzeln, umkehrbar; keine „Tuning-Tricks“ (RAM-Booster, Prefetch löschen, Dienste massenhaft abschalten).
