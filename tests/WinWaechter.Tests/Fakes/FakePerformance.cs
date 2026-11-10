@@ -72,3 +72,17 @@ public sealed class FakeSystemSources : ISystemSources
     public double? DiskBusy() => ThrowDisk ? throw new InvalidOperationException("disk boom") : DiskValue;
     public IReadOnlyList<ProcTime> Processes() => Procs;
 }
+
+public sealed class FakeBootEventSource : IBootEventSource
+{
+    public List<BootEvent> Events { get; } = [];
+    public Exception? Throws { get; set; }
+    public DateTime? LastSince { get; private set; }
+
+    public IReadOnlyList<BootEvent> Read(DateTime since)
+    {
+        LastSince = since;
+        if (Throws is not null) throw Throws;
+        return Events;
+    }
+}
