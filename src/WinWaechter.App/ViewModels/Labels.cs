@@ -48,14 +48,7 @@ public static class Labels
         _ => Tone.Neutral,
     };
 
-    public static string Size(long bytes)
-    {
-        string[] units = ["Byte", "KB", "MB", "GB", "TB"];
-        double v = bytes;
-        var i = 0;
-        while (v >= 1024 && i < units.Length - 1) { v /= 1024; i++; }
-        return i == 0 ? $"{bytes} Byte" : string.Format(De, "{0:0.#} {1}", v, units[i]);
-    }
+    public static string Size(long bytes) => SizeText.Format(bytes);
 
     public static string Date(DateTimeOffset? d) =>
         d is { } v ? v.ToLocalTime().ToString("dd.MM.yyyy, HH:mm", De) : "–";
