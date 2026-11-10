@@ -61,7 +61,9 @@ public static class ProgramFolderRules
         var segments = folder[(root.Length + 1)..].Split('\\');
         if (segments.Any(seg => SharedSegments.Contains(seg, StringComparer.OrdinalIgnoreCase))) return Refuse(SharedFolder);
 
+        // vendor collection folders (e.g. "Google", "NVIDIA Corporation") are never offered as a whole
         var name = Path.GetFileName(folder);
+        if (rules.IsLeftoverIgnored(name)) return Refuse(SharedFolder);
         if (rules.Classify(new ItemFacts(name, folder + "\\", null, null)) == RuleVerdict.Protected
             || rules.Classify(new ItemFacts(self.DisplayName, folder + "\\", self.Publisher, null)) == RuleVerdict.Protected)
             return Refuse(ProtectedFolder);
