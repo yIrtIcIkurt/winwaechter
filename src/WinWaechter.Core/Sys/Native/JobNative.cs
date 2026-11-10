@@ -10,9 +10,7 @@ internal static class JobNative
     public const uint CREATE_SUSPENDED = 0x00000004;
     public const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     public const int JobObjectBasicAccountingInformation = 1;
-    public const uint WAIT_OBJECT_0 = 0;
     public const uint INFINITE = 0xFFFFFFFF;
-    public const uint STILL_ACTIVE = 259;
 
     public sealed class SafeKernelHandle : SafeHandleZeroOrMinusOneIsInvalid
     {

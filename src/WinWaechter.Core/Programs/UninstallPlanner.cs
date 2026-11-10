@@ -40,6 +40,10 @@ public static class UninstallPlanner
 
         if (!exists(full)) return new(UninstallRoute.OpenSettings, null, MissingReason, true);
 
+        // Under %SystemRoot% only the msiexec route above may be launched.
+        if (Root(paths.SystemRoot) is { } sysRoot && full.StartsWith(sysRoot + "\\", StringComparison.OrdinalIgnoreCase))
+            return Settings(UnsafeReason);
+
         if (!p.IsMachineEntry || AdminRoot(full, paths) is not { } root || !IsTrusted(full, root, trust))
             return Settings(UserWritableReason);
 
@@ -82,7 +86,7 @@ public static class UninstallPlanner
     {
         string?[] candidates =
         [
-            paths.ProgramFiles, paths.ProgramFilesX86, paths.SystemRoot, Path.Combine(paths.ProgramData, "Package Cache"),
+            paths.ProgramFiles, paths.ProgramFilesX86, Path.Combine(paths.ProgramData, "Package Cache"),
         ];
         foreach (var c in candidates)
         {

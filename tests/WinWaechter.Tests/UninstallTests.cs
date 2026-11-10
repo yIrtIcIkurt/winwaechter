@@ -229,10 +229,73 @@ public sealed class UninstallTests : IDisposable
     }
 
     [Fact]
+    public void Only_msiexec_may_run_from_system_root()
+    {
+        var exe = Touch(Path.Combine(_paths.SystemRoot, "System32", "foo", "uninst.exe"));
+        var plan = Plan(Prog("\"" + exe + "\" /S"));
+        Assert.Equal(UninstallRoute.OpenSettings, plan.Route);
+        Assert.Null(plan.Command);
+        Assert.Equal(UninstallPlanner.UnsafeReason, plan.Reason);
+        Assert.Empty(_trust.Calls);
+        // The validated MSI route still uses System32\msiexec.exe.
+        Assert.Equal(UninstallRoute.Launch, Plan(Prog("MsiExec.exe /X" + Guid)).Route);
+    }
+
+    static bool Sddl(string sddl)
+    {
+        var sec = new System.Security.AccessControl.DirectorySecurity();
+        sec.SetSecurityDescriptorSddlForm(sddl);
+        return WinPathTrust.Evaluate(
+            sec.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier,
+            sec.GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier)));
+    }
+
+    [Theory]
+    [InlineData("O:BAD:(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)", true)]
+    [InlineData("O:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464D:(A;;FA;;;S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464)(A;;0x1200a9;;;BU)", true)]
+    [InlineData("O:SYD:(A;;FA;;;SY)(A;;0x1200a9;;;WD)", true)]
+    [InlineData("O:BAD:(A;;GW;;;BU)", false)]
+    [InlineData("O:BAD:(A;OICIIO;GA;;;BU)", true)]                      // inherit-only: not on this object
+    [InlineData("O:S-1-5-21-1000-1000-1000-1001D:(A;;FA;;;BA)", false)] // owned by a user
+    [InlineData("D:(A;;FA;;;BA)", false)]                               // no owner
+    [InlineData("O:BAD:(A;;FA;;;S-1-5-113)", false)]                    // Local account
+    [InlineData("O:BAD:(A;OICIIO;GA;;;CO)", true)]                      // CREATOR OWNER, inherit-only
+    [InlineData("O:BAD:(A;;GA;;;CO)", false)]                           // CREATOR OWNER on the object itself
+    [InlineData("O:BAD:(A;;0x1200a9;;;BU)(A;;0x4;;;BU)", false)]        // AppendData / create subfolder
+    [InlineData("O:BAD:(A;;WD;;;S-1-5-21-1-2-3-1001)", false)]          // WRITE_DAC for any other SID
+    [InlineData("O:BAD:(A;;WO;;;AU)", false)]                           // WRITE_OWNER
+    [InlineData("O:BAD:(A;;SD;;;IU)", false)]                           // DELETE
+    [InlineData("O:BAD:(A;;GA;;;S-1-15-2-1)", false)]                   // app packages, GENERIC_ALL
+    [InlineData("O:BAD:(D;;FA;;;BU)(A;;FA;;;BA)", true)]                // deny entries never grant
+    public void Trust_evaluation_is_an_allow_list(string sddl, bool trusted) => Assert.Equal(trusted, Sddl(sddl));
+
+    [Fact]
+    public void WinPathTrust_refuses_reparse_points()
+    {
+        var target = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32");
+        var link = Path.Combine(_tmp, "link");
+        var psi = new ProcessStartInfo(Path.Combine(target, "cmd.exe"), $"/c mklink /J \"{link}\" \"{target}\"")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
+        };
+        using (var p = Process.Start(psi)!) p.WaitForExit();
+        try
+        {
+            Assert.True(Directory.Exists(link));
+            Assert.True(new WinPathTrust().IsAdminOnly(target));
+            // Same ACL as the target, but the link itself is refused (the planner checks every folder of the chain).
+            Assert.False(new WinPathTrust().IsAdminOnly(link));
+        }
+        finally
+        {
+            try { Directory.Delete(link); } catch { }
+        }
+    }
+
+    [Fact]
     public void WinPathTrust_reads_real_acls()
     {
-        var trust = new WinPathTrust(new FakeUserContext(_tmp,
-            System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value));
+        var trust = new WinPathTrust();
         var win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         Assert.True(trust.IsAdminOnly(Path.Combine(win, "System32", "msiexec.exe")));
         Assert.True(trust.IsAdminOnly(Path.Combine(win, "System32")));
