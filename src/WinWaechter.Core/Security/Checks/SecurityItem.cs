@@ -16,3 +16,13 @@ public static class SecurityIds
         Defender = "defender", SmartScreen = "smartscreen", Uac = "uac", RemoteDesktop = "rdp", Encryption = "encryption",
         Updates = "updates", Listeners = "listeners", Extensions = "extensions";
 }
+
+/// <summary>Row titles, shared by the rules and the grey fallback rows.</summary>
+public static class Titles
+{
+    public const string Defender = "Microsoft Defender", SmartScreen = "SmartScreen", Uac = "Benutzerkontensteuerung",
+        RemoteDesktop = "Remotedesktop", Encryption = "Geräteverschlüsselung", Updates = "Windows-Updates",
+        Listeners = "Im Netz lauschende Programme", Extensions = "Browser-Erweiterungen";
+
+    public static string Firewall(FirewallProfile p) => $"Firewall ({FirewallChange.ProfileName(p)})";
+}

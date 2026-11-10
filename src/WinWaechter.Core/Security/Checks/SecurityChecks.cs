@@ -1,4 +1,6 @@
+using System.Net;
 using WinWaechter.Core.Security.Defender;
+using WinWaechter.Core.Security.Heuristics;
 using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Security.Checks;
@@ -23,7 +25,7 @@ public static class SecurityChecks
             (FirewallProfile.Public, SecurityIds.FirewallPublic),
         })
         {
-            var title = $"Firewall ({FirewallChange.ProfileName(p)})";
+            var title = Titles.Firewall(p);
             if (takeover is not null)
                 items.Add(new(id, title, Light.Green, $"Übernommen von {takeover.Name}",
                     "Eine andere Sicherheitssoftware schützt Ihren Rechner. Die Windows-Firewall bleibt unangetastet."));
@@ -40,7 +42,7 @@ public static class SecurityChecks
 
     public static SecurityItem Defender(DefenderStatus s, IReadOnlyList<SecurityProduct> antiVirus)
     {
-        const string title = "Microsoft Defender";
+        const string title = Titles.Defender;
         var other = antiVirus.FirstOrDefault(a => a.Enabled && !a.IsMicrosoft);
         if (other is not null)
             return new(SecurityIds.Defender, title, Light.Green, $"Übernommen von {other.Name}",
@@ -61,13 +63,13 @@ public static class SecurityChecks
         var off = Dword(reg, PoliciesSystem, "EnableSmartScreen") == 0
                   || string.Equals(reg.Get(Hive.LocalMachine, Explorer, "SmartScreenEnabled") as string, "Off", StringComparison.OrdinalIgnoreCase);
         const string why = "SmartScreen warnt vor unbekannten oder gefährlichen Programmen und Webseiten.";
-        return new(SecurityIds.SmartScreen, "SmartScreen", off ? Light.Yellow : Light.Green, off ? "Ausgeschaltet" : "Eingeschaltet", why,
+        return new(SecurityIds.SmartScreen, Titles.SmartScreen, off ? Light.Yellow : Light.Green, off ? "Ausgeschaltet" : "Eingeschaltet", why,
             SecurityActionKind.Link, "Einstellungen öffnen", SystemLinks.DefenderAppBrowser);
     }
 
     public static SecurityItem Uac(IRegistry reg)
     {
-        const string title = "Benutzerkontensteuerung";
+        const string title = Titles.Uac;
         if (Dword(reg, UacKey, "EnableLUA") == 0)
             return new(SecurityIds.Uac, title, Light.Red, "Ausgeschaltet", "Ohne Benutzerkontensteuerung laufen Programme ungefragt mit Administratorrechten.");
         if (Dword(reg, UacKey, "ConsentPromptBehaviorAdmin") == 0)
@@ -79,7 +81,7 @@ public static class SecurityChecks
 
     public static SecurityItem RemoteDesktop(IRegistry reg)
     {
-        const string title = "Remotedesktop";
+        const string title = Titles.RemoteDesktop;
         var edition = reg.Get(Hive.LocalMachine, WinNt, "EditionID") as string;
         if (edition?.StartsWith("Core", StringComparison.OrdinalIgnoreCase) == true)
             return new(SecurityIds.RemoteDesktop, title, Light.Grey, "Nicht verfügbar (Home)", "Windows Home kann keine eingehenden Remotedesktop-Verbindungen annehmen.");
@@ -92,7 +94,7 @@ public static class SecurityChecks
 
     public static SecurityItem Encryption(VolumeEncryptionState? s)
     {
-        const string title = "Geräteverschlüsselung";
+        const string title = Titles.Encryption;
         if (s is null)
             return new(SecurityIds.Encryption, title, Light.Grey, "Nicht verfügbar", "Für dieses Gerät lässt sich der Verschlüsselungsstatus nicht lesen.");
         SecurityItem Row(Light l, string finding, string why) =>
@@ -102,6 +104,101 @@ public static class SecurityChecks
         if (s.ConversionStatus != 0)
             return Row(Light.Yellow, "Verschlüsselt, wartet auf Aktivierung", "Das Laufwerk ist verschlüsselt, der Schutz ist aber noch nicht aktiv.");
         return Row(Light.Yellow, "Systemlaufwerk nicht verschlüsselt", "Bei Verlust des Geräts könnten Dritte Ihre Daten auslesen.");
+    }
+
+    public const string RebootRequiredKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired";
+
+    public static SecurityItem Updates(bool rebootRequired, WindowsUpdateState? s)
+    {
+        var stamp = s?.LastSearchUtc is { } t ? $" (Stand der letzten Windows-Suche: {t.ToLocalTime():dd.MM.yyyy HH:mm})" : "";
+        SecurityItem Row(Light l, string finding, string why) =>
+            new(SecurityIds.Updates, Titles.Updates, l, finding, why, SecurityActionKind.Link, "Windows Update öffnen", SystemLinks.WindowsUpdate);
+
+        if (rebootRequired)
+            return Row(Light.Yellow, "Neustart nötig" + stamp, "Installierte Updates werden erst nach einem Neustart wirksam.");
+        if (s is null || s.TimedOut || s.Pending is null)
+            return Row(Light.Grey, "Nicht prüfbar" + stamp, "Die Anzahl ausstehender Updates ließ sich nicht ermitteln. Prüfen Sie sie in Windows Update.");
+        if (s.Pending > 0)
+            return Row(Light.Yellow, (s.Pending == 1 ? "1 Update ausstehend" : $"{s.Pending} Updates ausstehend") + stamp,
+                "Updates schließen Sicherheitslücken. Installieren Sie sie bald.");
+        return Row(Light.Green, "Keine ausstehenden Updates" + stamp, "Windows hat bei der letzten Suche keine fehlenden Updates gefunden.");
+    }
+
+    public static SecurityItem Listeners(IReadOnlyList<ListeningPort> ports, IReadOnlyList<RunningProcess> procs, ISignatureVerifier sig)
+    {
+        var pathByPid = new Dictionary<int, string?>();
+        foreach (var p in procs) pathByPid.TryAdd(p.Pid, p.ExePath);
+
+        var external = ports.Where(p => IPAddress.TryParse(p.LocalAddress, out var a) && !IPAddress.IsLoopback(a));
+        var groups = external
+            .Select(p => (Port: p, Path: p.Pid == 4 ? null : pathByPid.GetValueOrDefault(p.Pid)))
+            .GroupBy(x => x.Path is null ? $"pid:{x.Port.Pid}" : "path:" + x.Path.ToUpperInvariant())
+            .ToList();
+
+        var children = new List<SecurityItem>();
+        foreach (var g in groups)
+        {
+            var path = g.First().Path;
+            var pid = g.First().Port.Pid;
+            var title = path is null ? $"PID {pid}" : Path.GetFileName(path);
+            var finding = "Port " + string.Join(", ", g.Select(x => x.Port.LocalPort).Distinct().Order());
+            children.Add(ListenerRow(title, finding, path, sig));
+        }
+        children = children.OrderBy(c => c.Light switch { Light.Yellow => 0, Light.Grey => 1, _ => 2 })
+            .ThenBy(c => c.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+        var yellow = children.Any(c => c.Light == Light.Yellow);
+        var n = children.Count;
+        return new(SecurityIds.Listeners, Titles.Listeners, yellow ? Light.Yellow : Light.Green,
+            n == 0 ? "Keine Programme lauschen im Netz" : n == 1 ? "1 Programm" : $"{n} Programme",
+            yellow ? "Mindestens ein Programm, das Verbindungen aus dem Netz annimmt, ist auffällig. Lassen Sie es von Defender prüfen."
+                   : "Diese Programme nehmen Verbindungen aus dem Netz an. Auffälligkeiten wurden nicht gefunden.",
+            Children: children);
+    }
+
+    static SecurityItem ListenerRow(string title, string finding, string? path, ISignatureVerifier sig)
+    {
+        const string id = SecurityIds.Listeners;
+        if (path is null)
+            return new(id, title, Light.Grey, finding, "Pfad nicht lesbar. Systemprozesse und geschützte Dienste geben ihren Pfad nicht preis.");
+
+        SecurityItem Yellow(string why) =>
+            new(id, title, Light.Yellow, finding, why, SecurityActionKind.DefenderScan, "Von Defender prüfen lassen", ScanPath: path);
+
+        SignatureInfo info;
+        try { info = sig.Verify(path); }
+        catch (Exception) { info = new(SignatureState.Unknown, null, false); }
+
+        if (info.State == SignatureState.Unsigned) return Yellow("Nicht signiert. Der Hersteller des Programms ist nicht bestätigt.");
+        if (info.State == SignatureState.Invalid) return Yellow("Signatur ungültig. Die Datei wurde nach dem Signieren verändert oder die Signatur ist nicht vertrauenswürdig.");
+        if (path.Contains(@"\AppData\", StringComparison.OrdinalIgnoreCase) || path.Contains(@"\Temp\", StringComparison.OrdinalIgnoreCase))
+            return Yellow("Läuft aus einem Benutzerordner. Programme, die Verbindungen annehmen, liegen normalerweise unter „Programme“.");
+        if (info.State != SignatureState.Valid)
+            return new(id, title, Light.Grey, finding, "Signatur nicht prüfbar. Die Datei konnte nicht gelesen werden.");
+        return new(id, title, Light.Green, finding, $"Signiert: {info.Publisher}");
+    }
+
+    public static SecurityItem Extensions(IReadOnlyList<BrowserExtension> exts)
+    {
+        var children = exts.Select(e =>
+        {
+            var title = $"{e.Browser} ({e.Profile}): {e.Name}";
+            return e.Origin switch
+            {
+                ExtensionOrigin.Policy => new SecurityItem(SecurityIds.Extensions, title, Light.Yellow, "Per Richtlinie erzwungen",
+                    "Eine Richtlinie installiert diese Erweiterung. Das ist in Firmen üblich, auf privaten Rechnern aber oft ein Zeichen für Werbe- oder Schadsoftware."),
+                ExtensionOrigin.External => new SecurityItem(SecurityIds.Extensions, title, Light.Yellow, "Von außen installiert",
+                    "Diese Erweiterung stammt nicht aus dem Store, sondern wurde von einem Programm oder von Hand eingespielt."),
+                _ => new SecurityItem(SecurityIds.Extensions, title, Light.Green, "Aus dem Store",
+                    "Diese Erweiterung wurde aus dem offiziellen Store installiert."),
+            };
+        }).ToList();
+        var yellow = children.Any(c => c.Light == Light.Yellow);
+        var n = children.Count;
+        return new(SecurityIds.Extensions, Titles.Extensions, yellow ? Light.Yellow : Light.Green,
+            n == 0 ? "Keine Erweiterungen gefunden" : n == 1 ? "1 Erweiterung" : $"{n} Erweiterungen",
+            "Erweiterungen sehen mit, was Sie im Browser tun. Unbekannte oder nicht mehr benötigte Erweiterungen können Sie im Browser unter Erweiterungen entfernen.",
+            Children: children);
     }
 
     public static SecurityItem Unavailable(string id, string title, string? detail = null) =>

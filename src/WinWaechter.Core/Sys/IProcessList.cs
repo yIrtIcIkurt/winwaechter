@@ -3,8 +3,8 @@ using WinWaechter.Core.Sys.Native;
 
 namespace WinWaechter.Core.Sys;
 
-/// <summary>A running process; Name includes ".exe", e.g. "msedge.exe".</summary>
-public sealed record RunningProcess(string Name, string? ExePath);
+/// <summary>A running process; Name includes ".exe", e.g. "msedge.exe". Pid is 0 when unknown.</summary>
+public sealed record RunningProcess(string Name, string? ExePath, int Pid = 0);
 
 public interface IProcessList { IReadOnlyList<RunningProcess> Snapshot(); }
 
@@ -22,7 +22,7 @@ public sealed class WinProcessList : IProcessList
         {
             try
             {
-                result.Add(new RunningProcess(p.ProcessName + ".exe", PathOf(p.Id)));
+                result.Add(new RunningProcess(p.ProcessName + ".exe", PathOf(p.Id), p.Id));
             }
             catch (Exception)
             {

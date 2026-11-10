@@ -11,22 +11,41 @@ public interface IConnectionSource
     IReadOnlyList<TcpConn> Established();
 }
 
-/// <summary>Established TCP connections (IPv4 and IPv6) with owning process via GetExtendedTcpTable.</summary>
-public sealed class TcpTableConnections : IConnectionSource
+public sealed record ListeningPort(int Pid, string LocalAddress, int LocalPort);
+
+public interface IListenerSource
+{
+    IReadOnlyList<ListeningPort> Listening();
+}
+
+/// <summary>TCP connections and listening ports (IPv4 and IPv6) with owning process via GetExtendedTcpTable.</summary>
+public sealed class TcpTableConnections : IConnectionSource, IListenerSource
 {
     public IReadOnlyList<TcpConn> Established()
     {
         var list = new List<TcpConn>();
         try
         {
-            Read(TcpNative.AfInet, 24, list);
-            Read(TcpNative.AfInet6, 56, list);
+            Read(TcpNative.AfInet, 24, ParseV4, list);
+            Read(TcpNative.AfInet6, 56, ParseV6, list);
         }
         catch (Exception ex) { FileLog.Warn("TCP-Tabelle nicht lesbar", ex); }
         return list;
     }
 
-    static void Read(int family, int rowSize, List<TcpConn> into)
+    public IReadOnlyList<ListeningPort> Listening()
+    {
+        var list = new List<ListeningPort>();
+        try
+        {
+            Read(TcpNative.AfInet, 24, ListenV4, list);
+            Read(TcpNative.AfInet6, 56, ListenV6, list);
+        }
+        catch (Exception ex) { FileLog.Warn("TCP-Tabelle nicht lesbar", ex); }
+        return list;
+    }
+
+    static void Read<T>(int family, int rowSize, Func<IntPtr, T?> parse, List<T> into) where T : class
     {
         var size = 0;
         var buf = IntPtr.Zero;
@@ -46,8 +65,7 @@ public sealed class TcpTableConnections : IConnectionSource
             for (var i = 0; i < count; i++)
             {
                 var row = buf + 4 + i * rowSize;
-                var c = family == TcpNative.AfInet ? ParseV4(row) : ParseV6(row);
-                if (c is not null) into.Add(c);
+                if (parse(row) is { } c) into.Add(c);
             }
         }
         finally { if (buf != IntPtr.Zero) Marshal.FreeHGlobal(buf); }
@@ -73,13 +91,29 @@ public sealed class TcpTableConnections : IConnectionSource
             PortFromNetwork((uint)Marshal.ReadInt32(row, 44)), "Established");
     }
 
+    static ListeningPort? ListenV4(IntPtr row)
+    {
+        if (Marshal.ReadInt32(row) != TcpNative.StateListen) return null;
+        var addr = new IPAddress((uint)Marshal.ReadInt32(row, 4));
+        return new ListeningPort(Marshal.ReadInt32(row, 20), addr.ToString(), PortFromNetwork((uint)Marshal.ReadInt32(row, 8)));
+    }
+
+    static ListeningPort? ListenV6(IntPtr row)
+    {
+        if (Marshal.ReadInt32(row, 48) != TcpNative.StateListen) return null;
+        var bytes = new byte[16];
+        Marshal.Copy(row, bytes, 0, 16);
+        var addr = new IPAddress(bytes, (uint)Marshal.ReadInt32(row, 16));
+        return new ListeningPort(Marshal.ReadInt32(row, 52), addr.ToString(), PortFromNetwork((uint)Marshal.ReadInt32(row, 20)));
+    }
+
     /// <summary>The port sits in the low 16 bits in network byte order.</summary>
     internal static int PortFromNetwork(uint raw) => (int)(((raw & 0xFF) << 8) | ((raw >> 8) & 0xFF));
 }
 
 internal static class TcpNative
 {
-    public const int AfInet = 2, AfInet6 = 23, TcpTableOwnerPidAll = 5, StateEstablished = 5, ErrorInsufficientBuffer = 122;
+    public const int AfInet = 2, AfInet6 = 23, TcpTableOwnerPidAll = 5, StateListen = 2, StateEstablished = 5, ErrorInsufficientBuffer = 122;
 
     [DllImport("iphlpapi.dll", SetLastError = true)]
     public static extern int GetExtendedTcpTable(IntPtr table, ref int size, [MarshalAs(UnmanagedType.Bool)] bool sort,

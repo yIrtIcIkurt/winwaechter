@@ -324,7 +324,7 @@ public sealed class SecurityCoreTests : IDisposable
         }
         Tolerant(() => new WmiSecurityCenter().AntiVirus());
         Tolerant(() => new WmiVolumeEncryption().SystemDrive());
-        // Read only: never calls SetEnabled.
-        Assert.Null(Record.Exception(() => new FwPolicy2Firewall().IsEnabled(FirewallProfile.Private)));
+        // Read only: never calls SetEnabled. Machines without HNetCfg may refuse the COM object.
+        Tolerant(() => new FwPolicy2Firewall().IsEnabled(FirewallProfile.Private));
     }
 }
