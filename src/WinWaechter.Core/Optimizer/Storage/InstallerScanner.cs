@@ -35,7 +35,7 @@ public sealed class InstallerScanner
                 if (fi.LastWriteTimeUtc >= cutoff) continue;
                 var info = Verify(fi.FullName);
                 result.Add(new Finding($"installer|{fi.FullName}", FindingArea.Speicher, fi.Name, fi.FullName,
-                    [$"Zuletzt geändert am {fi.LastWriteTime:dd.MM.yyyy}", SignatureText(info)],
+                    [$"Zuletzt geändert am {fi.LastWriteTime:dd.MM.yyyy}", SignatureText.Line(info)],
                     Rating.Info, false, MoveToAblageChange.ForFile(_files, fi.FullName), fi.Length, info.Publisher,
                     Group: FindingGroups.OldInstallers));
             }
@@ -52,12 +52,4 @@ public sealed class InstallerScanner
         try { return _sig.Verify(path); }
         catch (Exception) { return new SignatureInfo(SignatureState.Unknown, null, false); }
     }
-
-    static string SignatureText(SignatureInfo s) => s.State switch
-    {
-        SignatureState.Valid => string.IsNullOrWhiteSpace(s.Publisher) ? "Signatur: gültig" : $"Signatur: gültig, Herausgeber {s.Publisher}",
-        SignatureState.Unsigned => "Signatur: nicht signiert",
-        SignatureState.Invalid => "Signatur: ungültig",
-        _ => "Signatur: nicht prüfbar",
-    };
 }

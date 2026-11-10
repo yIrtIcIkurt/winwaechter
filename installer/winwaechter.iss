@@ -10,7 +10,8 @@
 AppId={{9F3C2A71-5B84-4E0D-A6D2-1C7E48B05F3A}
 AppName=WinWächter
 AppVersion={#AppVersion}
-AppPublisher=WinWächter
+AppPublisher=Tahsin Yilmaz
+AppCopyright=© 2026 Tahsin Yilmaz
 DefaultDirName={autopf}\WinWaechter
 DefaultGroupName=WinWächter
 PrivilegesRequired=admin

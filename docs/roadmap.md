@@ -30,6 +30,11 @@ Beim Test gefunden und behoben: Start nach Setup (740), zu schnelles Scrollen mi
 ## 0.3.0 (in Arbeit, Entscheidung Nutzer 2026-11-10)
 App-Übersicht + offizielles/erzwungenes Deinstallieren mit Reste-Suche, Sicherheits-Check (Ampel), Regeln-Update von GitHub, Feinschliff + Icon. Design: `docs/superpowers/specs/2026-11-10-winwaechter-0.3-design.md`.
 
+Dazu: Autor „Tahsin Yilmaz“ (Über-Bereich, Installer, Dateieigenschaften, README).
+
+## 0.5.0 (geplant, Entscheidung Nutzer 2026-11-10)
+Mehrsprachigkeit Deutsch, Englisch, Türkisch (App, Regeltexte, Installer). Startsprache wie Windows, sonst Englisch; umschaltbar in den Einstellungen. Türkische Texte vom Nutzer gegenlesen lassen.
+
 ## 0.4.0 (geplant, Entscheidung Nutzer 2026-11-10)
 Neue Seite „Leistung“: Energiemodus (Netz/Akku), visuelle Effekte, Startzeit-Bericht, Live-Monitor (CPU/RAM/Datenträger/Top-Verbraucher), Hintergrund-Apps, Spielmodus + GPU-Planung, Ruhezustand-Datei (mit Hinweis), Speicheroptimierung. Alles einzeln, umkehrbar; keine „Tuning-Tricks“ (RAM-Booster, Prefetch löschen, Dienste massenhaft abschalten).
 

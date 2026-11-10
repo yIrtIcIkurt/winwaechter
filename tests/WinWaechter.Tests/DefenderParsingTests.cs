@@ -49,8 +49,19 @@ public sealed class DefenderParsingTests
     [InlineData(6, "Blockiert")] [InlineData(102, "Quarantäne fehlgeschlagen")]
     [InlineData(103, "Entfernen fehlgeschlagen")] [InlineData(104, "Zulassen fehlgeschlagen")]
     [InlineData(105, "Abgebrochen")] [InlineData(107, "Blockieren fehlgeschlagen")]
-    [InlineData(42, "Status 42")]
-    public void Status_text_map(int id, string text) => Assert.Equal(text, DefenderClient.StatusText(id));
+    public void Status_text_map(int id, string text)
+    {
+        Assert.Equal(text, DefenderClient.StatusText(id, false));
+        Assert.Equal(text, DefenderClient.StatusText(id, true));
+    }
+
+    [Fact]
+    public void Status_text_unknown_code_depends_on_active()
+    {
+        Assert.Equal("Abgeschlossen (Code 106)", DefenderClient.StatusText(106, false));
+        Assert.Equal("Unbekannter Status (Code 106)", DefenderClient.StatusText(106, true));
+        Assert.Equal("In Quarantäne", DefenderClient.StatusText(3, true));
+    }
 
     [Fact]
     public void MpCmdRun_args()

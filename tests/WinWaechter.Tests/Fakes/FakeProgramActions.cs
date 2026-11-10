@@ -21,6 +21,8 @@ public sealed class FakeProgramActions : IProgramActions
     public List<UninstallPlan> Runs { get; } = [];
     public List<InstalledProgram> LeftoverCalls { get; } = [];
     public List<InstalledProgram> ForcedCalls { get; } = [];
+    public Exception? FindLeftoversThrows { get; set; }
+    public int RunThreadId { get; private set; }
 
     public IReadOnlyList<InstalledProgram> ReadAll()
     {
@@ -42,12 +44,14 @@ public sealed class FakeProgramActions : IProgramActions
     {
         if (plan.Route != UninstallRoute.Launch) throw new InvalidOperationException("not a launch plan");
         Runs.Add(plan);
+        RunThreadId = Environment.CurrentManagedThreadId;
         return Task.FromResult(ExitCode);
     }
 
     public IReadOnlyList<Finding> FindLeftovers(InstalledProgram removed)
     {
         LeftoverCalls.Add(removed);
+        if (FindLeftoversThrows is { } ex) throw ex;
         return Leftovers;
     }
 

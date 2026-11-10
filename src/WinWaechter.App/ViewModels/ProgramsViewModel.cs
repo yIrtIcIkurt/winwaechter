@@ -147,11 +147,12 @@ public sealed partial class ProgramsViewModel : ObservableObject
     [ObservableProperty]
     private string? _lastSummary;
 
-    /// <summary>Program the user uninstalls outside WinWächter (Windows-Einstellungen, or „Noch nicht“).</summary>
+    /// <summary>Program the user uninstalls outside WinWächter (Windows-Einstellungen, or „Noch nicht“).
+    /// The setter is internal only so tests can stage a page state.</summary>
     public InstalledProgram? Pending
     {
         get => _pending;
-        private set
+        internal set
         {
             if (!SetProperty(ref _pending, value)) return;
             OnPropertyChanged(nameof(PendingText));
@@ -258,12 +259,13 @@ public sealed partial class ProgramsViewModel : ObservableObject
 
             var sig = await Task.Run(() => _actions.UninstallerSignature(plan));
             var cmd = plan.Command!;
-            var lines = new List<string> { $"Programm: {cmd.Exe} {cmd.Arguments}".TrimEnd(), SignatureText(sig) };
+            var lines = new List<string> { $"Programm: {cmd.Exe} {cmd.Arguments}".TrimEnd(), SignatureText.Line(sig) };
             var question = $"„{p.DisplayName}“ von {p.Publisher ?? "unbekanntem Herausgeber"}. {Irreversible}";
             if (!_dialogs.Confirm("Deinstallieren", question, "Deinstallieren", lines, final: true)) return;
 
             ProgressText = RunningText;
-            var outcome = UninstallExit.Interpret(await _actions.RunUninstallerAsync(plan));
+            // CreateProcess and the job setup never run on the UI thread
+            var outcome = UninstallExit.Interpret(await Task.Run(() => _actions.RunUninstallerAsync(plan)));
             ProgressText = "";
             if (outcome.Cancelled)
             {
@@ -330,14 +332,6 @@ public sealed partial class ProgramsViewModel : ObservableObject
 
     static bool SameEntry(InstalledProgram a, InstalledProgram b) => string.Equals(a.Id, b.Id, StringComparison.OrdinalIgnoreCase);
 
-    static string SignatureText(SignatureInfo? s) => s?.State switch
-    {
-        SignatureState.Valid => string.IsNullOrWhiteSpace(s.Publisher) ? "Signatur: gültig" : $"Signatur: gültig, Herausgeber {s.Publisher}",
-        SignatureState.Unsigned => "Signatur: nicht signiert",
-        SignatureState.Invalid => "Signatur: ungültig",
-        _ => "Signatur: nicht prüfbar",
-    };
-
     // ---------- leftovers ----------
 
     [RelayCommand(CanExecute = nameof(CanFindLeftovers))]
@@ -352,10 +346,10 @@ public sealed partial class ProgramsViewModel : ObservableObject
                 _dialogs.Inform("Reste", "Das Programm ist noch installiert. Reste lassen sich erst nach der Deinstallation suchen.");
                 return;
             }
-            Pending = null;
             ProgressText = ReadingText;
             await LoadAsync();
             await ShowLeftoversAsync(p);
+            Pending = null;   // only once the search ran; a failure keeps the banner for another try
         }
         catch (Exception ex)
         {

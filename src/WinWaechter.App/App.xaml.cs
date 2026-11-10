@@ -107,7 +107,11 @@ public partial class App
             shell.Security.RefreshCommand.ExecuteAsync(null),
             shell.History.RefreshCommand.ExecuteAsync(null),
         };
-        if (s.Settings.CheckUpdatesOnStart) tasks.Add(shell.Update.CheckCommand.ExecuteAsync(null));
+        if (s.Settings.CheckUpdatesOnStart)
+        {
+            tasks.Add(shell.Update.CheckCommand.ExecuteAsync(null));
+            tasks.Add(shell.Settings.UpdateRulesCommand.ExecuteAsync(null));
+        }
         try { await Task.WhenAll(tasks); }
         catch (Exception ex) { FileLog.Warn("Startaufgaben fehlgeschlagen", ex); }
     }

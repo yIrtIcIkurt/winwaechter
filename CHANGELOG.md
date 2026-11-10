@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+- Neue Seite „Programme“: installierte Programme mit Suche und Sortierung; offizielle Deinstallation (bei Bedarf über die Windows-Einstellungen), danach gezielte Suche nach Resten.
+- Notfall „Erzwungen entfernen“ für Programme ohne funktionierendes Deinstallationsprogramm – alles gesichert und im Verlauf rückgängig zu machen.
+- Neue Seite „Sicherheit“: Ampel für Firewall, Defender, SmartScreen, Benutzerkontensteuerung, Remotedesktop, Verschlüsselung, Windows-Updates, lauschende Programme und Browser-Erweiterungen; Übersicht zeigt die Anzahl.
+- Regeln lassen sich signiert von GitHub aktualisieren; neue Regeln können den Schutz nur erweitern.
+- Rückgängig zeigt den Fortschritt; Defender-Funde mit unbekanntem Status werden verständlich benannt; App-Icon in Fenster und Seitenleiste.
+- Einstellungen: Abschnitt „Über WinWächter“ mit Autor und Link zum Projekt.
+
 ## 0.2.1
 - Aufräumen: Bei Zwischenspeicher-Funden steht jetzt der tatsächlich verschobene Ordner als Ort (bei mehreren der erste plus „+n weitere“), nicht mehr der gemeinsame Oberordner.
 - Deinstallationsreste: Ob ein Programmordner 30 Tage unberührt ist, richtet sich nach dem Alter der Dateien darin, nicht nach dem Zeitstempel des Ordners selbst.

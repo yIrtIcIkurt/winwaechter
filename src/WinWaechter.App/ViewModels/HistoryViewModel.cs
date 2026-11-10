@@ -105,6 +105,18 @@ public sealed partial class HistoryViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(UndoAllCommand), nameof(UndoOneCommand), nameof(PurgeAblageCommand))]
     private bool _isBusy;
 
+    /// <summary>Current undo step while undoing ("(2/5) …"), empty otherwise.</summary>
+    [ObservableProperty]
+    private string _progressText = "";
+
+    /// <summary>Undo progress 0..1 = (Index − 1) / Count.</summary>
+    [ObservableProperty]
+    private double _progressValue;
+
+    // Progress callbacks are posted; one from a finished run must not overwrite the cleared text.
+    readonly object _progressLock = new();
+    object? _progressRun;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PurgeAblageCommand))]
     private long _ablageBytes;
@@ -178,26 +190,37 @@ public sealed partial class HistoryViewModel : ObservableObject
                 "Alle noch aktiven Änderungen dieser Sitzung werden in umgekehrter Reihenfolge zurückgenommen. Was sich inzwischen von außen geändert hat, wird übersprungen und gemeldet.",
                 "Rückgängig machen"))
             return;
-        await RunUndoAsync(() => _engine.UndoSession(s.Journal));
+        await RunUndoAsync(p => _engine.UndoSession(s.Journal, p));
     }
 
     bool CanUndoOne(RecordViewModel? r) => CanChange && !IsBusy && !_gate.IsBusy && r is { CanUndo: true };
 
     [RelayCommand(CanExecute = nameof(CanUndoOne))]
     private Task UndoOneAsync(RecordViewModel? r) =>
-        r is null ? Task.CompletedTask : RunUndoAsync(() => _engine.UndoOne(r.Session.Journal, r.Record.Id));
+        r is null ? Task.CompletedTask : RunUndoAsync(p => _engine.UndoOne(r.Session.Journal, r.Record.Id, p));
 
-    async Task RunUndoAsync(Func<UndoResult> undo)
+    async Task RunUndoAsync(Func<IProgress<UndoProgress>, UndoResult> undo)
     {
         if (!await _gate.RunAsync(this, () => UndoCoreAsync(undo))) _dialogs.Inform("Rückgängig", ChangeGate.BusyHint);
     }
 
-    async Task UndoCoreAsync(Func<UndoResult> undo)
+    async Task UndoCoreAsync(Func<IProgress<UndoProgress>, UndoResult> undo)
     {
         IsBusy = true;
+        var run = new object();
+        lock (_progressLock) _progressRun = run;
+        var progress = new Progress<UndoProgress>(u =>
+        {
+            lock (_progressLock)
+            {
+                if (_progressRun != run) return;
+                ProgressText = u.Text;
+                ProgressValue = u.Count > 0 ? (double)(u.Index - 1) / u.Count : 0;
+            }
+        });
         try
         {
-            var res = await Task.Run(undo);
+            var res = await Task.Run(() => undo(progress));
             var lines = new List<string> { $"Rückgängig gemacht: {res.Undone}" };
             if (res.SkippedDrift > 0) lines.Add($"Übersprungen: {res.SkippedDrift}");
             if (res.Failed > 0) lines.Add($"Fehlgeschlagen: {res.Failed}");
@@ -213,6 +236,12 @@ public sealed partial class HistoryViewModel : ObservableObject
         }
         finally
         {
+            lock (_progressLock)
+            {
+                _progressRun = null;
+                ProgressText = "";
+                ProgressValue = 0;
+            }
             IsBusy = false;
         }
         await RefreshAsync();

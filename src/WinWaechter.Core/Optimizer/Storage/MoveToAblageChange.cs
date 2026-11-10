@@ -15,7 +15,7 @@ namespace WinWaechter.Core.Optimizer.Storage;
 /// Kinds: "temp" (one folder, age filter), "file" (one file), "cache" (include folders below a root,
 /// or one file) and "folder" (a whole folder in one MoveDirectory).
 /// </summary>
-public sealed class MoveToAblageChange : IChange
+public sealed class MoveToAblageChange : IChange, IProgressUndo
 {
     public static readonly TimeSpan DefaultMinAge = TimeSpan.FromDays(2);
 
@@ -378,7 +378,10 @@ public sealed class MoveToAblageChange : IChange
         return ReadSidecar(sidecar);
     }
 
-    public void Undo(ChangeRecord record, SessionContext ctx)
+    public void Undo(ChangeRecord record, SessionContext ctx) => Undo(record, ctx, _ => { });
+
+    /// <summary>Undo that calls filesRestored with the running count after every restored file.</summary>
+    public void Undo(ChangeRecord record, SessionContext ctx, Action<int> filesRestored)
     {
         var entries = ReadTrustedSidecar(record, ctx);
         if (IsFolderKind) { UndoFolder(record, ctx, entries); return; }
@@ -403,7 +406,7 @@ public sealed class MoveToAblageChange : IChange
                 FileLog.Warn($"Nicht wiederhergestellt, Zielpfad existiert wieder: {e.Original} (bleibt in der Ablage: {e.Stored})");
                 continue;
             }
-            try { _files.Move(e.Stored, e.Original); restored++; }
+            try { _files.Move(e.Stored, e.Original); restored++; filesRestored(restored); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 conflicts++;

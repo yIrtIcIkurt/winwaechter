@@ -9,6 +9,9 @@ public static class RulesSignature
 {
     public const string Domain = "winwaechter-rules\n";
 
+    /// <summary>OID of NIST P-256 (secp256r1); other 256-bit curves are refused.</summary>
+    public const string P256Oid = "1.2.840.10045.3.1.7";
+
     public static byte[] Payload(byte[] json)
     {
         var prefix = Encoding.UTF8.GetBytes(Domain);
@@ -18,21 +21,33 @@ public static class RulesSignature
         return all;
     }
 
-    // ECDSA P-256/SHA-256, IeeeP1363 (64 bytes), Base64. False on any error.
-    public static bool Verify(byte[] json, string sigBase64, string publicKeyPem)
+    // ECDSA P-256/SHA-256, IeeeP1363 (64 bytes), Base64. False on any error or a missing signature.
+    public static bool Verify(byte[] json, string? sigBase64, string publicKeyPem)
     {
+        if (string.IsNullOrWhiteSpace(sigBase64)) return false;
         try
         {
             var sig = Convert.FromBase64String(sigBase64.Trim());
             if (sig.Length != 64) return false;
             using var key = ECDsa.Create();
             key.ImportFromPem(publicKeyPem);
-            if (key.KeySize != 256) return false;
+            if (key.KeySize != 256 || !IsP256(key)) return false;
             return key.VerifyData(Payload(json), sig, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
         }
         catch (Exception e) when (e is FormatException or CryptographicException or ArgumentException)
         {
             return false;
         }
+    }
+
+    // The OID may come back only as a friendly name (CNG), so resolve it before comparing.
+    static bool IsP256(ECDsa key)
+    {
+        var curve = key.ExportParameters(false).Curve;
+        if (!curve.IsNamed) return false;
+        var oid = curve.Oid.Value;
+        if (string.IsNullOrEmpty(oid) && !string.IsNullOrEmpty(curve.Oid.FriendlyName))
+            oid = Oid.FromFriendlyName(curve.Oid.FriendlyName, OidGroup.All).Value;
+        return oid == P256Oid;
     }
 }

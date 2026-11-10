@@ -17,6 +17,23 @@
             </Border>
             <TextBlock Margin="0,14,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Alarm}" Text="{Binding ErrorText}"
                        Visibility="{Binding ErrorText, Converter={StaticResource Vis}}" />
+            <StackPanel Margin="0,18,0,0" Visibility="{Binding IsBusy, Converter={StaticResource Vis}}">
+                <ProgressBar Minimum="0" Maximum="1" Value="{Binding ProgressValue, Mode=OneWay}"
+                             AutomationProperties.Name="Fortschritt beim Rückgängigmachen">
+                    <ProgressBar.Style>
+                        <!-- no step yet (or purging): the scale sweeps -->
+                        <Style TargetType="ProgressBar" BasedOn="{StaticResource Scale}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ProgressText}" Value="">
+                                    <Setter Property="IsIndeterminate" Value="True" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ProgressBar.Style>
+                </ProgressBar>
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap" Text="{Binding ProgressText}"
+                           AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
         </StackPanel>
 
         <!-- Ablage -->

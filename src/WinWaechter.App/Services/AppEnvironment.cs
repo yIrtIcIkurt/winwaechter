@@ -11,6 +11,7 @@ public sealed record AppEnvironment(bool IsElevated, string DataRoot, SemVer Ver
     public string LogDir => Path.Combine(DataRoot, "Logs");
     public string UpdatesDir => Path.Combine(DataRoot, "Updates");
     public string SettingsPath => Path.Combine(DataRoot, "settings.json");
+    public string RulesDir => Path.Combine(DataRoot, "Regeln");
 
     public const string AdminNotice =
         "Für diese Aktion sind Administratorrechte nötig. Bitte WinWächter als Administrator starten.";

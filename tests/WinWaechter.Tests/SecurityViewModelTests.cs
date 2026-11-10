@@ -278,7 +278,8 @@ public sealed class SecurityViewModelTests : IDisposable
         var programs = new ProgramsViewModel(new FakeProgramActions(), _engine, _dialogs, _shell, canChange: false, _gate);
         var history = new HistoryViewModel(_store, _engine, new AblageJanitor(_store), _dialogs, canChange: false, _gate);
         var update = new UpdateViewModel(new NoUpdates(), _dialogs, canInstall: false, () => { }, _gate);
-        var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new SemVer(0, 3, 0)), update, _shell);
+        var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new SemVer(0, 3, 0)), update, _shell,
+            new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")));
         return new ShellViewModel(optimize, protect, security, privacy, programs, history, settings, update, isElevated: false);
     }
 

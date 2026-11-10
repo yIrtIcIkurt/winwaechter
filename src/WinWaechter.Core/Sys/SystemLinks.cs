@@ -8,10 +8,11 @@ public static class SystemLinks
         RemoteDesktop = "ms-settings:remotedesktop",
         DeviceEncryption = "ms-settings:deviceencryption",
         DefenderThreat = "windowsdefender://threat",
-        DefenderAppBrowser = "windowsdefender://appbrowser";
+        DefenderAppBrowser = "windowsdefender://appbrowser",
+        Repository = "https://github.com/yIrtIcIkurt/winwaechter";
 
     public static IReadOnlySet<string> Allowed { get; } = new HashSet<string>(
-        [AppsFeatures, WindowsUpdate, RemoteDesktop, DeviceEncryption, DefenderThreat, DefenderAppBrowser],
+        [AppsFeatures, WindowsUpdate, RemoteDesktop, DeviceEncryption, DefenderThreat, DefenderAppBrowser, Repository],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Exact match against <see cref="Allowed"/> (case-insensitive, no trimming).</summary>

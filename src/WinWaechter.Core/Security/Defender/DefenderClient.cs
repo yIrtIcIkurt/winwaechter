@@ -33,7 +33,8 @@ public sealed class DefenderClient(IProcessRunner runner, IRegistry reg, Func<st
 
     // ---- pure helpers ----
 
-    internal static string StatusText(int id) => id switch
+    // Unknown codes: an active threat is still open, an inactive one is done with.
+    internal static string StatusText(int id, bool active) => id switch
     {
         0 => "Unbekannt",
         1 => "Erkannt",
@@ -47,7 +48,7 @@ public sealed class DefenderClient(IProcessRunner runner, IRegistry reg, Func<st
         104 => "Zulassen fehlgeschlagen",
         105 => "Abgebrochen",
         107 => "Blockieren fehlgeschlagen",
-        _ => $"Status {id}",
+        _ => active ? $"Unbekannter Status (Code {id})" : $"Abgeschlossen (Code {id})",
     };
 
     // Joins threats with their detections on ThreatID; the latest detection gives the status text.
@@ -60,7 +61,7 @@ public sealed class DefenderClient(IProcessRunner runner, IRegistry reg, Func<st
             var list = byThreat.GetValueOrDefault(t.Id) ?? [];
             var latest = list.OrderByDescending(d => d.Time ?? DateTimeOffset.MinValue).FirstOrDefault();
             var resources = list.SelectMany(d => d.Resources).Where(s => !string.IsNullOrEmpty(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            result.Add(new DefenderThreat(t.Id, t.Name, t.Severity, resources, t.IsActive, StatusText(latest?.StatusId ?? 0)));
+            result.Add(new DefenderThreat(t.Id, t.Name, t.Severity, resources, t.IsActive, StatusText(latest?.StatusId ?? 0, t.IsActive)));
         }
         return result;
     }

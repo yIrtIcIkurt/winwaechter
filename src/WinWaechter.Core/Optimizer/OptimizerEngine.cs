@@ -9,9 +9,21 @@ public sealed record ApplyResult(SessionJournal Session, int Applied, int Failed
 
 public sealed record UndoResult(int Undone, int SkippedDrift, int Failed, IReadOnlyList<string> Messages);
 
+/// <summary>Undo progress: record Index of Count (1-based, in undo order) and a German line for the UI.</summary>
+public sealed record UndoProgress(int Index, int Count, string Text);
+
+/// <summary>A change whose undo restores many files and can say how many are back so far.</summary>
+public interface IProgressUndo
+{
+    void Undo(ChangeRecord record, SessionContext ctx, Action<int> filesRestored);
+}
+
 // scan -> apply (journalled) -> undo
 public sealed class OptimizerEngine
 {
+    /// <summary>File-restoring undos report every this many files.</summary>
+    public const int FileProgressStep = 500;
+
     readonly IReadOnlyList<Func<IReadOnlyList<Finding>>> _scanners;
     readonly SessionStore _store;
     readonly IChangeFactory _factory;
@@ -93,13 +105,13 @@ public sealed class OptimizerEngine
     public static bool MovedNothing(ChangeRecord r) =>
         r.Kind is "temp" or "file" or "cache" or "folder" && r.After.GetValueOrDefault("moved") == "0";
 
-    public UndoResult UndoSession(SessionJournal s) =>
-        Undo(s, s.Records.Where(IsUndoable).Reverse().ToList());
+    public UndoResult UndoSession(SessionJournal s, IProgress<UndoProgress>? p = null) =>
+        Undo(s, s.Records.Where(IsUndoable).Reverse().ToList(), p);
 
-    public UndoResult UndoOne(SessionJournal s, string recordId) =>
-        Undo(s, s.Records.Where(r => r.Id == recordId && IsUndoable(r)).ToList());
+    public UndoResult UndoOne(SessionJournal s, string recordId, IProgress<UndoProgress>? p = null) =>
+        Undo(s, s.Records.Where(r => r.Id == recordId && IsUndoable(r)).ToList(), p);
 
-    UndoResult Undo(SessionJournal s, IReadOnlyList<ChangeRecord> records)
+    UndoResult Undo(SessionJournal s, IReadOnlyList<ChangeRecord> records, IProgress<UndoProgress>? p)
     {
         int undone = 0, skipped = 0, failed = 0;
         var msgs = new List<string>();
@@ -111,8 +123,12 @@ public sealed class OptimizerEngine
             skipped++;
         }
 
-        foreach (var r in records)
+        for (var i = 0; i < records.Count; i++)
         {
+            var r = records[i];
+            var index = i + 1;
+            var line = $"({index}/{records.Count}) {r.Description}";
+            p?.Report(new UndoProgress(index, records.Count, line));
             try
             {
                 if (r.After.TryGetValue("purged", out var purged) && purged == "true")
@@ -129,7 +145,14 @@ public sealed class OptimizerEngine
                         : $"{r.Description}: nicht mehr vorhanden – übersprungen");
                     continue;
                 }
-                change.Undo(r, s.Context);
+                if (change is IProgressUndo progressive && p is not null)
+                    progressive.Undo(r, s.Context, n =>
+                    {
+                        if (n > 0 && n % FileProgressStep == 0)
+                            p.Report(new UndoProgress(index, records.Count, $"{line} – {n} Dateien zurückgeholt"));
+                    });
+                else
+                    change.Undo(r, s.Context);
                 s.Upsert(r with { Status = ChangeStatus.Undone, Error = null });
                 undone++;
             }

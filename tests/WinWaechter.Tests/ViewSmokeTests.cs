@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using WinWaechter.App.Services;
 using WinWaechter.App.ViewModels;
@@ -90,6 +91,7 @@ public sealed class ViewSmokeTests : IDisposable
     {
         var app = new App.App();
         app.InitializeComponent();
+        Sidebar_icon_resource_exists();
 
         var findings = new List<Finding>
         {
@@ -124,7 +126,8 @@ public sealed class ViewSmokeTests : IDisposable
         var history = new HistoryViewModel(store, engine, new AblageJanitor(store), dialogs, canChange: false, gate);
         var env = new AppEnvironment(false, _root, new SemVer(0, 1, 0));
         var update = new UpdateViewModel(new Updates(), dialogs, canInstall: false, () => { }, gate);
-        var settings = new SettingsViewModel(new AppSettings(), env, update, new Shell());
+        var settings = new SettingsViewModel(new AppSettings(), env, update, new Shell(),
+            new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")));
         var programs = Programs(engine, gate);
         var security = Security(engine, gate);
         var shell = new ShellViewModel(optimize, protect, security, privacy, programs, history, settings, update, isElevated: false);
@@ -147,7 +150,9 @@ public sealed class ViewSmokeTests : IDisposable
             {
                 Source = new Uri($"pack://application:,,,/WinWaechter.App;component/Theme/{theme}.xaml"),
             };
-            Layout(new ShellWindow { DataContext = shell }.Content as FrameworkElement);
+            var shellContent = new ShellWindow { DataContext = shell }.Content as FrameworkElement;
+            Layout(shellContent);
+            AssertSidebarIconShown(shellContent!);
             var overview = new OverviewView { DataContext = shell.Overview };
             Layout(overview);
             AssertFreeReadoutRightOfSuggestions(overview);
@@ -217,6 +222,22 @@ public sealed class ViewSmokeTests : IDisposable
         Assert.True(vm.Items.Count == 2 && vm.Pending == tool && vm.ShowLeftovers && vm.Leftovers.Count == 2
             && vm.Items.Single(i => i.Name == "Spiel-Tool").CanForceRemove);
         return vm;
+    }
+
+    // Runs inside RenderAll: only one WPF Application may exist per process, so no separate STA test.
+    static void Sidebar_icon_resource_exists()
+    {
+        var info = Application.GetResourceStream(new Uri("pack://application:,,,/WinWaechter.App;component/Assets/winwaechter.png"));
+        Assert.NotNull(info);
+        info.Stream.Dispose();
+    }
+
+    // the wordmark shows the bitmap icon, decoded at twice its size for sharp scaling
+    static void AssertSidebarIconShown(FrameworkElement shell)
+    {
+        var icon = FindAll<System.Windows.Controls.Image>(shell).Single(i => AutomationProperties.GetName(i) == "WinWächter");
+        var bitmap = Assert.IsAssignableFrom<System.Windows.Media.Imaging.BitmapSource>(icon.Source);
+        Assert.Equal(44, bitmap.PixelWidth);
     }
 
     // the dot colours must come from the tone triggers: a red row and a green row differ, and neither is the grey default

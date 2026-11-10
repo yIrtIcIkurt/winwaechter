@@ -11,7 +11,7 @@ WinWächter ist ein Prüfgerät für den eigenen Rechner: Es misst, zeigt Befund
 - **Skala als Fortschritt:** Lange Vorgänge zeigen eine Strichskala (Vektor, `DrawingBrush`) mit Laufzeit, keine generische Ladeleiste.
 - **Farbe ist Information:** Die Akzentfarbe Petrol markiert nur Bedienbares und den aktiven Ort. Ocker und Ochsenblut gibt es nur für Einstufungen. Kein Alarmrot, keine Verläufe, keine Glas-Effekte.
 - **Sprache:** sachlich, aktiv, Satzanfang groß, keine Großbuchstaben-Etiketten.
-- **Grafik:** nur Schrift, Vektorformen (`Path`, `Ellipse`) und Glyphen aus Segoe Fluent Icons (Rückfall Segoe MDL2 Assets). Das App-Icon kommt später vom Nutzer.
+- **Grafik:** nur Schrift, Vektorformen (`Path`, `Ellipse`) und Glyphen aus Segoe Fluent Icons (Rückfall Segoe MDL2 Assets). App-Icon: `assets/icon` (mit Gemini erstellt), auch in der Seitenleiste.
 
 ## Schrift
 

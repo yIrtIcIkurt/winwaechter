@@ -76,7 +76,7 @@ public sealed class AutostartScanner
 
         var reasons = orphan ? [OrphanRules.OrphanReason] : new List<string>
         {
-            sig is not null ? SignatureReason(sig) : "Signatur: Programmdatei nicht ermittelbar",
+            sig is not null ? SignatureText.Line(sig) : "Signatur: Programmdatei nicht ermittelbar",
         };
 
         Rating rating;
@@ -127,12 +127,4 @@ public sealed class AutostartScanner
             _ => ApprovedStatus.Unclear,
         };
     }
-
-    static string SignatureReason(SignatureInfo s) => s.State switch
-    {
-        SignatureState.Valid => $"Signatur: gültig, Herausgeber {s.Publisher ?? "unbekannt"}",
-        SignatureState.Unsigned => "Signatur: nicht signiert",
-        SignatureState.Invalid => "Signatur: ungültig",
-        _ => "Signatur: nicht prüfbar",
-    };
 }

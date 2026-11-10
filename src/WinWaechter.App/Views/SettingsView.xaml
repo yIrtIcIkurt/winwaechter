@@ -1,6 +1,7 @@
 <UserControl x:Class="WinWaechter.App.Views.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
     <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
         <StackPanel Margin="{StaticResource PagePadding}" MaxWidth="760" HorizontalAlignment="Left">
             <TextBlock Style="{StaticResource Text.PageTitle}" Text="Einstellungen" />
@@ -52,6 +53,22 @@
                 </StackPanel>
             </CheckBox>
 
+            <!-- ===== Rules ===== -->
+            <TextBlock Margin="0,34,0,0" Style="{StaticResource Text.Section}" Text="Regeln" />
+            <Border Margin="0,12,0,0" Style="{StaticResource SurfaceBox}" Padding="18,12">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Margin="16,0,0,0" VerticalAlignment="Center" Content="Regeln aktualisieren"
+                            Command="{Binding UpdateRulesCommand}" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Typography.NumeralAlignment="Tabular" Text="{Binding RulesText}" />
+                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap" Text="{Binding RulesStatus}"
+                                   Visibility="{Binding RulesStatus, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+            <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Prose}" FontSize="{StaticResource SizeSmall}"
+                       Text="Die Regeln sagen, was geschützt ist und was als entbehrlich gilt. Neue Regeln kommen signiert von GitHub, können den Schutz nur erweitern und gelten ab dem nächsten Start." />
+
             <!-- ===== Ablage ===== -->
             <TextBlock Margin="0,34,0,0" Style="{StaticResource Text.Section}" Text="Ablage" />
             <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
@@ -92,6 +109,15 @@
                 </StackPanel>
             </Border>
             <TextBlock Margin="0,14,0,0" Style="{StaticResource Text.Small}" Text="{Binding ModeText}" />
+
+            <!-- ===== About ===== -->
+            <TextBlock Margin="0,34,0,0" Style="{StaticResource Text.Section}" Text="Über WinWächter" />
+            <StackPanel Margin="0,12,0,0">
+                <TextBlock Text="{x:Static vm:SettingsViewModel.AuthorText}" />
+                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Typography.NumeralAlignment="Tabular" Text="{Binding VersionText}" />
+                <Button Margin="-8,8,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}" Content="Projekt auf GitHub"
+                        Command="{Binding OpenRepositoryCommand}" ToolTip="github.com/yIrtIcIkurt/winwaechter" />
+            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

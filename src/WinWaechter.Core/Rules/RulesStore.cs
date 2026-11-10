@@ -64,8 +64,9 @@ public sealed class RulesStore
             catch (InvalidDataException e) { return Reject("fehlerhaft: " + e.Message); }
             return new CachedRules(rules, File.GetLastWriteTimeUtc(JsonPath));
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e)
         {
+            // whatever goes wrong here, the bundled rules stay in effect
             FileLog.Warn("Heruntergeladene Regeln konnten nicht gelesen werden", e);
             return null;
         }

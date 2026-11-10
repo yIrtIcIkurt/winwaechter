@@ -328,9 +328,11 @@ public sealed class UninstallTests : IDisposable
                  {
                      SystemLinks.AppsFeatures, SystemLinks.WindowsUpdate, SystemLinks.RemoteDesktop,
                      SystemLinks.DeviceEncryption, SystemLinks.DefenderThreat, SystemLinks.DefenderAppBrowser,
+                     SystemLinks.Repository,
                  })
             Assert.True(SystemLinks.IsAllowed(u));
-        Assert.Equal(6, SystemLinks.Allowed.Count);
+        Assert.Equal(7, SystemLinks.Allowed.Count);
+        Assert.False(SystemLinks.IsAllowed("https://github.com/yIrtIcIkurt/winwaechter/releases"));
         Assert.True(SystemLinks.IsAllowed("MS-SETTINGS:APPSFEATURES"));
         Assert.False(SystemLinks.IsAllowed("ms-settings:appsfeatures "));
         Assert.False(SystemLinks.IsAllowed("https://evil.com"));

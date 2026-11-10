@@ -19,6 +19,11 @@
     <ApplicationIcon>..\..\assets\icon\winwaechter.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- sidebar icon -->
+  <ItemGroup>
+    <Resource Include="..\..\assets\icon\winwaechter-1024.png" Link="Assets\winwaechter.png" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\WinWaechter.Core\WinWaechter.Core.csproj" />
   </ItemGroup>

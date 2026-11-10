@@ -3,7 +3,10 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.2.1</Version>
-    <Company>WinWächter</Company>
+    <Version>0.3.0</Version>
+    <Product>WinWächter</Product>
+    <Authors>Tahsin Yilmaz</Authors>
+    <Company>Tahsin Yilmaz</Company>
+    <Copyright>© 2026 Tahsin Yilmaz</Copyright>
   </PropertyGroup>
 </Project>

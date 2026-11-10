@@ -1,6 +1,8 @@
+using System.Net.Http;
 using WinWaechter.App.ViewModels;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
+using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Autostart;
@@ -14,6 +16,7 @@ using WinWaechter.Core.Security.Checks;
 using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Security.Heuristics;
 using WinWaechter.Core.Sys;
+using WinWaechter.Core.Update;
 
 namespace WinWaechter.App.Services;
 
@@ -47,7 +50,8 @@ public sealed class AppServices
         var fo = new WinFileOps();
         var sig = new WinTrustVerifier();
         var lnk = new WinShortcutResolver();
-        var rules = RuleSet.Default;
+        var (rules, rulesInfo, updateRules) = LoadRules(CreateRulesStore(env, d => SecureDataDir.Ensure(d)), env.Version,
+            UpdateHttp.CreateHandler());
 
         // elevated: only journals/sidecars owned by Administrators or SYSTEM may steer an undo
         var store = new SessionStore(env.DataRoot,
@@ -106,9 +110,29 @@ public sealed class AppServices
         var janitor = new AblageJanitor(store);
         var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate);
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
-        var settingsVm = new SettingsViewModel(settings, env, update, shell);
+        var settingsVm = new SettingsViewModel(settings, env, update, shell, rulesInfo, updateRules);
 
         return new AppServices(env, settings, janitor, gate,
             new ShellViewModel(optimize, protect, security, privacy, programs, history, settingsVm, update, env.IsElevated));
+    }
+
+    // Downloaded rules live in <data>\Regeln. Elevated, that folder is secured before the store reads from it.
+    internal static RulesStore CreateRulesStore(AppEnvironment env, Action<string> secureDir)
+    {
+        if (env.IsElevated) secureDir(env.RulesDir);
+        return new RulesStore(env.RulesDir, UpdateKeys.PublicKeyPem,
+            env.IsElevated ? FileOwner.IsAdminOrSystem : null,
+            env.IsElevated ? FileOwner.SetAdmins : null);
+    }
+
+    // Effective rules (bundled plus a verified newer cache) and one updater for them. The updater starts
+    // from the effective version, so an older signed file can never replace a newer cache.
+    internal static (RuleSet Rules, RulesInfo Info, Func<CancellationToken, Task<RulesUpdateResult>> Update) LoadRules(
+        RulesStore store, SemVer app, HttpMessageHandler handler)
+    {
+        var (rules, info) = RulesLoader.Load(RuleSet.Default, store, app);
+        FileLog.Info(info.DisplayText);
+        var updater = new RulesUpdater(new RulesFetcher(handler), store, info.Version, app);
+        return (rules, info, updater.RunAsync);
     }
 }

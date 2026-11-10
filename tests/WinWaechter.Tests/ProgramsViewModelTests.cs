@@ -183,6 +183,89 @@ public sealed class ProgramsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Force_offer_stays_when_settings_confirm_is_declined()
+    {
+        _actions.PlanFor = _ => new UninstallPlan(UninstallRoute.OpenSettings, null, UninstallPlanner.MissingReason, true);
+        _dialogs.ConfirmResult = _ => false;
+        var vm = await Loaded(P("Foo"));
+
+        await vm.UninstallCommand.ExecuteAsync(Row(vm, "Foo"));
+
+        Assert.Single(_dialogs.Confirms);
+        Assert.Empty(_shell.Links);
+        Assert.Null(vm.Pending);
+        Assert.True(Row(vm, "Foo").CanForceRemove);
+        Assert.True(vm.ForceRemoveCommand.CanExecute(Row(vm, "Foo")));
+    }
+
+    [Fact]
+    public async Task Failed_leftover_search_keeps_pending()
+    {
+        var p = P("Foo");
+        var vm = await Loaded(p);
+        await vm.UninstallCommand.ExecuteAsync(Row(vm, "Foo"));   // settings route
+        Assert.Same(p, vm.Pending);
+
+        _actions.Programs = [];
+        _actions.FindLeftoversThrows = new IOException("Registry nicht lesbar");
+        await vm.FindLeftoversCommand.ExecuteAsync(null);
+
+        Assert.Contains(_dialogs.Informs, i => i.Title == "Restesuche fehlgeschlagen");
+        Assert.Same(p, vm.Pending);
+        Assert.True(vm.FindLeftoversCommand.CanExecute(null));
+
+        _actions.FindLeftoversThrows = null;
+        await vm.FindLeftoversCommand.ExecuteAsync(null);
+        Assert.Null(vm.Pending);
+    }
+
+    [Fact]
+    public async Task Uninstaller_starts_off_the_calling_thread()
+    {
+        _actions.PlanFor = _ => LaunchPlan;
+        _dialogs.AskResult = false;
+        var vm = await Loaded(P("Foo"));
+        using var ui = new UiThread();
+        await ui.Run(() => vm.UninstallCommand.ExecuteAsync(Row(vm, "Foo")));
+        Assert.Single(_actions.Runs);
+        Assert.NotEqual(ui.ThreadId, _actions.RunThreadId);
+    }
+
+    // a single thread with its own context, like the WPF dispatcher: awaits come back to it
+    sealed class UiThread : SynchronizationContext, IDisposable
+    {
+        readonly System.Collections.Concurrent.BlockingCollection<(SendOrPostCallback Call, object? State)> _queue = new();
+        readonly Thread _thread;
+
+        public UiThread()
+        {
+            _thread = new Thread(() =>
+            {
+                SetSynchronizationContext(this);
+                foreach (var (call, state) in _queue.GetConsumingEnumerable()) call(state);
+            }) { IsBackground = true };
+            _thread.Start();
+        }
+
+        public int ThreadId => _thread.ManagedThreadId;
+
+        public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
+
+        public Task Run(Func<Task> work)
+        {
+            var done = new TaskCompletionSource();
+            Post(async _ =>
+            {
+                try { await work(); done.SetResult(); }
+                catch (Exception ex) { done.SetException(ex); }
+            }, null);
+            return done.Task;
+        }
+
+        public void Dispose() => _queue.CompleteAdding();
+    }
+
+    [Fact]
     public async Task Missing_uninstaller_enables_force_remove()
     {
         _actions.PlanFor = _ => new UninstallPlan(UninstallRoute.OpenSettings, null, UninstallPlanner.MissingReason, true);
@@ -464,11 +547,28 @@ public sealed class ProgramsViewModelTests : IDisposable
     {
         _actions.Programs = [P("Foo")];
         _actions.PlanFor = _ => LaunchPlan;
-        var vm = Vm(canChange: false);
-        await vm.RefreshCommand.ExecuteAsync(null);
-        var row = Row(vm, "Foo");
-        row.CanForceRemove = true;
 
+        // the same staged page (pending program, leftover panel with a selected entry, force offer) with and without admin
+        async Task<(ProgramsViewModel Vm, ProgramItemViewModel Row)> Staged(bool canChange)
+        {
+            var staged = Vm(canChange);
+            await staged.RefreshCommand.ExecuteAsync(null);
+            var r = Row(staged, "Foo");
+            r.CanForceRemove = true;
+            staged.Pending = r.Program;
+            staged.Leftovers.Add(new FindingItemViewModel(TaskLeftover()));
+            return (staged, r);
+        }
+
+        var (admin, adminRow) = await Staged(true);
+        Assert.Equal(1, admin.SelectedLeftoverCount);
+        Assert.True(admin.UninstallCommand.CanExecute(adminRow));
+        Assert.True(admin.ForceRemoveCommand.CanExecute(adminRow));
+        Assert.True(admin.FindLeftoversCommand.CanExecute(null));
+        Assert.True(admin.ApplyLeftoversCommand.CanExecute(null));
+
+        var (vm, row) = await Staged(false);
+        Assert.Equal(1, vm.SelectedLeftoverCount);
         Assert.True(vm.ShowAdminNotice);
         Assert.Equal(AppEnvironment.AdminNotice, vm.AdminNotice);
         Assert.False(vm.UninstallCommand.CanExecute(row));
@@ -520,7 +620,8 @@ public sealed class ProgramsViewModelTests : IDisposable
         var programs = Vm(canChange: false);
         var history = new HistoryViewModel(_store, _engine, new AblageJanitor(_store), _dialogs, canChange: false, _gate);
         var update = new UpdateViewModel(new NoUpdates(), _dialogs, canInstall: false, () => { }, _gate);
-        var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new SemVer(0, 3, 0)), update, _shell);
+        var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new SemVer(0, 3, 0)), update, _shell,
+            new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")));
         var shell = new ShellViewModel(optimize, protect, security, privacy, programs, history, settings, update, isElevated: false);
 
         Assert.Same(privacy, shell.PrimaryNav[4].Page);

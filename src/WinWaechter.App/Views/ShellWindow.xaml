@@ -48,13 +48,14 @@
         <!-- Navigation rail -->
         <Border Background="{DynamicResource Rail}">
             <DockPanel LastChildFill="False">
-                <!-- Wordmark: a small dial drawn from vector shapes, then the name -->
+                <!-- Wordmark: the app icon, then the name -->
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="26,26,16,30">
-                    <Grid Width="22" Height="22" VerticalAlignment="Center" AutomationProperties.Name="WinWächter">
-                        <Ellipse Stroke="{DynamicResource Ink}" StrokeThickness="1.6" />
-                        <Path Data="M11,11 L16.5,5.5" Stroke="{DynamicResource Accent}" StrokeThickness="2" StrokeEndLineCap="Round" />
-                        <Ellipse Width="4" Height="4" Fill="{DynamicResource Ink}" />
-                    </Grid>
+                    <Image Width="22" Height="22" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"
+                           AutomationProperties.Name="WinWächter">
+                        <Image.Source>
+                            <BitmapImage UriSource="pack://application:,,,/WinWaechter.App;component/Assets/winwaechter.png" DecodePixelWidth="44" />
+                        </Image.Source>
+                    </Image>
                     <TextBlock Margin="11,0,0,0" VerticalAlignment="Center" Text="WinWächter"
                                FontFamily="{StaticResource DisplayFont}" FontSize="19" FontWeight="SemiBold" />
                 </StackPanel>
