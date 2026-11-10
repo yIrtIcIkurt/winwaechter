@@ -20,5 +20,12 @@ internal static class PowerNative
     public static extern bool GetSystemPowerStatus(out SystemPowerStatus status);
 
     [DllImport("powrprof.dll", ExactSpelling = true)]
-    public static extern uint PowerSetActiveOverlayScheme(ref Guid overlayScheme);
+    public static extern uint PowerSetActiveOverlayScheme(Guid overlayScheme);
+
+    /// <summary>The active power plan; the returned pointer must be freed with <see cref="LocalFree"/>.</summary>
+    [DllImport("powrprof.dll", ExactSpelling = true)]
+    public static extern uint PowerGetActiveScheme(IntPtr userRootPowerKey, out IntPtr activePolicyGuid);
+
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    public static extern IntPtr LocalFree(IntPtr mem);
 }

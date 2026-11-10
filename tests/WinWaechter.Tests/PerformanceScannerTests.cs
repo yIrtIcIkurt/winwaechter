@@ -234,8 +234,38 @@ public sealed class PerformanceScannerTests : IDisposable
         Assert.False(Row(r2, "power-dc").Available);
     }
 
+    [Fact]
+    public void Power_rows_locked_when_plan_not_balanced()
+    {
+        _power.ActivePlan = Guid.Parse("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"); // "Höchstleistung"
+        var sc = Scanner();
+        var rows = sc.Scan();
+        foreach (var id in new[] { "power-ac", "power-dc" })
+        {
+            var r = Row(rows, id);
+            Assert.False(r.Available);
+            Assert.Equal("Nur mit dem Energiesparplan „Ausgewogen“ änderbar", r.UnavailableText);
+            Assert.Equal("ms-settings:powersleep", r.Link);
+            Assert.Empty(sc.ChangesFor(r, 0));
+        }
+
+        _power.ActivePlan = PowerModeIds.BalancedPlan;
+        Assert.True(Row(Scanner().Scan(), "power-ac").Available);
+        _power.ActivePlan = null; // plan unknown: offered as before
+        Assert.True(Row(Scanner().Scan(), "power-dc").Available);
+    }
+
+    [Fact]
+    public void Battery_row_uses_the_journal_label()
+    {
+        Assert.Equal("Energiemodus (Akku)", Row(Scanner().Scan(), "power-dc").Title);
+        var r2 = new PerformanceScanner(_reg, new ThrowingPower(), _anim, _hib, _names, true, _broadcast).Scan();
+        Assert.Equal("Energiemodus (Akku)", Row(r2, "power-dc").Title);
+    }
+
     sealed class ThrowingPower : IPowerModes
     {
+        public Guid? ActivePlan => null;
         public bool HasBattery => throw new InvalidOperationException("x");
         public PowerSource Current => PowerSource.Ac;
         public Guid? Get(PowerSource s) => throw new InvalidOperationException("x");

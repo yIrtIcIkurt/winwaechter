@@ -98,4 +98,50 @@ public sealed class PowerModeTests : IDisposable
         reg.Seed(Hive.LocalMachine, key, "ActiveOverlayAcPowerScheme", PowerModeIds.BestPerformance.ToString("D"), RegistryValueKind.String);
         Assert.Equal(PowerModeIds.BestPerformance, p.Get(PowerSource.Ac));
     }
+
+    [Fact]
+    public void Power_set_failure_restores_registry_and_throws()
+    {
+        const string key = @"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes";
+        var reg = new FakeRegistry()
+            .Seed(Hive.LocalMachine, key, "ActiveOverlayAcPowerScheme", PowerModeIds.BestEfficiency.ToString("D"), RegistryValueKind.String)
+            .Seed(Hive.LocalMachine, key, "ActiveOverlayDcPowerScheme", PowerModeIds.BestEfficiency.ToString("D"), RegistryValueKind.String);
+        var calls = new List<Guid>();
+        var p = new WinPowerModes(reg, g => { calls.Add(g); return 5; });
+        var source = p.Current; // only the active source calls the API
+        var otherSource = source == PowerSource.Ac ? PowerSource.Dc : PowerSource.Ac;
+        string Name(PowerSource s) => s == PowerSource.Ac ? "ActiveOverlayAcPowerScheme" : "ActiveOverlayDcPowerScheme";
+
+        var ex = Assert.Throws<InvalidOperationException>(() => p.Set(source, PowerModeIds.BestPerformance));
+        Assert.Equal("Der Energiemodus ließ sich nicht setzen (Fehler 5).", ex.Message);
+        Assert.Equal([PowerModeIds.BestPerformance], calls);
+        Assert.Equal(PowerModeIds.BestEfficiency.ToString("D"), reg.Get(Hive.LocalMachine, key, Name(source)));
+
+        // a value that was missing before is deleted again
+        reg.Delete(Hive.LocalMachine, key, Name(source));
+        Assert.Throws<InvalidOperationException>(() => p.Set(source, PowerModeIds.BestPerformance));
+        Assert.Null(reg.GetKind(Hive.LocalMachine, key, Name(source)));
+
+        // the other source is only written; it applies at the next power-source change
+        p.Set(otherSource, PowerModeIds.BestPerformance);
+        Assert.Equal(2, calls.Count);
+        Assert.Equal(PowerModeIds.BestPerformance.ToString("D"), reg.Get(Hive.LocalMachine, key, Name(otherSource)));
+
+        // success: the value stays
+        new WinPowerModes(reg, _ => 0).Set(source, PowerModeIds.BestPerformance);
+        Assert.Equal(PowerModeIds.BestPerformance.ToString("D"), reg.Get(Hive.LocalMachine, key, Name(source)));
+
+        // a missing API counts as failure, too
+        var missing = new WinPowerModes(reg, _ => throw new EntryPointNotFoundException());
+        var ex2 = Assert.Throws<InvalidOperationException>(() => missing.Set(source, PowerModeIds.Balanced));
+        Assert.Equal("Der Energiemodus ließ sich nicht setzen (Fehler 127).", ex2.Message);
+        Assert.Equal(PowerModeIds.BestPerformance.ToString("D"), reg.Get(Hive.LocalMachine, key, Name(source)));
+    }
+
+    [Fact]
+    public void Active_plan_smoke_read()
+    {
+        // read-only: the real API may or may not answer; it must never throw
+        _ = new WinPowerModes(new FakeRegistry()).ActivePlan;
+    }
 }

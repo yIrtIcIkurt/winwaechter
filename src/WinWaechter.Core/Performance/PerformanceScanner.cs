@@ -19,6 +19,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
 {
     const string Unreadable = "Nicht lesbar";
     const string CustomLabel = "Benutzerdefiniert";
+    const string PlanLocked = "Nur mit dem Energiesparplan „Ausgewogen“ änderbar";
     const string BackgroundPrefix = "bg:";
     public const string BackgroundUnavailableId = "bg-unavailable";
 
@@ -76,7 +77,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         yield return Broken("power-ac", "power", "Energiemodus (Netzbetrieb)", PowerBase);
         bool battery;
         try { battery = power.HasBattery; } catch { battery = true; }
-        if (battery) yield return Broken("power-dc", "power", "Energiemodus (Akkubetrieb)", PowerBase);
+        if (battery) yield return Broken("power-dc", "power", "Energiemodus (Akku)", PowerBase);
     }
 
     static PerfSetting Broken(string id, string group, string title, IReadOnlyList<PerfOption> options) =>
@@ -96,22 +97,26 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
 
     IEnumerable<PerfSetting> ScanPower()
     {
+        // Windows offers the power mode only under the plan "Ausgewogen"; under another plan a write has no effect.
+        var locked = power.ActivePlan is { } plan && plan != PowerModeIds.BalancedPlan;
         yield return PowerRow(PowerSource.Ac, "power-ac", "Energiemodus (Netzbetrieb)",
-            "Legt fest, wie Windows am Netzteil zwischen Leistung und Stromverbrauch abwägt.", null);
+            "Legt fest, wie Windows am Netzteil zwischen Leistung und Stromverbrauch abwägt.", null, locked);
         if (power.HasBattery)
-            yield return PowerRow(PowerSource.Dc, "power-dc", "Energiemodus (Akkubetrieb)",
+            yield return PowerRow(PowerSource.Dc, "power-dc", "Energiemodus (Akku)",
                 "Legt fest, wie Windows im Akkubetrieb zwischen Leistung und Laufzeit abwägt.",
-                "Beste Leistung im Akkubetrieb leert den Akku spürbar schneller.");
+                "Beste Leistung im Akkubetrieb leert den Akku spürbar schneller.", locked);
     }
 
-    PerfSetting PowerRow(PowerSource s, string id, string title, string explanation, string? hint)
+    PerfSetting PowerRow(PowerSource s, string id, string title, string explanation, string? hint, bool locked)
     {
         var mode = power.Get(s);
         if (mode is null)
             return new(id, "power", title, explanation, PowerBase, 0, false, Unreadable, hint, null, false, null);
         var index = PowerModeIds.All.ToList().IndexOf(mode.Value);
         IReadOnlyList<PerfOption> options = index < 0 ? [new PerfOption(-1, CustomLabel), .. PowerBase] : PowerBase;
-        return new(id, "power", title, explanation, options, index, true, null, hint, null, false, SystemLinks.PowerSleep);
+        return locked
+            ? new(id, "power", title, explanation, options, index, false, PlanLocked, hint, null, false, SystemLinks.PowerSleep)
+            : new(id, "power", title, explanation, options, index, true, null, hint, null, false, SystemLinks.PowerSleep);
     }
 
     // ---- visual ----

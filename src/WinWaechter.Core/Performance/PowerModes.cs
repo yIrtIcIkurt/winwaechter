@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
@@ -18,6 +19,9 @@ public static class PowerModeIds
 
     public static readonly IReadOnlyList<Guid> All = [BestEfficiency, Balanced, BestPerformance];
 
+    /// <summary>The power plan "Ausgewogen"; Windows offers the power modes only while it is active.</summary>
+    public static readonly Guid BalancedPlan = new("381b4222-f694-41f0-9685-ff5bb260df2e");
+
     public static string Label(Guid mode) =>
         mode == BestEfficiency ? "Beste Energieeffizienz"
         : mode == Balanced ? "Ausgewogen"
@@ -30,15 +34,23 @@ public interface IPowerModes
     bool HasBattery { get; }
     PowerSource Current { get; }
 
+    /// <summary>The active power plan; null when it cannot be read.</summary>
+    Guid? ActivePlan { get; }
+
     /// <summary>The active mode for this source; null when the stored value cannot be read as a GUID.</summary>
     Guid? Get(PowerSource s);
 
     void Set(PowerSource s, Guid mode);
 }
 
-public sealed class WinPowerModes(IRegistry reg) : IPowerModes
+/// <param name="setOverlay">Sets the active overlay scheme and returns the Win32 result (0 = success);
+/// defaults to <c>PowerSetActiveOverlayScheme</c>. Tests inject a fake.</param>
+public sealed class WinPowerModes(IRegistry reg, Func<Guid, uint>? setOverlay = null) : IPowerModes
 {
     const string Key = @"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes";
+    const uint ErrorModNotFound = 126, ErrorProcNotFound = 127;
+
+    readonly Func<Guid, uint> _setOverlay = setOverlay ?? PowerNative.PowerSetActiveOverlayScheme;
 
     static string ValueName(PowerSource s) =>
         s == PowerSource.Ac ? "ActiveOverlayAcPowerScheme" : "ActiveOverlayDcPowerScheme";
@@ -47,6 +59,23 @@ public sealed class WinPowerModes(IRegistry reg) : IPowerModes
 
     public PowerSource Current => Status() is { ACLineStatus: 0 } ? PowerSource.Dc : PowerSource.Ac;
 
+    public Guid? ActivePlan
+    {
+        get
+        {
+            try
+            {
+                if (PowerNative.PowerGetActiveScheme(IntPtr.Zero, out var ptr) != 0 || ptr == IntPtr.Zero) return null;
+                try { return Marshal.PtrToStructure<Guid>(ptr); }
+                finally { PowerNative.LocalFree(ptr); }
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+            {
+                return null;
+            }
+        }
+    }
+
     public Guid? Get(PowerSource s) => reg.Get(Hive.LocalMachine, Key, ValueName(s)) switch
     {
         null => PowerModeIds.Balanced,
@@ -54,18 +83,28 @@ public sealed class WinPowerModes(IRegistry reg) : IPowerModes
         _ => null,
     };
 
+    /// <summary>Writes the mode; for the active power source it also applies it at once. When that fails the old
+    /// registry value is restored and the call throws, so nothing is journalled as applied without effect.</summary>
     public void Set(PowerSource s, Guid mode)
     {
-        reg.Set(Hive.LocalMachine, Key, ValueName(s), mode.ToString("D"), RegistryValueKind.String);
-        if (s != Current) return;
+        var name = ValueName(s);
+        var oldKind = reg.GetKind(Hive.LocalMachine, Key, name);
+        var old = oldKind is null ? null : reg.Get(Hive.LocalMachine, Key, name);
+        reg.Set(Hive.LocalMachine, Key, name, mode.ToString("D"), RegistryValueKind.String);
+        if (s != Current) return; // applies at the next power-source change
+
+        uint code;
         try
         {
-            PowerNative.PowerSetActiveOverlayScheme(ref mode);
+            code = _setOverlay(mode);
         }
-        catch
-        {
-            // Best effort: the registry value is written and applies at the next power-source change.
-        }
+        catch (DllNotFoundException) { code = ErrorModNotFound; }
+        catch (EntryPointNotFoundException) { code = ErrorProcNotFound; }
+        if (code == 0) return;
+
+        if (oldKind is { } k && old is not null) reg.Set(Hive.LocalMachine, Key, name, old, k);
+        else reg.Delete(Hive.LocalMachine, Key, name);
+        throw new InvalidOperationException($"Der Energiemodus ließ sich nicht setzen (Fehler {code}).");
     }
 
     static PowerNative.SystemPowerStatus? Status()

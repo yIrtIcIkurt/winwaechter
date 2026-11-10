@@ -17,6 +17,7 @@ public sealed class FakePowerModes : IPowerModes
     };
 
     public bool HasBattery { get; set; } = true;
+    public Guid? ActivePlan { get; set; } = PowerModeIds.BalancedPlan;
     public PowerSource Current { get; set; } = PowerSource.Ac;
     public List<(PowerSource Source, Guid Mode)> SetCalls { get; } = [];
 
