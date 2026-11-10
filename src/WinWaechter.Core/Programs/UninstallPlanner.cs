@@ -14,55 +14,81 @@ public static class UninstallPlanner
     public const string UserWritableReason =
         "Dieses Programm wurde für Ihr Benutzerkonto installiert oder liegt in einem Ordner, den auch Programme ohne Adminrechte ändern können.";
 
+    const string MsiExecName = "msiexec.exe";
+
     // Spec 7.1: only HKLM entries whose uninstaller sits in an admin-only folder are started elevated.
-    public static UninstallPlan Plan(InstalledProgram p, CleanerPaths paths, Func<string, bool> exists)
+    // msiexec only ever runs as "/X{GUID}" with a validated product code, never with the entry's arguments.
+    public static UninstallPlan Plan(InstalledProgram p, CleanerPaths paths, Func<string, bool> exists, IPathTrust trust)
     {
         var guid = UninstallCommandParser.MsiProductCode(p);
         if (guid is not null)
-            return p.IsMachineEntry
-                ? new(UninstallRoute.Launch,
-                    new UninstallCommand(Path.Combine(paths.SystemRoot, "System32", "msiexec.exe"), "/X" + guid), "", false)
-                : Settings(UserWritableReason);
+        {
+            var msiexec = Path.Combine(paths.SystemRoot, "System32", MsiExecName);
+            if (!p.IsMachineEntry || !IsTrusted(msiexec, Root(paths.SystemRoot), trust))
+                return Settings(UserWritableReason);
+            return new(UninstallRoute.Launch, new UninstallCommand(msiexec, "/X" + guid), "", false);
+        }
 
         var cmd = UninstallCommandParser.Parse(p.UninstallString, exists);
         if (cmd is null) return Settings(UnsafeReason);
 
         // Checks run on the normalized path (trailing dots/blanks, "..", etc. resolved) that is later started.
         var full = FullPath(cmd.Exe);
-        if (full is null
-            || UninstallCommandParser.RefusedHosts.Contains(Path.GetFileName(cmd.Exe))
-            || UninstallCommandParser.RefusedHosts.Contains(Path.GetFileName(full))
+        if (full is null || IsRefused(cmd.Exe) || IsRefused(full)
             || !string.Equals(Path.GetExtension(full), ".exe", StringComparison.OrdinalIgnoreCase))
             return Settings(UnsafeReason);
 
         if (!exists(full)) return new(UninstallRoute.OpenSettings, null, MissingReason, true);
 
-        if (!p.IsMachineEntry || !IsAdminOnlyLocation(full, paths)) return Settings(UserWritableReason);
+        if (!p.IsMachineEntry || AdminRoot(full, paths) is not { } root || !IsTrusted(full, root, trust))
+            return Settings(UserWritableReason);
 
         return new(UninstallRoute.Launch, cmd with { Exe = full }, "", false);
     }
 
     static UninstallPlan Settings(string reason) => new(UninstallRoute.OpenSettings, null, reason, false);
 
-    static string? FullPath(string exe)
+    // Script hosts, and msiexec in any form other than the validated "/X{GUID}" above.
+    static bool IsRefused(string exe)
     {
-        try { return Path.GetFullPath(exe); }
+        var name = Path.GetFileName(exe);
+        return UninstallCommandParser.RefusedHosts.Contains(name)
+            || string.Equals(name, MsiExecName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The exe and every folder from its own up to and including the root must be admin-only.
+    static bool IsTrusted(string full, string? root, IPathTrust trust)
+    {
+        if (root is null || !trust.IsAdminOnly(full)) return false;
+        for (var dir = Path.GetDirectoryName(full); dir is not null; dir = Path.GetDirectoryName(dir))
+        {
+            if (!trust.IsAdminOnly(dir)) return false;
+            if (string.Equals(dir, root, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    static string? FullPath(string path)
+    {
+        try { return Path.GetFullPath(path); }
         catch { return null; }
     }
 
-    static bool IsAdminOnlyLocation(string full, CleanerPaths paths)
+    static string? Root(string? dir) =>
+        string.IsNullOrWhiteSpace(dir) || FullPath(dir) is not { } f ? null : Path.TrimEndingDirectorySeparator(f);
+
+    // The admin-only root the file lies under (prefix + "\"), or null.
+    static string? AdminRoot(string full, CleanerPaths paths)
     {
-        string[] roots =
+        string?[] candidates =
         [
             paths.ProgramFiles, paths.ProgramFilesX86, paths.SystemRoot, Path.Combine(paths.ProgramData, "Package Cache"),
         ];
-        return roots.Any(r => IsUnder(full, r));
-    }
-
-    static bool IsUnder(string full, string root)
-    {
-        if (string.IsNullOrWhiteSpace(root)) return false;
-        var prefix = Path.TrimEndingDirectorySeparator(root) + "\\";
-        return full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        foreach (var c in candidates)
+        {
+            var root = Root(c);
+            if (root is not null && full.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase)) return root;
+        }
+        return null;
     }
 }

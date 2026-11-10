@@ -15,8 +15,8 @@ public static partial class UninstallCommandParser
     [GeneratedRegex(@"^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$")]
     private static partial Regex GuidRegex();
 
-    // msiexec(.exe), optionally quoted and with a path, then /I or /X and the product code.
-    [GeneratedRegex(@"^""?(?:[^""]*\\)?msiexec(?:\.exe)?""?\s+/[IX]\s*(\{[^}\s]*\})", RegexOptions.IgnoreCase)]
+    // Exactly msiexec(.exe) (optionally quoted / with a path), /I or /X and the product code; nothing else.
+    [GeneratedRegex(@"^""?(?:[^""]*\\)?msiexec(?:\.exe)?""?\s+/[IX]\s*(\{[^}\s]*\})\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex MsiRegex();
 
     /// <summary>Splits an UninstallString into program and arguments; null when no rooted program is found.</summary>

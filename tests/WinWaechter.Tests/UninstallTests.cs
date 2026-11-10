@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using WinWaechter.Core.Programs;
 using WinWaechter.Core.Sys;
+using WinWaechter.Tests.Fakes;
 
 namespace WinWaechter.Tests;
 
@@ -10,6 +11,7 @@ public sealed class UninstallTests : IDisposable
 
     readonly string _tmp = Path.Combine(Path.GetTempPath(), "ww-uninst-" + System.Guid.NewGuid().ToString("N"));
     readonly CleanerPaths _paths;
+    readonly FakePathTrust _trust = new();
 
     public UninstallTests()
     {
@@ -40,7 +42,7 @@ public sealed class UninstallTests : IDisposable
         new(hive, hive == Hive.CurrentUser ? UninstallRoots.User : UninstallRoots.Native, key, "Foo", "Foo GmbH",
             "1.0", null, null, uninstall, null, null, msi, ProgramFlag.None);
 
-    UninstallPlan Plan(InstalledProgram p) => UninstallPlanner.Plan(p, _paths, File.Exists);
+    UninstallPlan Plan(InstalledProgram p) => UninstallPlanner.Plan(p, _paths, File.Exists, _trust);
 
     [Fact]
     public void Parse_quoted_unquoted_and_args()
@@ -70,6 +72,31 @@ public sealed class UninstallTests : IDisposable
         Assert.Equal(Guid, UninstallCommandParser.MsiProductCode(Prog(null, key: Guid, msi: true)));
         Assert.Equal(Guid, UninstallCommandParser.MsiProductCode(Prog("MsiExec.exe /I" + Guid)));
         Assert.Null(UninstallCommandParser.MsiProductCode(Prog("MsiExec.exe /I{bad}")));
+        Assert.Equal(Guid, UninstallCommandParser.MsiProductCode(Prog(@"""C:\Windows\System32\MsiExec.exe"" /X" + Guid)));
+        // Only the bare /I{GUID} or /X{GUID} form counts; extra switches do not.
+        Assert.Null(UninstallCommandParser.MsiProductCode(Prog("MsiExec.exe /X" + Guid + " /qn")));
+        Assert.Null(UninstallCommandParser.MsiProductCode(Prog("MsiExec.exe /i x.msi")));
+    }
+
+    [Fact]
+    public void Msiexec_without_validated_guid_opens_settings()
+    {
+        var msiexec = Touch(Path.Combine(_paths.SystemRoot, "System32", "msiexec.exe"));
+        foreach (var s in new[]
+                 {
+                     "MsiExec.exe /i x.msi", "MsiExec.exe /X" + Guid + " /qn", "MsiExec.exe /X",
+                     "\"" + msiexec + "\" /i x.msi", "\"" + msiexec + "\" /y x.dll", "\"" + msiexec + "\"",
+                     msiexec + " /X" + Guid + " REBOOT=R",
+                 })
+        {
+            var plan = Plan(Prog(s));
+            Assert.Equal(UninstallRoute.OpenSettings, plan.Route);
+            Assert.Null(plan.Command);
+        }
+        // With WindowsInstaller=1 the GUID comes from the key name; the string's arguments are never used.
+        var keyed = Plan(Prog("MsiExec.exe /i x.msi /qn", key: Guid, msi: true));
+        Assert.Equal(UninstallRoute.Launch, keyed.Route);
+        Assert.Equal("/X" + Guid, keyed.Command!.Arguments);
     }
 
     [Fact]
@@ -160,6 +187,63 @@ public sealed class UninstallTests : IDisposable
         Assert.Equal(UninstallRoute.OpenSettings, plan.Route);
         Assert.True(plan.UninstallerMissing);
         Assert.Equal("Das Deinstallationsprogramm fehlt.", plan.Reason);
+    }
+
+    [Fact]
+    public void Writable_uninstaller_or_folder_opens_settings()
+    {
+        var exe = Touch(Path.Combine(_paths.ProgramFiles, "Foo", "Bin", "uninst.exe"));
+        var prog = Prog("\"" + exe + "\"");
+        Assert.Equal(UninstallRoute.Launch, Plan(prog).Route);
+        // Exe, every folder up to the root, and the root itself are checked; nothing above the root.
+        Assert.Equal(
+            [exe, Path.GetDirectoryName(exe)!, Path.Combine(_paths.ProgramFiles, "Foo"), _paths.ProgramFiles],
+            _trust.Calls);
+
+        foreach (var untrusted in new[]
+                 {
+                     exe, Path.GetDirectoryName(exe)!, Path.Combine(_paths.ProgramFiles, "Foo"), _paths.ProgramFiles,
+                 })
+        {
+            _trust.Untrusted.Clear();
+            _trust.Untrusted.Add(untrusted);
+            var plan = Plan(prog);
+            Assert.Equal(UninstallRoute.OpenSettings, plan.Route);
+            Assert.Equal(UninstallPlanner.UserWritableReason, plan.Reason);
+            Assert.False(plan.UninstallerMissing);
+        }
+
+        // A user-created Package Cache under ProgramData is caught the same way.
+        var cache = Touch(Path.Combine(_paths.ProgramData, "Package Cache", "{x}", "setup.exe"));
+        _trust.Untrusted.Clear();
+        _trust.Untrusted.Add(Path.Combine(_paths.ProgramData, "Package Cache"));
+        Assert.Equal(UninstallRoute.OpenSettings, Plan(Prog("\"" + cache + "\" /uninstall")).Route);
+    }
+
+    [Fact]
+    public void Msi_launch_requires_trusted_msiexec()
+    {
+        var msiexec = Path.Combine(_paths.SystemRoot, "System32", "msiexec.exe");
+        _trust.Untrusted.Add(msiexec);
+        Assert.Equal(UninstallRoute.OpenSettings, Plan(Prog("MsiExec.exe /X" + Guid)).Route);
+    }
+
+    [Fact]
+    public void WinPathTrust_reads_real_acls()
+    {
+        var trust = new WinPathTrust(new FakeUserContext(_tmp,
+            System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value));
+        var win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        Assert.True(trust.IsAdminOnly(Path.Combine(win, "System32", "msiexec.exe")));
+        Assert.True(trust.IsAdminOnly(Path.Combine(win, "System32")));
+        Assert.True(trust.IsAdminOnly(win));
+        Assert.True(trust.IsAdminOnly(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
+        Assert.False(trust.IsAdminOnly(Path.Combine(win, "Temp")));      // Users may create files there
+        // Users may create folders in the ProgramData root, so a missing "Package Cache" could be user-made.
+        Assert.False(trust.IsAdminOnly(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)));
+        Assert.False(trust.IsAdminOnly(Touch(Path.Combine(_tmp, "u.exe"))));
+        Assert.False(trust.IsAdminOnly(_tmp));
+        Assert.False(trust.IsAdminOnly(Path.Combine(_tmp, "missing.exe")));
     }
 
     [Fact]
