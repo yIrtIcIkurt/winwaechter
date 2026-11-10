@@ -47,6 +47,38 @@ public class SystemSamplerTests
     }
 
     [Fact]
+    public void Reused_pid_gives_no_delta()
+    {
+        var prev = new List<ProcTime> { new(7, "alt", TimeSpan.FromSeconds(1), 10) };
+        var now = new List<ProcTime> { new(7, "neu", TimeSpan.FromSeconds(50), 20) };
+        var c = Assert.Single(TopConsumers.Compute(prev, now, TimeSpan.FromSeconds(2), 1));
+        Assert.Equal("neu", c.Name);
+        Assert.Null(c.CpuPercent);
+    }
+
+    [Fact]
+    public void Reset_drops_the_baseline()
+    {
+        var src = new FakeSystemSources
+        {
+            CpuValue = new(100, 200, 100),
+            Procs = [new(1, "a", TimeSpan.FromSeconds(1), 1)],
+        };
+        var sampler = new SystemSampler(src, (_, _) => { });
+        sampler.Next(TimeSpan.FromSeconds(2));
+        src.CpuValue = new(150, 300, 100);
+        src.Procs = [new(1, "a", TimeSpan.FromSeconds(2), 1)];
+
+        sampler.Reset();
+        var first = sampler.Next(TimeSpan.FromMinutes(5));
+        Assert.Null(first.CpuPercent);
+        Assert.Null(Assert.Single(first.Top).CpuPercent);
+
+        src.CpuValue = new(200, 400, 100);
+        Assert.Equal(50, sampler.Next(TimeSpan.FromSeconds(2)).CpuPercent);
+    }
+
+    [Fact]
     public void Failing_source_gives_null_reading_once_logged()
     {
         var src = new FakeSystemSources { ThrowCpu = true, ThrowDisk = true, Procs = [new(1, "a", null, 1)] };

@@ -85,7 +85,7 @@ public sealed class PerformanceViewModelTests : IDisposable
         Scan,
         new SystemSampler(sources ?? _src, (_, _) => { }),
         boot ?? (() => BootReport.Load(_boot, DateTime.UtcNow)),
-        _engine, _dialogs, _shell, canChange, _gate, () => _optimizeOpened++, _ticks);
+        _engine, _dialogs, _shell, canChange, _gate, () => _optimizeOpened++, _ticks, _scanner.FastStartupActive);
 
     static PerfSettingViewModel Row(PerformanceViewModel vm, string id) =>
         vm.Settings.Concat(vm.BackgroundApps).Single(r => r.Setting.Id == id);
@@ -215,21 +215,38 @@ public sealed class PerformanceViewModelTests : IDisposable
     public async Task Monitor_runs_only_while_visible()
     {
         var vm = Vm();
+        _src.CpuValue = new CpuTimes(0, 0, 0);
         vm.OnShown();
         Assert.True(_ticks.Running);
         Assert.Equal(TimeSpan.FromSeconds(2), _ticks.Every);
-
-        await Tick(vm, _ticks);
+        // showing the page takes one priming sample at once
+        await vm.LastSampling!;
         Assert.Equal(1, _src.CpuCalls);
+        Assert.Equal("–", vm.CpuText);
 
-        vm.OnHidden();
-        Assert.False(_ticks.Running);
-        await Tick(vm, _ticks);
-        Assert.Equal(1, _src.CpuCalls);
-
-        vm.OnShown();
+        _src.CpuValue = new CpuTimes(50, 100, 0);
         await Tick(vm, _ticks);
         Assert.Equal(2, _src.CpuCalls);
+        Assert.Equal("50 %", vm.CpuText);
+
+        // hidden: even a tick that still arrives (queued before Stop) samples nothing
+        vm.OnHidden();
+        Assert.False(_ticks.Running);
+        var last = vm.LastSampling;
+        _ticks.FireEvenIfStopped();
+        Assert.Same(last, vm.LastSampling);
+        Assert.Equal(2, _src.CpuCalls);
+
+        // shown again after a long pause: the baseline is reset, no average over the hidden time
+        _src.CpuValue = new CpuTimes(1050, 2100, 0);
+        vm.OnShown();
+        await vm.LastSampling!;
+        Assert.Equal(3, _src.CpuCalls);
+        Assert.Equal("–", vm.CpuText);
+        _src.CpuValue = new CpuTimes(1060, 2200, 0);
+        await Tick(vm, _ticks);
+        Assert.Equal(4, _src.CpuCalls);
+        Assert.Equal("90 %", vm.CpuText);
     }
 
     [Fact]
@@ -237,9 +254,9 @@ public sealed class PerformanceViewModelTests : IDisposable
     {
         var gate = new ManualResetEventSlim();
         var vm = Vm(sources: new BlockingSources(gate, _src));
-        vm.OnShown();
-        _ticks.Fire();
+        vm.OnShown(); // the priming sample blocks
         var first = vm.LastSampling!;
+        _ticks.Fire();
         _ticks.Fire();
         Assert.Same(first, vm.LastSampling);
         gate.Set();
@@ -264,18 +281,19 @@ public sealed class PerformanceViewModelTests : IDisposable
             new ProcTime(2, "chrome", null, 50L << 20),
         ];
         vm.OnShown();
-        await Tick(vm, _ticks);
-        // the first CPU reading has nothing to compare with
+        await vm.LastSampling!;
+        // the priming sample has nothing to compare with; memory is a snapshot and shows at once
         Assert.Equal("–", vm.CpuText);
         Assert.Equal("12,3 von 31,6 GB", vm.MemoryText);
-        Assert.Equal("12 %", vm.DiskText);
-        Assert.Equal(0.124, vm.DiskValue, 3);
+        Assert.Equal("–", vm.DiskText);
         Assert.Equal(0.0, vm.CpuValue);
 
         _src.CpuValue = new CpuTimes(63, 100, 0);
         await Tick(vm, _ticks);
         Assert.Equal("37 %", vm.CpuText);
         Assert.Equal(0.37, vm.CpuValue, 3);
+        Assert.Equal("12 %", vm.DiskText);
+        Assert.Equal(0.124, vm.DiskValue, 3);
 
         var top = Assert.Single(vm.Top);
         Assert.Equal("chrome (2)", top.Name);
@@ -340,6 +358,7 @@ public sealed class PerformanceViewModelTests : IDisposable
         _boot.Events.Add(new BootEvent(100, DateTime.UtcNow.AddHours(-1), null, 42_400, null));
         _boot.Events.Add(new BootEvent(100, DateTime.UtcNow.AddHours(-30), null, 48_000, null));
         _boot.Events.Add(new BootEvent(101, DateTime.UtcNow.AddHours(-1), "Foo.exe", null, 7_600));
+        _boot.Events.Add(new BootEvent(102, DateTime.UtcNow.AddHours(-1), "Bar.sys", null, 12_600));
         var vm = Vm(boot: () => { calls++; return BootReport.Load(_boot, DateTime.UtcNow); });
 
         await vm.RefreshCommand.ExecuteAsync(null);
@@ -347,8 +366,67 @@ public sealed class PerformanceViewModelTests : IDisposable
         Assert.Equal(1, calls);
         Assert.Equal("42 s", vm.BootText);
         Assert.Equal("Durchschnitt: 45 s", vm.BootAverageText);
-        Assert.Equal("Foo.exe: 8 s", Assert.Single(vm.BootSlowest));
+        // below 10 s with one decimal, otherwise whole seconds
+        Assert.Equal(["Bar.sys: 13 s", "Foo.exe: 7,6 s"], vm.BootSlowest);
         Assert.Null(vm.BootMessage);
+    }
+
+    [Fact]
+    public async Task Short_boot_times_show_one_decimal()
+    {
+        _boot.Events.Add(new BootEvent(100, DateTime.UtcNow.AddHours(-1), null, 2_400, null));
+        _boot.Events.Add(new BootEvent(100, DateTime.UtcNow.AddHours(-2), null, 9_960, null));
+        var vm = Vm();
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal("2,4 s", vm.BootText);
+        Assert.Equal("Durchschnitt: 6,2 s", vm.BootAverageText);
+    }
+
+    [Fact]
+    public async Task Fast_startup_note_only_when_on()
+    {
+        const string key = @"SYSTEM\CurrentControlSet\Control\Session Manager\Power";
+        var vm = Vm();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.False(vm.ShowFastStartupNote); // HiberbootEnabled missing
+
+        _reg.Seed(Hive.LocalMachine, key, "HiberbootEnabled", 1, RegistryValueKind.DWord);
+        _hib.IsEnabled = true;
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.True(vm.ShowFastStartupNote);
+
+        _hib.IsEnabled = false; // no hibernation, no fast startup
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.False(vm.ShowFastStartupNote);
+
+        _hib.IsEnabled = true;
+        _reg.Seed(Hive.LocalMachine, key, "HiberbootEnabled", 0, RegistryValueKind.DWord);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.False(vm.ShowFastStartupNote);
+    }
+
+    [Fact]
+    public async Task Unreadable_value_while_applying_is_shown_in_the_summary()
+    {
+        const string app = "Contoso.App_abc123";
+        var disabled = PerfValues.BackgroundDisabled(app);
+        _reg.Seed(disabled.Hive, disabled.Key, disabled.Name, 0, RegistryValueKind.DWord);
+        var byUser = PerfValues.BackgroundDisabledByUser(app);
+        _reg.Seed(byUser.Hive, byUser.Key, byUser.Name, "1"); // REG_SZ: unexpected type
+        _names.Names[app] = "Beispiel";
+        var vm = Vm();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Row(vm, "bg:" + app).Chosen = 0;
+
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        var summary = Assert.Single(_dialogs.Informs);
+        Assert.Equal("Zusammenfassung", summary.Title);
+        Assert.Contains("DisabledByUser", summary.Message);
+        Assert.Equal(summary.Message, vm.LastSummary);
+        Assert.Empty(_dialogs.ConfirmItems);
+        Assert.Empty(_store.List());
     }
 
     [Fact]

@@ -132,7 +132,8 @@ public sealed class AppServices : IDisposable
         var programs = new ProgramsViewModel(programService, engine, dialogs, shell, canChange, gate);
         // Leistung: the animation switch (SPI) acts on the process's own account, so it is offered only when
         // that is the signed-in user. The view model runs the scan, the samples and the boot report on the pool.
-        var ownAccount = string.Equals(WindowsIdentity.GetCurrent().User?.Value, user.Sid, StringComparison.OrdinalIgnoreCase);
+        using var identity = WindowsIdentity.GetCurrent();
+        var ownAccount = string.Equals(identity.User?.Value, user.Sid, StringComparison.OrdinalIgnoreCase);
         var perfScanner = new PerformanceScanner(reg, power, animation, hibernation, new WinAppDisplayNames(reg), ownAccount, broadcast);
         var systemSources = new WinSystemSources();
         var bootSource = new WinBootEventSource();
@@ -141,7 +142,8 @@ public sealed class AppServices : IDisposable
             _ => Task.FromResult<(IReadOnlyList<PerfSetting>, Func<PerfSetting, int, IReadOnlyList<IChange>>)>(
                 (perfScanner.Scan(), perfScanner.ChangesFor)),
             new SystemSampler(systemSources), () => BootReport.Load(bootSource, DateTime.UtcNow),
-            engine, dialogs, shell, canChange, gate, () => shellVm?.Navigate(optimize), new DispatcherTickSource());
+            engine, dialogs, shell, canChange, gate, () => shellVm?.Navigate(optimize), new DispatcherTickSource(),
+            perfScanner.FastStartupActive);
         var janitor = new AblageJanitor(store);
         var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate);
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);

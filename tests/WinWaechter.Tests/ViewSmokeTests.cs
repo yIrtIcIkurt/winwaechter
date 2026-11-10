@@ -140,8 +140,13 @@ public sealed class ViewSmokeTests : IDisposable
         var perfReg = new FakeRegistry();
         perfReg.SeedKey(Hive.CurrentUser, WinWaechter.Core.Performance.PerfValues.BackgroundRoot + @"\Microsoft.WindowsCalculator_8wekyb3d8bbwe");
         perfReg.SeedKey(Hive.CurrentUser, WinWaechter.Core.Performance.PerfValues.BackgroundRoot + @"\Microsoft.YourPhone_8wekyb3d8bbwe");
+        perfReg.Seed(Hive.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Session Manager\Power", "HiberbootEnabled", 1,
+            Microsoft.Win32.RegistryValueKind.DWord);
+        var perfNames = new FakeAppDisplayNames();
+        perfNames.Names["Microsoft.WindowsCalculator_8wekyb3d8bbwe"] = "Rechner";
+        perfNames.Names["Microsoft.YourPhone_8wekyb3d8bbwe"] = "Smartphone-Link";
         var performance = FakePerformanceVm.Create(engine, dialogs, new Shell(), gate, perfTicks, canChange: true, sources: perfSources,
-            registry: perfReg);
+            registry: perfReg, names: perfNames);
         var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, isElevated: false);
 
         // fill the view models (no sync context here, so the commands finish inline or on the pool)
@@ -154,9 +159,8 @@ public sealed class ViewSmokeTests : IDisposable
         privacy.SelectRecommendedCommand.Execute(null);
         update.CheckCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         performance.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
-        // two samples: the second one has CPU differences for the consumer rows
+        // two samples: showing the page primes the baseline, the next tick has CPU differences for the consumer rows
         performance.OnShown();
-        perfTicks.Fire();
         performance.LastSampling?.GetAwaiter().GetResult();
         perfSources.CpuValue = new(100, 50, 50);
         perfSources.Procs = [new(10, "chrome", TimeSpan.FromMilliseconds(500), 200L << 20),
@@ -166,6 +170,7 @@ public sealed class ViewSmokeTests : IDisposable
         performance.OnHidden();
         performance.Settings.First(r => r.CanChange).Chosen = performance.Settings.First(r => r.CanChange).Options
             .First(o => o.Value != performance.Settings.First(r => r.CanChange).Setting.Current).Value;
+        Assert.True(performance.ShowFastStartupNote);
         Assert.True(performance.Settings.Count > 0 && performance.BackgroundApps.Count > 0 && performance.Top.Count == 2
             && performance.PendingCount == 1 && performance.BackgroundHeader == "Hintergrund-Apps (2 erlaubt)");
         // every link button on the page opens an allowed system link

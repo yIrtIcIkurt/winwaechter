@@ -88,6 +88,28 @@ public sealed class AnimationHibernateTests : IDisposable
     }
 
     [Fact]
+    public void Hibernate_enabled_falls_back_to_default_value()
+    {
+        var reg = new FakeRegistry().Seed(Hive.LocalMachine, PowerKey, "HibernateEnabledDefault", 1, RegistryValueKind.DWord);
+        var h = new WinHibernation(reg, new FakeProcessRunner(), @"C:\Win", _root);
+        Assert.True(h.IsEnabled);
+        reg.Seed(Hive.LocalMachine, PowerKey, "HibernateEnabled", 0, RegistryValueKind.DWord);
+        Assert.False(h.IsEnabled); // the real value wins
+    }
+
+    [Fact]
+    public void Powercfg_timeout_gives_german_message()
+    {
+        var runner = new FakeProcessRunner
+        {
+            Handler = (_, _) => Task.FromCanceled<(int, string, string)>(new CancellationToken(true)),
+        };
+        var h = new WinHibernation(new FakeRegistry(), runner, @"C:\Win", _root);
+        var ex = Assert.Throws<InvalidOperationException>(() => h.Set(false));
+        Assert.Equal("powercfg hat nicht rechtzeitig geantwortet.", ex.Message);
+    }
+
+    [Fact]
     public void Hibernation_file_size_reads_hiberfil_or_zero()
     {
         var h = new WinHibernation(new FakeRegistry(), new FakeProcessRunner(), @"C:\Win", _root);

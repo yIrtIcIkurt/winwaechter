@@ -49,6 +49,12 @@ public sealed class AppDisplayNamesTests
         var names = new WinAppDisplayNames(Reg("Contoso.App_1.0_x64__abc123", "ms-resource:N"), _ => null);
         Assert.Equal("Contoso.App", names.Resolve("Contoso.App_abc123"));
         Assert.Equal("Other.App", names.Resolve("Other.App_zzz"));
+        // TryResolve does not guess: an unresolved name is reported as such
+        Assert.False(names.TryResolve("Contoso.App_abc123", out _));
+        Assert.False(names.TryResolve("Other.App_zzz", out _));
+        Assert.True(new WinAppDisplayNames(Reg("Contoso.App_1.0_x64__abc123", "Beispiel"), _ => null)
+            .TryResolve("Contoso.App_abc123", out var found));
+        Assert.Equal("Beispiel", found);
     }
 
     [Fact]

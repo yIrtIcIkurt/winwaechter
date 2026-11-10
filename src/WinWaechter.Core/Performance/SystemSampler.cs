@@ -31,8 +31,9 @@ public static class TopConsumers
     public static IReadOnlyList<Consumer> Compute(
         IReadOnlyList<ProcTime> prev, IReadOnlyList<ProcTime> now, TimeSpan interval, int cores, int take = 5)
     {
-        var before = new Dictionary<int, ProcTime>();
-        foreach (var p in prev) before[p.Pid] = p;
+        // keyed by PID and name: a PID reused by another program gives no (bogus) difference
+        var before = new Dictionary<(int, string), ProcTime>();
+        foreach (var p in prev) before[(p.Pid, p.Name)] = p;
         var capacity = interval.TotalSeconds * Math.Max(cores, 1);
 
         var perProc = new List<(string Name, double? Cpu, long Mem)>();
@@ -40,7 +41,7 @@ public static class TopConsumers
         {
             if (p.Pid == 0 || p.Name.Equals("Idle", StringComparison.OrdinalIgnoreCase)) continue;
             double? cpu = null;
-            if (capacity > 0 && p.Cpu is { } c && before.TryGetValue(p.Pid, out var o) && o.Cpu is { } oc)
+            if (capacity > 0 && p.Cpu is { } c && before.TryGetValue((p.Pid, p.Name), out var o) && o.Cpu is { } oc)
                 cpu = Math.Clamp((c - oc).TotalSeconds / capacity * 100.0, 0, 100);
             perProc.Add((p.Name, cpu, p.WorkingSet));
         }
@@ -169,6 +170,13 @@ public sealed class SystemSampler(ISystemSources src, Action<string, Exception?>
     CpuTimes? _prevCpu;
     IReadOnlyList<ProcTime> _prevProcs = [];
     bool _hasPrev;
+
+    /// <summary>Forgets the previous reading, so the next one does not average over a long pause.</summary>
+    public void Reset()
+    {
+        _prevCpu = null;
+        _prevProcs = [];
+    }
 
     public SystemSample Next(TimeSpan sinceLast)
     {

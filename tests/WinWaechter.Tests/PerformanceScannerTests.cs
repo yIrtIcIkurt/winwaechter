@@ -52,7 +52,7 @@ public sealed class PerformanceScannerTests : IDisposable
         var hib = Row(rows, "hibernate");
         Assert.Equal(1, hib.Current);
         Assert.StartsWith("Gibt 13", hib.Explanation);
-        Assert.EndsWith(" GB frei. Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer.",
+        Assert.EndsWith(" GB frei. Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer. Rückgängig legt die Datei wieder an.",
             hib.Explanation);
         Assert.Equal("Bei leerem Akku sichert Windows Ihre Arbeit sonst über den Ruhezustand.", hib.Hint);
 
@@ -93,6 +93,31 @@ public sealed class PerformanceScannerTests : IDisposable
         Assert.DoesNotContain(Scanner().Scan(), r => r.Id == "hibernate");
         _hib.FileBytes = 1024L * 1024 * 1024;
         Assert.Equal(0, Row(Scanner().Scan(), "hibernate").Current);
+    }
+
+    [Fact]
+    public void Hibernate_without_file_omits_the_size()
+    {
+        _hib.IsEnabled = true; _hib.FileBytes = 0;
+        Assert.Equal("Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer. Rückgängig legt die Datei wieder an.",
+            Row(Scanner().Scan(), "hibernate").Explanation);
+    }
+
+    [Fact]
+    public void Fast_startup_needs_hiberboot_and_hibernation()
+    {
+        const string key = @"SYSTEM\CurrentControlSet\Control\Session Manager\Power";
+        _hib.IsEnabled = true;
+        Assert.False(Scanner().FastStartupActive()); // value missing
+        _reg.Seed(Hive.LocalMachine, key, "HiberbootEnabled", 1, RegistryValueKind.DWord);
+        Assert.True(Scanner().FastStartupActive());
+        _hib.IsEnabled = false;
+        Assert.False(Scanner().FastStartupActive());
+        _hib.IsEnabled = true;
+        _reg.Seed(Hive.LocalMachine, key, "HiberbootEnabled", 0, RegistryValueKind.DWord);
+        Assert.False(Scanner().FastStartupActive());
+        _reg.ThrowingKeys.Add(key);
+        Assert.False(Scanner().FastStartupActive()); // unreadable: no note, no exception
     }
 
     [Fact]
@@ -196,6 +221,23 @@ public sealed class PerformanceScannerTests : IDisposable
         // Allow again: both values go back; block: Disabled and DisabledByUser set.
         Assert.Equal(2, sc.ChangesFor(calc, 1).Count);
         Assert.Equal(2, sc.ChangesFor(Row(rows, "bg:" + b), 0).Count);
+    }
+
+    [Fact]
+    public void Background_list_hides_system_and_unresolved_packages()
+    {
+        const string shown = "Contoso.App_abc123";
+        const string system = "Microsoft.Windows.ShellExperienceHost_cw5n1h2txyewy";
+        const string unresolved = "Fabrikam.Tool_def456";
+        foreach (var app in new[] { shown, system, unresolved })
+            _reg.SeedKey(Hive.CurrentUser, PerfValues.BackgroundRoot + "\\" + app);
+        _names.Names[shown] = "Beispiel";
+        _names.Names[system] = "Windows-Shell"; // resolvable, but a system package
+
+        var rows = Scanner().Scan().Where(r => r.Group == "background").ToList();
+        var row = Assert.Single(rows);
+        Assert.Equal("bg:" + shown, row.Id);
+        Assert.Equal("Beispiel", row.Title);
     }
 
     [Fact]

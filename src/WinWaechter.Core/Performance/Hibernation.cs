@@ -19,7 +19,10 @@ public sealed class WinHibernation(IRegistry reg, IProcessRunner runner, string 
 {
     const string Key = @"SYSTEM\CurrentControlSet\Control\Power";
 
-    public bool IsEnabled => reg.Get(Hive.LocalMachine, Key, "HibernateEnabled") is int i && i == 1;
+    // Without HibernateEnabled Windows uses HibernateEnabledDefault.
+    public bool IsEnabled =>
+        (reg.Get(Hive.LocalMachine, Key, "HibernateEnabled") ?? reg.Get(Hive.LocalMachine, Key, "HibernateEnabledDefault"))
+            is int i && i == 1;
 
     public long FileBytes
     {
@@ -39,8 +42,17 @@ public sealed class WinHibernation(IRegistry reg, IProcessRunner runner, string 
     {
         var exe = Path.Combine(systemRoot, "System32", "powercfg.exe");
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var (exit, _, _) = runner.RunAsync(exe, on ? "/hibernate on" : "/hibernate off", cts.Token)
-            .GetAwaiter().GetResult();
+        int exit;
+        try
+        {
+            (exit, _, _) = runner.RunAsync(exe, on ? "/hibernate on" : "/hibernate off", cts.Token)
+                .GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException ex)
+        {
+            // the only token here is the timeout
+            throw new InvalidOperationException("powercfg hat nicht rechtzeitig geantwortet.", ex);
+        }
         if (exit != 0 || IsEnabled != on)
             throw new InvalidOperationException($"powercfg hat den Ruhezustand nicht geändert (Rückgabewert {exit}).");
     }

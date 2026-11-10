@@ -23,6 +23,11 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     const string BackgroundPrefix = "bg:";
     public const string BackgroundUnavailableId = "bg-unavailable";
 
+    const string HiberbootKey = @"SYSTEM\CurrentControlSet\Control\Session Manager\Power";
+
+    // Publisher id of Windows system and framework packages; they are not offered as background apps.
+    const string SystemPublisherSuffix = "_cw5n1h2txyewy";
+
     const string VisualLink = SystemLinks.VisualEffects;
     const string GpuLink = SystemLinks.AdvancedGraphics;
     const string StorageLink = SystemLinks.StoragePolicies;
@@ -154,8 +159,10 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         var enabled = hib.IsEnabled;
         var bytes = hib.FileBytes;
         if (!enabled && bytes <= 0) yield break;
+        var frees = bytes > 0 ? $"Gibt {SizeText.Format(bytes)} frei. " : "";
         yield return new("hibernate", "storage", "Ruhezustand-Datei",
-            $"Gibt {SizeText.Format(bytes)} frei. Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer.",
+            frees + "Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer. "
+                + "Rückgängig legt die Datei wieder an.",
             OnOff, enabled ? 1 : 0, true, null,
             power.HasBattery ? "Bei leerem Akku sichert Windows Ihre Arbeit sonst über den Ruhezustand." : null,
             null, false, null);
@@ -181,9 +188,13 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
 
     IEnumerable<PerfSetting> ScanBackground()
     {
+        // System/framework packages and apps without a resolvable name are left out: the user would not know them.
         var apps = reg.SubKeyNames(Hive.CurrentUser, PerfValues.BackgroundRoot)
             .Where(PerfValues.IsBackgroundApp)
+            .Where(a => !a.EndsWith(SystemPublisherSuffix, StringComparison.OrdinalIgnoreCase))
             .Select(a => (App: a, Title: SafeName(a)))
+            .Where(a => a.Title is not null)
+            .Select(a => (a.App, Title: a.Title!))
             .OrderBy(a => a.Title, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
         foreach (var (app, title) in apps)
@@ -206,14 +217,34 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         }
     }
 
-    string SafeName(string app)
+    string? SafeName(string app)
     {
         try
         {
-            var n = names.Resolve(app);
-            return string.IsNullOrWhiteSpace(n) ? app : n;
+            return names.TryResolve(app, out var n) && !string.IsNullOrWhiteSpace(n) ? n : null;
         }
-        catch { return app; }
+        catch (Exception ex)
+        {
+            if (_logged.Add("name:" + app)) FileLog.Warn($"Leistung: Anzeigename von „{app}“ nicht lesbar", ex);
+            return null;
+        }
+    }
+
+    // ---- fast startup ----
+
+    /// <summary>True when Windows shuts down with fast startup (HiberbootEnabled = 1 and hibernation on);
+    /// false when that cannot be read.</summary>
+    public bool FastStartupActive()
+    {
+        try
+        {
+            return reg.Get(Hive.LocalMachine, HiberbootKey, "HiberbootEnabled") is int v && v == 1 && hib.IsEnabled;
+        }
+        catch (Exception ex)
+        {
+            if (_logged.Add("faststartup")) FileLog.Warn("Leistung: Schnellstart-Zustand nicht lesbar", ex);
+            return false;
+        }
     }
 
     // ---- changes ----

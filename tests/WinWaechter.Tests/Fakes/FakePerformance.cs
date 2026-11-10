@@ -48,8 +48,9 @@ public sealed class FakeAppDisplayNames : IAppDisplayNames
 {
     public Dictionary<string, string> Names { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public string Resolve(string packageFamilyName) =>
-        Names.TryGetValue(packageFamilyName, out var n) ? n : packageFamilyName.Split('_')[0];
+    /// <summary>Only names put into <see cref="Names"/> resolve; everything else counts as unresolved.</summary>
+    public bool TryResolve(string packageFamilyName, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? name) =>
+        Names.TryGetValue(packageFamilyName, out name);
 }
 
 public sealed class FakeSystemSources : ISystemSources
@@ -99,6 +100,9 @@ public sealed class FakeTicks : WinWaechter.App.ViewModels.ITickSource
 
     /// <summary>Fires one tick like the timer would; does nothing while stopped.</summary>
     public void Fire() { if (Running) _tick?.Invoke(); }
+
+    /// <summary>Fires the last callback even while stopped, like a timer tick already queued when Stop ran.</summary>
+    public void FireEvenIfStopped() => _tick?.Invoke();
 }
 
 /// <summary>A Leistung view model over fakes only, for tests that need one to build the shell.</summary>
@@ -108,17 +112,18 @@ public static class FakePerformanceVm
         WinWaechter.Core.Optimizer.OptimizerEngine engine, WinWaechter.App.Services.IDialogService dialogs,
         WinWaechter.App.Services.ISystemShell shell, WinWaechter.App.Services.ChangeGate gate,
         WinWaechter.App.ViewModels.ITickSource? ticks = null, bool canChange = false, FakeSystemSources? sources = null,
-        Action? openOptimize = null, FakeRegistry? registry = null)
+        Action? openOptimize = null, FakeRegistry? registry = null, FakeAppDisplayNames? names = null)
     {
         var reg = registry ?? new FakeRegistry();
         var broadcast = new FakeBroadcast();
         var scanner = new PerformanceScanner(reg, new FakePowerModes(), new FakeAnimationSetting(), new FakeHibernation(),
-            new FakeAppDisplayNames(), true, broadcast);
+            names ?? new FakeAppDisplayNames(), true, broadcast);
         return new WinWaechter.App.ViewModels.PerformanceViewModel(
             _ => Task.FromResult<(IReadOnlyList<PerfSetting>, Func<PerfSetting, int, IReadOnlyList<WinWaechter.Core.Changes.IChange>>)>(
                 (scanner.Scan(), scanner.ChangesFor)),
             new SystemSampler(sources ?? new FakeSystemSources(), (_, _) => { }),
             () => BootReport.Load(new FakeBootEventSource(), DateTime.UtcNow),
-            engine, dialogs, shell, canChange, gate, openOptimize ?? (() => { }), ticks ?? new FakeTicks());
+            engine, dialogs, shell, canChange, gate, openOptimize ?? (() => { }), ticks ?? new FakeTicks(),
+            scanner.FastStartupActive);
     }
 }

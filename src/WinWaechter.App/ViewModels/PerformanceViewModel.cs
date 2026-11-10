@@ -88,17 +88,19 @@ public sealed partial class PerformanceViewModel : ObservableObject
     readonly ChangeGate _gate;
     readonly Action _openOptimize;
     readonly ITickSource _ticks;
+    readonly Func<bool>? _fastStartup;
 
     Func<PerfSetting, int, IReadOnlyList<IChange>> _changesFor = (_, _) => [];
     volatile bool _visible;
     volatile bool _sampling;
+    bool _primeNext;
     DateTime? _lastSample;
     bool _sampleFailureLogged;
 
     public PerformanceViewModel(
         Func<CancellationToken, Task<(IReadOnlyList<PerfSetting> Settings, Func<PerfSetting, int, IReadOnlyList<IChange>> ChangesFor)>> scan,
         SystemSampler sampler, Func<BootReport> boot, OptimizerEngine engine, IDialogService dialogs, ISystemShell shell,
-        bool canChange, ChangeGate gate, Action openOptimize, ITickSource ticks)
+        bool canChange, ChangeGate gate, Action openOptimize, ITickSource ticks, Func<bool>? fastStartup = null)
     {
         _scan = scan;
         _sampler = sampler;
@@ -110,6 +112,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
         _gate = gate;
         _openOptimize = openOptimize;
         _ticks = ticks;
+        _fastStartup = fastStartup;
         gate.PropertyChanged += (_, _) =>
         {
             ApplyCommand.NotifyCanExecuteChanged();
@@ -160,6 +163,9 @@ public sealed partial class PerformanceViewModel : ObservableObject
 
     public ObservableCollection<string> BootSlowest { get; } = [];
 
+    /// <summary>Only with fast startup the boot measurement misses the usual "Herunterfahren" start.</summary>
+    [ObservableProperty] private bool _showFastStartupNote;
+
     // ---- apply state ----
 
     [ObservableProperty]
@@ -188,7 +194,11 @@ public sealed partial class PerformanceViewModel : ObservableObject
     public void OnShown()
     {
         _visible = true;
+        // The first sample after a pause only sets a fresh baseline, so the next tick (2 s later) shows
+        // a reading over 2 s instead of an average over the hidden time.
+        _primeNext = true;
         _ticks.Start(TickEvery, OnTick);
+        OnTick();
     }
 
     public void OnHidden()
@@ -202,18 +212,25 @@ public sealed partial class PerformanceViewModel : ObservableObject
         // SystemSampler is not thread-safe: never let two samples overlap.
         if (!_visible || _sampling) return;
         _sampling = true;
-        LastSampling = SampleAsync();
+        var prime = _primeNext; // a skipped priming sample is taken by the next tick
+        _primeNext = false;
+        LastSampling = SampleAsync(prime);
     }
 
-    async Task SampleAsync()
+    async Task SampleAsync(bool prime)
     {
         try
         {
             var now = DateTime.UtcNow;
             var since = _lastSample is { } l ? now - l : TickEvery;
             _lastSample = now;
-            var sample = await Task.Run(() => _sampler.Next(since));
-            if (_visible) Show(sample);
+            var sample = await Task.Run(() =>
+            {
+                if (prime) _sampler.Reset();
+                return _sampler.Next(since);
+            });
+            // priming: CPU and disk would be averages over the pause, so they stay "–"
+            if (_visible) Show(prime ? sample with { CpuPercent = null, DiskPercent = null } : sample);
         }
         catch (Exception ex)
         {
@@ -262,7 +279,14 @@ public sealed partial class PerformanceViewModel : ObservableObject
 
     static string Gb(long bytes) => (bytes / (1024.0 * 1024 * 1024)).ToString("F1", De);
 
-    static string Seconds(TimeSpan t) => $"{Math.Round(t.TotalSeconds, MidpointRounding.AwayFromZero).ToString("F0", De)} s";
+    /// <summary>„2,4 s“ below 10 s, otherwise whole seconds („42 s“).</summary>
+    static string Seconds(TimeSpan t)
+    {
+        var tenths = Math.Round(t.TotalSeconds, 1, MidpointRounding.AwayFromZero);
+        return tenths < 10
+            ? $"{tenths.ToString("F1", De)} s"
+            : $"{Math.Round(t.TotalSeconds, MidpointRounding.AwayFromZero).ToString("F0", De)} s";
+    }
 
     // ---- refresh ----
 
@@ -298,6 +322,19 @@ public sealed partial class PerformanceViewModel : ObservableObject
         {
             FileLog.Error("Leistungs-Einstellungen lesen fehlgeschlagen", ex);
             LastSummary = $"Lesen fehlgeschlagen: {ex.Message}";
+        }
+
+        try
+        {
+            ShowFastStartupNote = _fastStartup is { } fast && await Task.Run(fast, ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            FileLog.Warn("Leistung: Schnellstart-Zustand nicht lesbar", ex);
+            ShowFastStartupNote = false;
         }
 
         // Called once per refresh: BootReport.Load logs each failing call.
@@ -360,6 +397,14 @@ public sealed partial class PerformanceViewModel : ObservableObject
         catch (ArgumentException ex)
         {
             LastSummary = ex.Message;
+            return;
+        }
+        catch (InvalidOperationException ex)
+        {
+            // e.g. a registry value with an unexpected type: nothing was changed
+            FileLog.Warn("Leistung: Änderungen nicht bestimmbar", ex);
+            LastSummary = ex.Message;
+            _dialogs.Inform("Zusammenfassung", ex.Message);
             return;
         }
         if (changes.Count == 0) return;

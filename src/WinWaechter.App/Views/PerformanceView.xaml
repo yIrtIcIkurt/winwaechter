@@ -44,6 +44,31 @@
             </Border>
         </DataTemplate>
 
+        <!-- one background app: name and the choice; the explanation stands once above the list -->
+        <DataTemplate x:Key="BackgroundRow" DataType="{x:Type vm:PerfSettingViewModel}">
+            <Border Style="{StaticResource RowDivider}" Padding="16,8,16,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <ContentControl Margin="10,0,0,0" Style="{StaticResource Chip}" Content="{Binding UnavailableText}"
+                                        Visibility="{Binding UnavailableText, Converter={StaticResource Vis}}" />
+                        <ContentControl Margin="10,0,0,0" Style="{StaticResource Chip}" Tag="{x:Static vm:Tone.Calm}" Content="geändert"
+                                        Visibility="{Binding IsChanged, Converter={StaticResource Vis}}" />
+                    </StackPanel>
+                    <ComboBox Grid.Column="2" Margin="16,0,0,0" MinWidth="200" VerticalAlignment="Center"
+                              ItemsSource="{Binding Options}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                              SelectedValue="{Binding Chosen, Mode=TwoWay}" IsEnabled="{Binding CanChange}"
+                              AutomationProperties.Name="{Binding Title, StringFormat={}{0}: im Hintergrund}"
+                              Visibility="{Binding Setting.Available, Converter={StaticResource Vis}}" />
+                </Grid>
+            </Border>
+        </DataTemplate>
+
         <!-- one live readout: label, value in tabular figures, a tick scale filled to the value -->
         <Style x:Key="ReadoutScale" TargetType="ProgressBar" BasedOn="{StaticResource Scale}">
             <Setter Property="Margin" Value="0,10,0,0" />
@@ -189,7 +214,8 @@
                                   Focusable="False" Typography.NumeralAlignment="Tabular" />
                 </StackPanel>
                 <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left"
-                           Text="Gemessen wird nur ein vollständiger Start (Neustart), nicht das Hochfahren nach „Herunterfahren“ mit Schnellstart." />
+                           Text="Gemessen wird nur ein vollständiger Start (Neustart), nicht das Hochfahren nach „Herunterfahren“ mit Schnellstart."
+                           Visibility="{Binding ShowFastStartupNote, Converter={StaticResource Vis}}" />
 
                 <!-- Einstellungen -->
                 <TextBlock Margin="0,36,0,12" Style="{StaticResource Text.Section}" Text="Einstellungen" />
@@ -199,10 +225,15 @@
 
                 <Expander Margin="0,16,0,0" Style="{StaticResource Reasons}" Header="{Binding BackgroundHeader}"
                           Visibility="{Binding BackgroundApps.Count, Converter={StaticResource Vis}}">
-                    <Border Style="{StaticResource SurfaceBox}">
-                        <ItemsControl ItemsSource="{Binding BackgroundApps}" ItemTemplate="{StaticResource PerfRow}" Focusable="False"
-                                      Margin="0,0,0,-1" />
-                    </Border>
+                    <StackPanel>
+                        <TextBlock Margin="0,8,0,10" Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}"
+                                   HorizontalAlignment="Left"
+                                   Text="Erlaubte Store-Apps dürfen im Hintergrund laufen, auch wenn sie nicht geöffnet sind. Bestandteile von Windows sind nicht aufgeführt." />
+                        <Border Style="{StaticResource SurfaceBox}">
+                            <ItemsControl ItemsSource="{Binding BackgroundApps}" ItemTemplate="{StaticResource BackgroundRow}" Focusable="False"
+                                          Margin="0,0,0,-1" />
+                        </Border>
+                    </StackPanel>
                 </Expander>
                 <TextBlock Margin="0,16,0,0" Style="{StaticResource Text.Small}"
                            Text="{Binding BackgroundNote, StringFormat=Hintergrund-Apps: {0}}"

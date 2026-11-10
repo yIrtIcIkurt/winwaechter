@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text;
 using WinWaechter.Core.Logging;
@@ -8,7 +9,8 @@ namespace WinWaechter.Core.Performance;
 /// <summary>Turns a package family name ("Name_publisherid") into the name a user knows.</summary>
 public interface IAppDisplayNames
 {
-    string Resolve(string packageFamilyName);
+    /// <summary>The display name from the package repository; false when it cannot be resolved (no guessing).</summary>
+    bool TryResolve(string packageFamilyName, [NotNullWhen(true)] out string? name);
 }
 
 public sealed class WinAppDisplayNames(IRegistry reg, Func<string, string?>? resolver = null) : IAppDisplayNames
@@ -27,13 +29,17 @@ public sealed class WinAppDisplayNames(IRegistry reg, Func<string, string?>? res
         return i > 0 ? family[..i] : family;
     }
 
-    public string Resolve(string packageFamilyName)
+    /// <summary>The display name, or the family name up to the first "_" when it cannot be resolved.</summary>
+    public string Resolve(string packageFamilyName) =>
+        TryResolve(packageFamilyName, out var name) ? name : Fallback(packageFamilyName);
+
+    public bool TryResolve(string packageFamilyName, [NotNullWhen(true)] out string? name)
     {
-        var fallback = Fallback(packageFamilyName);
+        name = null;
         try
         {
             var us = packageFamilyName.LastIndexOf('_');
-            if (us <= 0 || us == packageFamilyName.Length - 1) return fallback;
+            if (us <= 0 || us == packageFamilyName.Length - 1) return false;
             var namePart = packageFamilyName[..us];
             var publisher = packageFamilyName[(us + 1)..];
 
@@ -44,14 +50,14 @@ public sealed class WinAppDisplayNames(IRegistry reg, Func<string, string?>? res
                 if (reg.Get(Hive.CurrentUser, Packages + "\\" + sub, "DisplayName") is not string raw || raw.Length == 0) continue;
 
                 var text = Expand(raw, sub);
-                if (!string.IsNullOrWhiteSpace(text)) return text;
+                if (!string.IsNullOrWhiteSpace(text)) { name = text; return true; }
             }
         }
         catch (Exception ex)
         {
             FileLog.Warn("Anzeigename einer App nicht lesbar: " + packageFamilyName, ex);
         }
-        return fallback;
+        return false;
     }
 
     // The package list is read once a minute, not once per app; a failure is logged once.
