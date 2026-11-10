@@ -54,7 +54,9 @@ public sealed class SecurityCheck(SecuritySources s, TimeSpan? sourceTimeout = n
 
         var fwProducts = await firewalls.ConfigureAwait(false);
         var states = await firewallRead.ConfigureAwait(false);
-        var firewall = states.Ok
+        // under a third-party takeover the profile states are not needed, so a failed read stays green
+        var takenOver = fwProducts.Any(f => f.Enabled && !f.IsMicrosoft);
+        var firewall = states.Ok || takenOver
             ? SecurityChecks.Firewall(s.Firewall, fwProducts, states.Value)
             : Profiles.Select((p, i) => SecurityChecks.Unavailable(FirewallIds[i], SecurityTitles.Firewall(p), states.Detail)).ToList();
 

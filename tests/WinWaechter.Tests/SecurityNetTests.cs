@@ -162,6 +162,20 @@ public sealed class SecurityNetTests : IDisposable
     }
 
     [Fact]
+    public async Task Failing_firewall_read_under_takeover_stays_green()
+    {
+        var (s, fw, center, _, _, _, _) = Sources();
+        fw.Throw = true;
+        center.Fw.Add(new SecurityProduct("Norton Firewall", true, false));
+
+        var items = await new SecurityCheck(s).RunAsync(CancellationToken.None);
+
+        var rows = items.Take(3).ToList();
+        Assert.All(rows, r => Assert.Equal(Light.Green, r.Light));
+        Assert.All(rows, r => Assert.Equal("Übernommen von Norton Firewall", r.Finding));
+    }
+
+    [Fact]
     public async Task Reboot_key_is_read_by_orchestrator()
     {
         var (s, _, _, _, _, _, _) = Sources();

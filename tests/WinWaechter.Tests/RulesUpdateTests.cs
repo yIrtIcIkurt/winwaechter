@@ -40,6 +40,9 @@ public sealed class RulesUpdateTests : IDisposable
 
     string StoreDir => Path.Combine(_root, "Regeln");
 
+    // Version of the bundled rules; it grows with every rules release, so loader tests count from it.
+    static int B => RuleSet.Default.RulesVersion;
+
     RulesStore Store(Func<string, bool>? trusted = null)
         => new(StoreDir, PubPem, trusted ?? (_ => true), _ => { });
 
@@ -75,7 +78,7 @@ public sealed class RulesUpdateTests : IDisposable
     [Fact]
     public void RuleSet_reads_version_and_min_app()
     {
-        Assert.Equal(1, RuleSet.Default.RulesVersion);
+        Assert.True(RuleSet.Default.RulesVersion >= 1);
         Assert.Equal("0.3.0", RuleSet.Default.MinAppVersion);
         var bare = RuleSet.Parse(Rules(""));
         Assert.Equal(0, bare.RulesVersion);
@@ -176,24 +179,25 @@ public sealed class RulesUpdateTests : IDisposable
     public void Load_prefers_higher_valid_cached_version_and_unions()
     {
         var store = Store();
-        var v2 = Versioned(2, protectedJson: "[{\"name\":\"Foo Remote\"}]");
-        Assert.Equal(RulesAcceptance.Accepted, store.TryAccept(v2, Sign(v2), 1, V030));
+        var newer = Versioned(B + 1, protectedJson: "[{\"name\":\"Foo Remote\"}]");
+        Assert.Equal(RulesAcceptance.Accepted, store.TryAccept(newer, Sign(newer), B, V030));
 
         var (rules, info) = RulesLoader.Load(RuleSet.Default, store, V030);
-        Assert.Equal(2, info.Version);
+        Assert.Equal(B + 1, info.Version);
         Assert.True(info.FromUpdate);
         Assert.NotNull(info.StoredAtUtc);
         Assert.Equal(RuleVerdict.Protected, rules.Classify(new ItemFacts("Foo Remote", null, null, null)));
         Assert.Equal(RuleVerdict.Protected, rules.Classify(new ItemFacts("Dell Update", null, null, null)));
-        Assert.StartsWith("Regeln: Version 2 vom ", info.DisplayText);
+        Assert.StartsWith($"Regeln: Version {B + 1} vom ", info.DisplayText);
 
+        // a cached copy of the bundled version (or older) is not used
         Directory.Delete(StoreDir, true);
-        var v1 = Versioned(1, protectedJson: "[{\"name\":\"Foo Remote\"}]");
-        Assert.Equal(RulesAcceptance.Accepted, Store().TryAccept(v1, Sign(v1), 0, V030));
+        var same = Versioned(B, protectedJson: "[{\"name\":\"Foo Remote\"}]");
+        Assert.Equal(RulesAcceptance.Accepted, Store().TryAccept(same, Sign(same), 0, V030));
         (rules, info) = RulesLoader.Load(RuleSet.Default, Store(), V030);
         Assert.Same(RuleSet.Default, rules);
         Assert.False(info.FromUpdate);
-        Assert.Equal("Regeln: Version 1 (mitgeliefert)", info.DisplayText);
+        Assert.Equal($"Regeln: Version {B} (mitgeliefert)", info.DisplayText);
     }
 
     [Fact]
@@ -201,18 +205,18 @@ public sealed class RulesUpdateTests : IDisposable
     {
         var jsonPath = Path.Combine(StoreDir, RulesStore.JsonName);
         var sigPath = Path.Combine(StoreDir, RulesStore.SigName);
-        var v2 = Versioned(2, protectedJson: "[{\"name\":\"Foo Remote\"}]");
+        var v2 = Versioned(B + 1, protectedJson: "[{\"name\":\"Foo Remote\"}]");
 
         void AssertBundled(RulesStore s)
         {
             var (rules, info) = RulesLoader.Load(RuleSet.Default, s, V030);
             Assert.Same(RuleSet.Default, rules);
             Assert.False(info.FromUpdate);
-            Assert.Equal(1, info.Version);
+            Assert.Equal(B, info.Version);
         }
 
         // edited after accept
-        Assert.Equal(RulesAcceptance.Accepted, Store().TryAccept(v2, Sign(v2), 1, V030));
+        Assert.Equal(RulesAcceptance.Accepted, Store().TryAccept(v2, Sign(v2), B, V030));
         var text = File.ReadAllText(jsonPath).Replace("Foo Remote", "Foo Remotf");
         File.WriteAllText(jsonPath, text);
         AssertBundled(Store());
@@ -242,7 +246,7 @@ public sealed class RulesUpdateTests : IDisposable
     [Fact]
     public void Load_rejects_cache_needing_newer_app()
     {
-        var v2 = Versioned(2, "9.0.0");
+        var v2 = Versioned(B + 1, "9.0.0");
         WriteCache(v2, Sign(v2));
         var (rules, info) = RulesLoader.Load(RuleSet.Default, Store(), V030);
         Assert.Same(RuleSet.Default, rules);

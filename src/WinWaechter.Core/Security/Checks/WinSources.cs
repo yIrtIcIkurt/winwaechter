@@ -42,11 +42,15 @@ public sealed class WmiSecurityCenter : ISecurityCenter
         var list = new List<SecurityProduct>();
         using var s = new ManagementObjectSearcher(@"root\SecurityCenter2", $"SELECT displayName, productState FROM {cls}",
             new System.Management.EnumerationOptions { Timeout = TimeSpan.FromSeconds(10) });
-        foreach (var o in s.Get().Cast<ManagementBaseObject>())
+        using var results = s.Get();
+        foreach (var o in results.Cast<ManagementBaseObject>())
         {
-            var name = o["displayName"] as string ?? "";
-            var state = Convert.ToUInt32(o["productState"]);
-            list.Add(new SecurityProduct(name, ((state >> 12) & 0xF) == 1, IsMicrosoftName(name)));
+            using (o)
+            {
+                var name = o["displayName"] as string ?? "";
+                var state = Convert.ToUInt32(o["productState"]);
+                list.Add(new SecurityProduct(name, ((state >> 12) & 0xF) == 1, IsMicrosoftName(name)));
+            }
         }
         return list;
     }
@@ -59,10 +63,13 @@ public sealed class WmiVolumeEncryption : IVolumeEncryption
         try
         {
             var drive = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.System))!.TrimEnd('\\');
+            // DeviceID is the key property: without it the result has no object path and
+            // InvokeMethod fails with "Operation is not valid due to the current state of the object".
             using var s = new ManagementObjectSearcher(@"root\CIMV2\Security\MicrosoftVolumeEncryption",
-                $"SELECT DriveLetter, ProtectionStatus FROM Win32_EncryptableVolume WHERE DriveLetter = '{drive}'",
+                $"SELECT DeviceID, DriveLetter, ProtectionStatus FROM Win32_EncryptableVolume WHERE DriveLetter = '{drive}'",
                 new System.Management.EnumerationOptions { Timeout = TimeSpan.FromSeconds(10) });
-            using var vol = s.Get().Cast<ManagementObject>().FirstOrDefault();
+            using var results = s.Get();
+            using var vol = results.Cast<ManagementObject>().FirstOrDefault();
             if (vol is null) return null;
             var protection = Convert.ToInt32(vol["ProtectionStatus"]);
             var conversion = 0;
