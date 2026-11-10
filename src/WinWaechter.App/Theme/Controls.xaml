@@ -44,6 +44,11 @@
         <Setter Property="Foreground" Value="{DynamicResource Ink}" />
         <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
+    <!-- readout that holds a phrase instead of a number -->
+    <Style x:Key="Text.ReadoutText" TargetType="TextBlock" BasedOn="{StaticResource Text.Readout}">
+        <Setter Property="FontSize" Value="{StaticResource SizeReadoutText}" />
+        <Setter Property="Padding" Value="0,4,0,2" />
+    </Style>
     <Style x:Key="Text.Label" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{StaticResource SizeSmall}" />
         <Setter Property="Foreground" Value="{DynamicResource InkMuted}" />

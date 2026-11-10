@@ -11,6 +11,7 @@
     <sys:Double x:Key="SizeStatement">34</sys:Double>
     <sys:Double x:Key="SizePageTitle">26</sys:Double>
     <sys:Double x:Key="SizeReadout">28</sys:Double>
+    <sys:Double x:Key="SizeReadoutText">22</sys:Double>
     <sys:Double x:Key="SizeSection">17</sys:Double>
     <sys:Double x:Key="SizeLead">15.5</sys:Double>
     <sys:Double x:Key="SizeBody">14</sys:Double>

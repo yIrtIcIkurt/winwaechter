@@ -208,6 +208,12 @@ public sealed class SecurityViewModelTests : IDisposable
 
         var childRow = vm.Items[0].Children[0];
         Assert.True(vm.RunActionCommand.CanExecute(childRow));
+
+        _dialogs.Answer = false;
+        await vm.RunActionCommand.ExecuteAsync(childRow);
+        Assert.Empty(_defender.ScannedPaths);
+
+        _dialogs.Answer = true;
         await vm.RunActionCommand.ExecuteAsync(childRow);
 
         Assert.Equal([path], _defender.ScannedPaths);

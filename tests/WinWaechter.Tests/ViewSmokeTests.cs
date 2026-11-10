@@ -153,7 +153,9 @@ public sealed class ViewSmokeTests : IDisposable
             AssertFreeReadoutRightOfSuggestions(overview);
             Layout(new OptimizeView { DataContext = optimize });
             Layout(new ProtectView { DataContext = protect });
-            Layout(new SecurityView { DataContext = security });
+            var securityView = new SecurityView { DataContext = security };
+            Layout(securityView);
+            AssertLightsDiffer(securityView, theme);
             Layout(new PrivacyView { DataContext = privacy });
             Layout(new ProgramsView { DataContext = programs });
             Layout(new MessageDialog("Deinstallation", "Ist die Deinstallation abgeschlossen?", null, "Ja", false, "Noch nicht").Content
@@ -215,6 +217,26 @@ public sealed class ViewSmokeTests : IDisposable
         Assert.True(vm.Items.Count == 2 && vm.Pending == tool && vm.ShowLeftovers && vm.Leftovers.Count == 2
             && vm.Items.Single(i => i.Name == "Spiel-Tool").CanForceRemove);
         return vm;
+    }
+
+    // the dot colours must come from the tone triggers: a red row and a green row differ, and neither is the grey default
+    static void AssertLightsDiffer(FrameworkElement view, string theme)
+    {
+        var dots = FindAll<System.Windows.Shapes.Ellipse>(view).Where(e => e.Width == 10).ToList();
+        System.Windows.Media.Brush Fill(string title)
+        {
+            var row = FindAll<TextBlock>(view).First(t => t.Text == title);
+            var grid = (DependencyObject)row;
+            while (grid is not Grid) grid = System.Windows.Media.VisualTreeHelper.GetParent(grid);
+            return FindAll<System.Windows.Shapes.Ellipse>(grid).First().Fill;
+        }
+        Assert.NotEmpty(dots);
+        var red = (System.Windows.Media.SolidColorBrush)Fill("Firewall (Öffentlich)");
+        var green = (System.Windows.Media.SolidColorBrush)Fill("Benutzerkontensteuerung");
+        var grey = (System.Windows.Media.SolidColorBrush)Fill("Geräteverschlüsselung");
+        Assert.NotEqual(red.Color, green.Color);
+        Assert.NotEqual(red.Color, grey.Color);
+        Assert.NotEqual(green.Color, grey.Color);
     }
 
     // "Wird frei" must sit in its own column right of "Offene Vorschläge", not on top of it

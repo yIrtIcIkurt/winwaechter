@@ -63,7 +63,7 @@
 
                 <StackPanel Grid.Column="4" Margin="20,0,16,0">
                     <TextBlock Style="{StaticResource Text.Label}" Text="Letzter Defender-Scan" />
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" FontSize="22" Padding="0,4,0,2"
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.ReadoutText}"
                                Text="{Binding Protect.LastScanText}" />
                 </StackPanel>
                 <Rectangle Grid.Column="5" Width="1" Fill="{DynamicResource Line}" />
@@ -78,7 +78,7 @@
                     <TextBlock Style="{StaticResource Text.Label}" Text="Sicherheit" />
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                         <Control Style="{StaticResource ToneMark}" Tag="{Binding SecurityTone}" Margin="0,4,10,0" />
-                        <TextBlock Style="{StaticResource Text.Readout}" FontSize="22" Padding="0,4,0,2" TextWrapping="Wrap"
+                        <TextBlock Style="{StaticResource Text.ReadoutText}" TextWrapping="Wrap"
                                    Text="{Binding SecurityText}" />
                     </StackPanel>
                 </StackPanel>

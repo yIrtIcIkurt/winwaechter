@@ -12,7 +12,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Ellipse Width="10" Height="10" Margin="0,6,14,0" VerticalAlignment="Top" Fill="{DynamicResource InkMuted}">
+                    <Ellipse Width="10" Height="10" Margin="0,6,14,0" VerticalAlignment="Top">
                         <Ellipse.Style>
                             <Style TargetType="Ellipse">
                                 <Setter Property="Fill" Value="{DynamicResource InkMuted}" />
