@@ -20,6 +20,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     const string Unreadable = "Nicht lesbar";
     const string CustomLabel = "Benutzerdefiniert";
     const string BackgroundPrefix = "bg:";
+    public const string BackgroundUnavailableId = "bg-unavailable";
 
     const string VisualLink = "ms-settings:easeofaccess-visualeffects";
     const string GpuLink = "ms-settings:display-advancedgraphics";
@@ -38,19 +39,26 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     public IReadOnlyList<PerfSetting> Scan()
     {
         var rows = new List<PerfSetting>();
-        Source(rows, "power", ScanPower, () => Broken("power-ac", "power", "Energiemodus (Netzbetrieb)", PowerBase));
-        Source(rows, "transparency", () => [ScanTransparency()], () => Broken("transparency", "visual", "Transparenzeffekte", OnOff));
-        Source(rows, "animation", () => [ScanAnimation()], () => Broken("animation", "visual", "Animationseffekte", OnOff));
-        Source(rows, "gamemode", () => [ScanGameMode()], () => Broken("gamemode", "gaming", "Spielmodus", OnOff));
-        Source(rows, "gpu", () => [ScanGpu()], () => Broken("gpu", "gaming", "Hardwarebeschleunigte GPU-Planung", GpuOptions));
-        Source(rows, "hibernate", ScanHibernate, () => Broken("hibernate", "storage", "Ruhezustand-Datei", OnOff));
-        Source(rows, "storagesense", ScanStorageSense, () => Broken("storagesense", "storage", "Speicheroptimierung", OnOff));
-        Source(rows, "background", ScanBackground, () => Broken("background", "background", "Hintergrund-Apps", OnOff));
+        Source(rows, "power", ScanPower, BrokenPower);
+        Source(rows, "transparency", () => [ScanTransparency()], () => [Broken("transparency", "visual", "Transparenzeffekte", OnOff)]);
+        Source(rows, "animation", () => [ScanAnimation()], () => [Broken("animation", "visual", "Animationseffekte", OnOff)]);
+        Source(rows, "gamemode", () => [ScanGameMode()], () => [Broken("gamemode", "gaming", "Spielmodus", OnOff)]);
+        Source(rows, "gpu", () => [ScanGpu()], () => [Broken("gpu", "gaming", "Hardwarebeschleunigte GPU-Planung", GpuOptions)]);
+        Source(rows, "hibernate", ScanHibernate, () => [Broken("hibernate", "storage", "Ruhezustand-Datei", OnOff)]);
+        Source(rows, "storagesense", ScanStorageSense, () =>
+        [
+            Broken("storagesense", "storage", "Speicheroptimierung", OnOff),
+            Broken("storagesense-frequency", "storage", "Speicheroptimierung: Häufigkeit", Frequencies),
+        ]);
+        // When the app list itself cannot be read there are no app rows. This single row has no options and is
+        // not an app: the view should render it as a note ("Nicht lesbar"), not as a checkbox.
+        Source(rows, "background", ScanBackground, () =>
+            [new PerfSetting(BackgroundUnavailableId, "background", "Hintergrund-Apps", "", [], 0, false, Unreadable, null, null, false, null)]);
         return rows;
     }
 
     // One failing source greys out only its own rows and is logged once.
-    void Source(List<PerfSetting> rows, string name, Func<IEnumerable<PerfSetting>> read, Func<PerfSetting> broken)
+    void Source(List<PerfSetting> rows, string name, Func<IEnumerable<PerfSetting>> read, Func<IEnumerable<PerfSetting>> broken)
     {
         try
         {
@@ -59,8 +67,16 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         catch (Exception ex)
         {
             if (_logged.Add(name)) FileLog.Warn($"Leistung: Quelle „{name}“ nicht lesbar", ex);
-            rows.Add(broken());
+            rows.AddRange(broken());
         }
+    }
+
+    IEnumerable<PerfSetting> BrokenPower()
+    {
+        yield return Broken("power-ac", "power", "Energiemodus (Netzbetrieb)", PowerBase);
+        bool battery;
+        try { battery = power.HasBattery; } catch { battery = true; }
+        if (battery) yield return Broken("power-dc", "power", "Energiemodus (Akkubetrieb)", PowerBase);
     }
 
     static PerfSetting Broken(string id, string group, string title, IReadOnlyList<PerfOption> options) =>
@@ -106,7 +122,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
 
     PerfSetting ScanAnimation() => new("animation", "visual", "Animationseffekte",
         "Bewegte Übergänge beim Öffnen, Schließen und Wechseln von Fenstern.",
-        OnOff, anim.Get() ? 1 : 0, animationOwnAccount,
+        OnOff, animationOwnAccount && anim.Get() ? 1 : 0, animationOwnAccount, // not read for another account
         animationOwnAccount ? null : "Nur im eigenen Benutzerkonto änderbar", null, null, false, VisualLink);
 
     // ---- gaming ----
@@ -200,9 +216,9 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     /// <summary>The changes that bring the setting from its current value to the chosen one; empty when nothing differs.</summary>
     public IReadOnlyList<IChange> ChangesFor(PerfSetting s, int chosen)
     {
+        if (!s.Available || chosen == s.Current) return [];
         if (chosen == -1)
             throw new ArgumentException("„Benutzerdefiniert“ kann nicht gewählt werden.", nameof(chosen));
-        if (!s.Available || chosen == s.Current) return [];
         if (s.Options.All(o => o.Value != chosen))
             throw new ArgumentException($"Der Wert {chosen} gehört nicht zu „{s.Title}“.", nameof(chosen));
 

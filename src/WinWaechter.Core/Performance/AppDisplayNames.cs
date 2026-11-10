@@ -11,8 +11,14 @@ public interface IAppDisplayNames
     string Resolve(string packageFamilyName);
 }
 
-public sealed class WinAppDisplayNames(IRegistry reg) : IAppDisplayNames
+public sealed class WinAppDisplayNames(IRegistry reg, Func<string, string?>? resolver = null) : IAppDisplayNames
 {
+    static readonly TimeSpan CacheAge = TimeSpan.FromSeconds(60);
+    readonly Func<string, string?> _load = resolver ?? Load;
+    IReadOnlyList<string>? _packages;
+    DateTime _packagesAt;
+    bool _enumLogged;
+
     const string Packages = @"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages";
 
     static string Fallback(string family)
@@ -31,7 +37,7 @@ public sealed class WinAppDisplayNames(IRegistry reg) : IAppDisplayNames
             var namePart = packageFamilyName[..us];
             var publisher = packageFamilyName[(us + 1)..];
 
-            foreach (var sub in reg.SubKeyNames(Hive.CurrentUser, Packages))
+            foreach (var sub in PackageNames())
             {
                 if (!sub.StartsWith(namePart + "_", StringComparison.OrdinalIgnoreCase)
                     || !sub.EndsWith("_" + publisher, StringComparison.OrdinalIgnoreCase)) continue;
@@ -48,10 +54,34 @@ public sealed class WinAppDisplayNames(IRegistry reg) : IAppDisplayNames
         return fallback;
     }
 
-    static string? Expand(string raw, string fullName)
+    // The package list is read once a minute, not once per app; a failure is logged once.
+    IReadOnlyList<string> PackageNames()
     {
-        if (raw.StartsWith("@{", StringComparison.Ordinal)) return Load(raw);
-        if (raw.StartsWith("ms-resource:", StringComparison.OrdinalIgnoreCase)) return Load($"@{{{fullName}? {raw}}}");
+        if (_packages is not null && DateTime.UtcNow - _packagesAt < CacheAge) return _packages;
+        try
+        {
+            _packages = reg.SubKeyNames(Hive.CurrentUser, Packages);
+        }
+        catch (Exception ex)
+        {
+            if (!_enumLogged) { _enumLogged = true; FileLog.Warn("App-Paketliste nicht lesbar", ex); }
+            _packages = [];
+        }
+        _packagesAt = DateTime.UtcNow;
+        return _packages;
+    }
+
+    string? Expand(string raw, string fullName)
+    {
+        if (raw.StartsWith("@{", StringComparison.Ordinal)) return _load(raw);
+        if (raw.StartsWith("ms-resource://", StringComparison.OrdinalIgnoreCase)) return _load($"@{{{fullName}?{raw}}}");
+        if (raw.StartsWith("ms-resource:", StringComparison.OrdinalIgnoreCase))
+        {
+            var key = raw["ms-resource:".Length..].TrimStart('/');
+            var us = fullName.IndexOf('_');
+            var packageName = us > 0 ? fullName[..us] : fullName;
+            return _load($"@{{{fullName}?ms-resource://{packageName}/resources/{key}}}");
+        }
         return raw;
     }
 

@@ -168,8 +168,9 @@ public sealed class PerformanceScannerTests : IDisposable
         var ac = Row(sc.Scan(), "power-ac");
         Assert.Equal(-1, ac.Current);
         Assert.Contains(ac.Options, o => o.Value == -1 && o.Label == "Benutzerdefiniert");
-        Assert.Throws<ArgumentException>(() => sc.ChangesFor(ac, -1));
+        Assert.Empty(sc.ChangesFor(ac, -1)); // unchanged selection
         Assert.Throws<ArgumentException>(() => sc.ChangesFor(ac, 7));
+        Assert.Throws<ArgumentException>(() => sc.ChangesFor(ac with { Current = 1 }, -1));
         Assert.Single(sc.ChangesFor(ac, 1));
     }
 
@@ -213,6 +214,57 @@ public sealed class PerformanceScannerTests : IDisposable
         Assert.Empty(sc.ChangesFor(bad, 0));
         // A second scan must not throw either.
         Assert.False(Row(sc.Scan(), "gamemode").Available);
+    }
+
+    [Fact]
+    public void Failed_power_and_storage_sources_grey_all_their_rows()
+    {
+        var p = PerfValues.StorageSenseOn;
+        Dword(_reg, p, 1);
+        _reg.ThrowingKeys.Add(p.Key);
+        var rows = Scanner().Scan();
+        foreach (var id in new[] { "storagesense", "storagesense-frequency" })
+        {
+            Assert.False(Row(rows, id).Available);
+            Assert.Equal("Nicht lesbar", Row(rows, id).UnavailableText);
+        }
+
+        var r2 = new PerformanceScanner(_reg, new ThrowingPower(), _anim, _hib, _names, true, _broadcast).Scan();
+        Assert.False(Row(r2, "power-ac").Available);
+        Assert.False(Row(r2, "power-dc").Available);
+    }
+
+    sealed class ThrowingPower : IPowerModes
+    {
+        public bool HasBattery => throw new InvalidOperationException("x");
+        public PowerSource Current => PowerSource.Ac;
+        public Guid? Get(PowerSource s) => throw new InvalidOperationException("x");
+        public void Set(PowerSource s, Guid g) { }
+    }
+
+    [Fact]
+    public void Unreadable_background_list_gives_note_row_without_options()
+    {
+        _reg.ThrowingKeys.Add(PerfValues.BackgroundRoot);
+        var row = Row(Scanner().Scan(), PerformanceScanner.BackgroundUnavailableId);
+        Assert.Equal("background", row.Group);
+        Assert.Empty(row.Options);
+        Assert.False(row.Available);
+    }
+
+    [Fact]
+    public void Animation_not_own_account_is_not_read()
+    {
+        var sc = new PerformanceScanner(_reg, _power, new ThrowingAnim(), _hib, _names, false, _broadcast);
+        var a = Row(sc.Scan(), "animation");
+        Assert.False(a.Available);
+        Assert.Equal("Nur im eigenen Benutzerkonto änderbar", a.UnavailableText);
+    }
+
+    sealed class ThrowingAnim : IAnimationSetting
+    {
+        public bool Get() => throw new InvalidOperationException("x");
+        public void Set(bool on) { }
     }
 
     [Fact]
