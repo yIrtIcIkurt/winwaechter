@@ -48,24 +48,8 @@ public sealed class RegValueChange : IChange
 
     public ChangeRecord Apply(SessionContext ctx)
     {
-        var kind = _reg.GetKind(_value.Hive, _value.Key, _value.Name);
-        if (kind is not null && kind is not (RegistryValueKind.DWord or RegistryValueKind.QWord
-            or RegistryValueKind.String or RegistryValueKind.ExpandString))
-            throw new InvalidOperationException(
-                $"Der Wert „{_value.Name}“ hat einen unerwarteten Typ ({kind}) und wird nicht verändert.");
-
-        var old = kind is null ? null : _reg.Get(_value.Hive, _value.Key, _value.Name);
-        var before = new Dictionary<string, string?>
-        {
-            ["hive"] = HiveName(_value.Hive),
-            ["key"] = _value.Key,
-            ["name"] = _value.Name,
-            ["existed"] = kind is null ? "false" : "true",
-            ["value"] = old is null ? null : Convert.ToString(old, CultureInfo.InvariantCulture),
-            ["kind"] = kind?.ToString(),
-        };
-
-        _reg.Set(_value.Hive, _value.Key, _value.Name, _value.Target, RegistryValueKind.DWord);
+        var before = RegDword.Snapshot(_reg, _value.Hive, _value.Key, _value.Name);
+        RegDword.Write(_reg, _value.Hive, _value.Key, _value.Name, _value.Target);
 
         var after = new Dictionary<string, string?>
         {
@@ -76,36 +60,11 @@ public sealed class RegValueChange : IChange
             before, after, ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
-    public void Undo(ChangeRecord record, SessionContext ctx)
-    {
-        if (record.Before.GetValueOrDefault("existed") != "true")
-        {
-            _reg.Delete(_value.Hive, _value.Key, _value.Name);
-            return;
-        }
-        var text = record.Before.GetValueOrDefault("value") ?? "";
-        var kind = Enum.Parse<RegistryValueKind>(record.Before.GetValueOrDefault("kind") ?? "");
-        switch (kind)
-        {
-            case RegistryValueKind.DWord:
-                _reg.Set(_value.Hive, _value.Key, _value.Name, int.Parse(text, CultureInfo.InvariantCulture), kind);
-                break;
-            case RegistryValueKind.QWord:
-                _reg.Set(_value.Hive, _value.Key, _value.Name, long.Parse(text, CultureInfo.InvariantCulture), kind);
-                break;
-            case RegistryValueKind.String or RegistryValueKind.ExpandString:
-                _reg.Set(_value.Hive, _value.Key, _value.Name, text, kind);
-                break;
-            default:
-                throw new InvalidOperationException($"Typ {kind} kann nicht wiederhergestellt werden.");
-        }
-    }
+    public void Undo(ChangeRecord record, SessionContext ctx) =>
+        RegDword.Restore(_reg, _value.Hive, _value.Key, _value.Name, record.Before);
 
     public DriftState CheckDrift(ChangeRecord record) =>
-        _reg.GetKind(_value.Hive, _value.Key, _value.Name) == RegistryValueKind.DWord
-        && _reg.Get(_value.Hive, _value.Key, _value.Name) is { } v
-        && Convert.ToInt32(v, CultureInfo.InvariantCulture) == _value.Target
-            ? DriftState.Unchanged : DriftState.Changed;
+        RegDword.Drift(_reg, _value.Hive, _value.Key, _value.Name, _value.Target);
 
-    static string HiveName(Hive h) => h == Hive.CurrentUser ? "HKCU" : "HKLM";
+    static string HiveName(Hive h) => RegDword.HiveName(h);
 }
