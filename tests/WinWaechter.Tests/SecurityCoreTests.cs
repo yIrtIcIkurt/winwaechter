@@ -73,6 +73,44 @@ public sealed class SecurityCoreTests : IDisposable
         Assert.Equal(Light.Red, ms.Single(i => i.Id == SecurityIds.FirewallPrivate).Light);
     }
 
+    [Theory]
+    [InlineData("Windows Firewall")]
+    [InlineData("windows firewall")]
+    [InlineData("Windows Defender Firewall")]
+    [InlineData("Microsoft Defender Firewall")]
+    [InlineData("Windows Defender")]
+    [InlineData("Microsoft Defender Antivirus")]
+    public void Microsoft_product_names_are_recognised(string name) =>
+        Assert.True(WmiSecurityCenter.IsMicrosoftName(name));
+
+    [Fact]
+    public void Contoso_is_not_microsoft_and_windows_firewall_is_no_takeover()
+    {
+        Assert.False(WmiSecurityCenter.IsMicrosoftName("Contoso Firewall"));
+        var fw = new FakeFirewall();
+        fw.State[FirewallProfile.Public] = false;
+        var items = SecurityChecks.Firewall(fw, [new("Windows Firewall", true, WmiSecurityCenter.IsMicrosoftName("Windows Firewall"))]);
+        var pub = items.Single(i => i.Id == SecurityIds.FirewallPublic);
+        Assert.Equal(Light.Red, pub.Light);
+        Assert.NotNull(pub.Change);
+    }
+
+    [Fact]
+    public void FirewallChange_refuses_invalid_enabled_value_and_never_turns_firewall_off()
+    {
+        var fw = new FakeFirewall();
+        foreach (var bad in new string?[] { null, "", "garbage", "TRUE", "1" })
+        {
+            var before = new Dictionary<string, string?> { ["profile"] = "2" };
+            if (bad is not null) before["enabled"] = bad;
+            var rec = new ChangeRecord("id", "firewall", "t", "d", before, new() { ["enabled"] = "true" }, ChangeStatus.Applied, DateTimeOffset.Now);
+            Assert.Throws<InvalidOperationException>(() => FirewallChange.FromRecord(rec, fw));
+            Assert.Throws<InvalidOperationException>(() => new FirewallChange(fw, FirewallProfile.Private).Undo(rec, Ctx()));
+        }
+        Assert.Empty(fw.SetCalls);
+        Assert.True(fw.State[FirewallProfile.Private]);
+    }
+
     [Fact]
     public void FirewallChange_apply_undo_and_drift()
     {
@@ -279,10 +317,14 @@ public sealed class SecurityCoreTests : IDisposable
     [Fact]
     public void Real_sources_smoke_read_only()
     {
-        try { _ = new WmiSecurityCenter().AntiVirus(); } catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or COMException) { }
-        try { _ = new WmiVolumeEncryption().SystemDrive(); } catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or COMException) { }
+        static void Tolerant(Action a)
+        {
+            var e = Record.Exception(a);
+            Assert.True(e is null or ManagementException or UnauthorizedAccessException or COMException, e?.ToString());
+        }
+        Tolerant(() => new WmiSecurityCenter().AntiVirus());
+        Tolerant(() => new WmiVolumeEncryption().SystemDrive());
         // Read only: never calls SetEnabled.
-        var on = new FwPolicy2Firewall().IsEnabled(FirewallProfile.Private);
-        Assert.True(on || !on);
+        Assert.Null(Record.Exception(() => new FwPolicy2Firewall().IsEnabled(FirewallProfile.Private)));
     }
 }

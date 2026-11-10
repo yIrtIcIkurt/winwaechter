@@ -1,5 +1,6 @@
 using System.Management;
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace WinWaechter.Core.Security.Checks;
 
@@ -13,32 +14,39 @@ public sealed class FwPolicy2Firewall : IFirewall
     public bool IsEnabled(FirewallProfile p)
     {
         var pol = Policy();
-        return Convert.ToBoolean(pol.GetType().InvokeMember("FirewallEnabled", BindingFlags.GetProperty, null, pol, [(int)p]));
+        try { return Convert.ToBoolean(pol.GetType().InvokeMember("FirewallEnabled", BindingFlags.GetProperty, null, pol, [(int)p])); }
+        finally { Marshal.ReleaseComObject(pol); }
     }
 
     public void SetEnabled(FirewallProfile p, bool on)
     {
         var pol = Policy();
-        pol.GetType().InvokeMember("FirewallEnabled", BindingFlags.SetProperty, null, pol, [(int)p, on]);
+        try { pol.GetType().InvokeMember("FirewallEnabled", BindingFlags.SetProperty, null, pol, [(int)p, on]); }
+        finally { Marshal.ReleaseComObject(pol); }
     }
 }
 
 public sealed class WmiSecurityCenter : ISecurityCenter
 {
+    static readonly string[] MicrosoftPrefixes =
+        ["Windows Defender", "Microsoft Defender", "Windows Firewall", "Windows Defender Firewall", "Microsoft Defender Firewall"];
+
+    public static bool IsMicrosoftName(string name) =>
+        MicrosoftPrefixes.Any(p => name.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+
     public IReadOnlyList<SecurityProduct> AntiVirus() => Read("AntiVirusProduct");
     public IReadOnlyList<SecurityProduct> Firewalls() => Read("FirewallProduct");
 
     static List<SecurityProduct> Read(string cls)
     {
         var list = new List<SecurityProduct>();
-        using var s = new ManagementObjectSearcher(@"root\SecurityCenter2", $"SELECT displayName, productState FROM {cls}");
+        using var s = new ManagementObjectSearcher(@"root\SecurityCenter2", $"SELECT displayName, productState FROM {cls}",
+            new System.Management.EnumerationOptions { Timeout = TimeSpan.FromSeconds(10) });
         foreach (var o in s.Get().Cast<ManagementBaseObject>())
         {
             var name = o["displayName"] as string ?? "";
             var state = Convert.ToUInt32(o["productState"]);
-            list.Add(new SecurityProduct(name, ((state >> 12) & 0xF) == 1,
-                name.StartsWith("Windows Defender", StringComparison.OrdinalIgnoreCase)
-                || name.StartsWith("Microsoft Defender", StringComparison.OrdinalIgnoreCase)));
+            list.Add(new SecurityProduct(name, ((state >> 12) & 0xF) == 1, IsMicrosoftName(name)));
         }
         return list;
     }
@@ -52,8 +60,9 @@ public sealed class WmiVolumeEncryption : IVolumeEncryption
         {
             var drive = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.System))!.TrimEnd('\\');
             using var s = new ManagementObjectSearcher(@"root\CIMV2\Security\MicrosoftVolumeEncryption",
-                $"SELECT DriveLetter, ProtectionStatus FROM Win32_EncryptableVolume WHERE DriveLetter = '{drive}'");
-            var vol = s.Get().Cast<ManagementObject>().FirstOrDefault();
+                $"SELECT DriveLetter, ProtectionStatus FROM Win32_EncryptableVolume WHERE DriveLetter = '{drive}'",
+                new System.Management.EnumerationOptions { Timeout = TimeSpan.FromSeconds(10) });
+            using var vol = s.Get().Cast<ManagementObject>().FirstOrDefault();
             if (vol is null) return null;
             var protection = Convert.ToInt32(vol["ProtectionStatus"]);
             var conversion = 0;
@@ -61,6 +70,6 @@ public sealed class WmiVolumeEncryption : IVolumeEncryption
                 if (r is not null && Convert.ToUInt32(r["ReturnValue"]) == 0) conversion = Convert.ToInt32(r["ConversionStatus"]);
             return new VolumeEncryptionState(protection, conversion);
         }
-        catch (ManagementException) { return null; }
+        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or COMException) { return null; }
     }
 }

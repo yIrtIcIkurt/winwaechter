@@ -31,6 +31,7 @@ public sealed class FirewallChange : IChange
     {
         if (!r.Before.TryGetValue("profile", out var s) || !int.TryParse(s, out var n) || n is not (1 or 2 or 4))
             throw new InvalidOperationException("Unbekanntes Firewall-Profil im Eintrag – kann nicht rückgängig gemacht werden.");
+        ParseEnabled(r);
         return new FirewallChange(fw, (FirewallProfile)n);
     }
 
@@ -45,8 +46,16 @@ public sealed class FirewallChange : IChange
             new() { ["enabled"] = "true" }, ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
-    public void Undo(ChangeRecord record, SessionContext ctx) =>
-        _fw.SetEnabled(_profile, string.Equals(record.Before.GetValueOrDefault("enabled"), "true", StringComparison.OrdinalIgnoreCase));
+    // Before["enabled"] must be exactly "true" or "false"; anything else must never switch the firewall off.
+    static bool ParseEnabled(ChangeRecord r) =>
+        r.Before.GetValueOrDefault("enabled") switch
+        {
+            "true" => true,
+            "false" => false,
+            _ => throw new InvalidOperationException("Der gespeicherte Firewall-Zustand ist ungültig – kann nicht rückgängig gemacht werden."),
+        };
+
+    public void Undo(ChangeRecord record, SessionContext ctx) => _fw.SetEnabled(_profile, ParseEnabled(record));
 
     public DriftState CheckDrift(ChangeRecord record)
     {
