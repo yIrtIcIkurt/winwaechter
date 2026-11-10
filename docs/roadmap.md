@@ -11,7 +11,7 @@ Stand: 2026-11-09 (Version 0.2.0)
 - [ ] Automatisches Leeren der Cache-Ablage nach 1 Tag prüfen (ab 2026-11-11)
 - [ ] „Wird frei“-Kachel hell/dunkel ansehen
 
-## 0.2.1 (geplant)
+## 0.2.1 (veröffentlicht 2026-11-10, af643a6)
 - Pfadanzeige: bei Opera und „Absturzabbilder (Windows)“ die echten Cache-Ordner statt des gemeinsamen Oberordners (`C:\Users\…\AppData`, `C:\windows`) zeigen.
 - Verwaiste Ordner: „30 Tage unberührt“ nach den Dateizeiten bewerten, nicht nach dem Ordner-Zeitstempel (Deinstallation ändert ihn).
 Für später (aus den Prüfungen): Browser/Update-Prüfung auch beim Anwenden wiederholen; Browser an anderen Installationsorten (pro Benutzer, Store); `regvalue` ohne Plan (Absturzfenster); Auto-Leeren nur beim App-Start; Startmenü-Unterordner ohne Leserecht werden still übersprungen; fremde Aufgaben mit Benutzervariablen; Gruppensumme zählt auch blockierte Zeilen.
