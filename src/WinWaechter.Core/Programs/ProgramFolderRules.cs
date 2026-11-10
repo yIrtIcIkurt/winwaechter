@@ -1,3 +1,4 @@
+using WinWaechter.Core.Logging;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Sys;
 
@@ -5,6 +6,11 @@ namespace WinWaechter.Core.Programs;
 
 /// <summary>Result of a folder check: exactly one of Folder (normalized, accepted) or Refusal (German reason) is set.</summary>
 public sealed record FolderCheck(string? Folder, string? Refusal);
+
+public enum FolderState { Missing, Unreadable, Ready }
+
+/// <summary>Whether a folder can be moved as a whole: Facts is set only for Ready.</summary>
+public sealed record FolderInspection(FolderState State, FolderFacts? Facts);
 
 /// <summary>Decides whether a program's InstallLocation may be offered for forced removal (spec 7.4).</summary>
 public static class ProgramFolderRules
@@ -71,6 +77,37 @@ public static class ProgramFolderRules
     }
 
     static FolderCheck Refuse(string reason) => new(null, reason);
+
+    /// <summary>Missing, Unreadable (access denied or a reparse point anywhere inside) or Ready with its facts.</summary>
+    public static FolderInspection Inspect(IFileOps files, string folder)
+    {
+        if (!files.Exists(folder)) return new(FolderState.Missing, null);
+        return files.InspectFolder(folder) is { HasReparsePoints: false } facts
+            ? new(FolderState.Ready, facts)
+            : new(FolderState.Unreadable, null);
+    }
+
+    /// <summary>True when a running process was started from inside folder; null when the process list cannot be read.</summary>
+    public static bool? RunsFromFolder(IProcessList procs, string folder)
+    {
+        IReadOnlyList<RunningProcess> running;
+        try { running = procs.Snapshot(); }
+        catch (Exception ex)
+        {
+            FileLog.Warn("Prozessliste nicht lesbar", ex);
+            return null;
+        }
+        var prefix = folder.TrimEnd('\\') + "\\";
+        foreach (var proc in running)
+        {
+            if (string.IsNullOrWhiteSpace(proc.ExePath) || !Path.IsPathFullyQualified(proc.ExePath)) continue;
+            string full;
+            try { full = Path.GetFullPath(proc.ExePath); }
+            catch (Exception) { continue; }
+            if (full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
 
     static bool IsInside(string path, string dir) => path.StartsWith(dir + "\\", StringComparison.OrdinalIgnoreCase);
 

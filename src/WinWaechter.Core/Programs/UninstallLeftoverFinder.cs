@@ -42,7 +42,7 @@ public sealed class UninstallLeftoverFinder
             var scanned = _traceScan();
             IReadOnlyList<Finding> inFolder = folder is null ? [] : ProgramTraces.InFolder(scanned, folder);
             var traces = inFolder
-                .Concat(ProgramTraces.ByName(scanned, removed.DisplayName))
+                .Concat(ProgramTraces.ByName(scanned, removed.DisplayName, _files))
                 .DistinctBy(t => t.Id, StringComparer.Ordinal)
                 .Select(t => t with { Preselected = t.Group == FindingGroups.OrphanEntries });
             foreach (var t in traces) result.Add(t);
@@ -57,36 +57,14 @@ public sealed class UninstallLeftoverFinder
     static string? IconFolder(string? displayIcon) =>
         ProgramInventory.IconExe(displayIcon) is { } exe && Path.IsPathFullyQualified(exe) ? Path.GetDirectoryName(exe) : null;
 
-    // Existing, fully readable, no reparse points and nothing running from it; otherwise no finding.
+    // Existing, fully readable, no reparse points and nothing running from it (an unreadable process
+    // list counts as running); otherwise no finding.
     Finding? FolderFinding(InstalledProgram removed, string folder)
     {
-        if (!Directory.Exists(folder)) return null;
-        if (_files.InspectFolder(folder) is not { HasReparsePoints: false } facts) return null;
-        if (IsInUse(folder)) return null;
+        if (ProgramFolderRules.Inspect(_files, folder) is not { State: FolderState.Ready, Facts: { } facts }) return null;
+        if (ProgramFolderRules.RunsFromFolder(_procs, folder) != false) return null;
         return new Finding($"leftover|{folder}", FindingArea.Speicher, Path.GetFileName(folder), folder,
             [$"Rest von „{removed.DisplayName}“"], Rating.Info, false, MoveToAblageChange.ForFolder(_files, folder),
             facts.Bytes, Group: FindingGroups.OrphanFolders);
-    }
-
-    // An unreadable process list counts as "in use".
-    bool IsInUse(string folder)
-    {
-        IReadOnlyList<RunningProcess> running;
-        try { running = _procs.Snapshot(); }
-        catch (Exception ex)
-        {
-            FileLog.Warn("Prozessliste nicht lesbar", ex);
-            return true;
-        }
-        var prefix = folder + "\\";
-        foreach (var proc in running)
-        {
-            if (string.IsNullOrWhiteSpace(proc.ExePath) || !Path.IsPathFullyQualified(proc.ExePath)) continue;
-            string full;
-            try { full = Path.GetFullPath(proc.ExePath); }
-            catch (Exception) { continue; }
-            if (full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
-        }
-        return false;
     }
 }

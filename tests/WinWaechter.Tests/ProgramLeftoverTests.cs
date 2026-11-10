@@ -127,19 +127,33 @@ public sealed class ProgramLeftoverTests : IDisposable
     [Fact]
     public void Traces_in_folder_and_orphans_by_name()
     {
-        var dir = Path.Combine(_pf, "Foo");   // folder already gone, traces still point into it
+        var dir = Path.Combine(_pf, "FooTool");   // folder already gone, traces still point into it
         var tray = new Finding("auto|tray", FindingArea.Autostart, "Tray", "Run", ["r"], Rating.Info, true, Auto("Tray"),
             ExePath: dir + @"\tray.exe");
-        var task = new Finding("task|upd", FindingArea.Aufgabe, "Foo Updater", @"\Foo Updater", ["r"], Rating.Info, false,
-            new TaskDisableChange(_store, @"\Foo Updater"), Group: FindingGroups.OrphanEntries,
-            ExePath: @"C:\gone\upd.exe");
+        var task = new Finding("task|upd", FindingArea.Aufgabe, "FooTool Updater", @"\FooTool Updater", ["r"], Rating.Info, false,
+            new TaskDisableChange(_store, @"\FooTool Updater"), Group: FindingGroups.OrphanEntries,
+            ExePath: Path.Combine(_root, "gone", "upd.exe"));
         var unrelated = new Finding("auto|bar", FindingArea.Autostart, "Bar", "Run", ["r"], Rating.Info, false, Auto("Bar"),
             ExePath: _pf + @"\Bar\bar.exe");
 
-        var found = Finder(() => [tray, task, unrelated, tray]).Find(Prog(location: dir), []);
+        var found = Finder(() => [tray, task, unrelated, tray]).Find(Prog(location: dir, name: "FooTool 1.0"), []);
         Assert.Equal(["auto|tray", "task|upd"], found.Select(f => f.Id));
         Assert.False(found[0].Preselected);
         Assert.True(found[1].Preselected);
+    }
+
+    [Fact]
+    public void Running_folder_gives_no_folder_finding_but_its_traces_unselected()
+    {
+        var dir = FooFolder();
+        _procs.List.Add(new RunningProcess("foo.exe", dir + @"\foo.exe"));
+        var tray = new Finding("auto|tray", FindingArea.Autostart, "Tray", "Run", ["r"], Rating.Info, true, Auto("Tray"),
+            ExePath: dir + @"\tray.exe");
+
+        var found = Finder(() => [tray]).Find(Prog(location: dir), []);
+        var f = Assert.Single(found);
+        Assert.Equal("auto|tray", f.Id);
+        Assert.False(f.Preselected);
     }
 
     [Fact]

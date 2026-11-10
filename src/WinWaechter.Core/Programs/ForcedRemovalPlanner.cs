@@ -94,27 +94,16 @@ public sealed class ForcedRemovalPlanner
         return TraceKinds.SelectMany(kind => found.Where(f => f.Change!.Kind == kind).Select(f => f.Change!)).ToList();
     }
 
-    string? WhyNotMove(string folder)
-    {
-        if (!_files.Exists(folder)) return FolderMissing;
-        if (_files.InspectFolder(folder) is not { HasReparsePoints: false }) return FolderUnreadable;
-
-        IReadOnlyList<RunningProcess> running;
-        try { running = _procs.Snapshot(); }
-        catch (Exception ex)
+    string? WhyNotMove(string folder) =>
+        ProgramFolderRules.Inspect(_files, folder).State switch
         {
-            FileLog.Warn("Prozessliste nicht lesbar", ex);
-            return ProcessesUnknown;
-        }
-        var prefix = folder + "\\";
-        foreach (var proc in running)
-        {
-            if (string.IsNullOrWhiteSpace(proc.ExePath) || !Path.IsPathFullyQualified(proc.ExePath)) continue;
-            string full;
-            try { full = Path.GetFullPath(proc.ExePath); }
-            catch (Exception) { continue; }
-            if (full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return FolderInUse;
-        }
-        return null;
-    }
+            FolderState.Missing => FolderMissing,
+            FolderState.Unreadable => FolderUnreadable,
+            _ => ProgramFolderRules.RunsFromFolder(_procs, folder) switch
+            {
+                null => ProcessesUnknown,
+                true => FolderInUse,
+                false => null,
+            },
+        };
 }

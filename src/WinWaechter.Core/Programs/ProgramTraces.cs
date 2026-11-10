@@ -1,5 +1,6 @@
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer.Storage;
+using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Programs;
 
@@ -14,14 +15,21 @@ public static class ProgramTraces
             && exe.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
-    /// <summary>Orphaned entries with a change whose title or location names the program at a word start.</summary>
-    public static IReadOnlyList<Finding> ByName(IEnumerable<Finding> scanned, string displayName)
+    public const int MinNameLength = 4;
+
+    /// <summary>
+    /// Orphaned entries with a change whose title or location contains the program's whole normalized name
+    /// (version suffix dropped, at least <see cref="MinNameLength"/> characters) as complete words, and whose
+    /// program file is definitely missing. A live entry of another program that shares a word is never returned.
+    /// </summary>
+    public static IReadOnlyList<Finding> ByName(IEnumerable<Finding> scanned, string displayName, IFileOps files)
     {
         var key = NameKey(displayName);
-        if (key.Length < 3) return [];   // too short to tell programs apart
+        if (key.Length < MinNameLength) return [];   // too short to tell programs apart
         return scanned.Where(f => f.Change is not null && f.Group == FindingGroups.OrphanEntries
-            && (WordStartContains(InstalledProgramIndex.Normalize(f.Title), key)
-                || WordStartContains(InstalledProgramIndex.Normalize(f.Location), key))).ToList();
+            && (ContainsWords(InstalledProgramIndex.Normalize(f.Title), key)
+                || ContainsWords(InstalledProgramIndex.Normalize(f.Location), key))
+            && ProgramPresence.Check(f.ExePath, files) == Presence.Missing).ToList();
     }
 
     /// <summary>Normalized name without trailing version tokens ("FooTool 2.3.1" → "footool").</summary>
@@ -32,11 +40,15 @@ public static class ProgramTraces
         return string.Join(' ', tokens);
     }
 
-    static bool WordStartContains(string text, string needle)
+    // needle occurs in text with a word boundary (start/end or ' ') on both sides; both are normalized
+    static bool ContainsWords(string text, string needle)
     {
         for (var i = text.IndexOf(needle, StringComparison.Ordinal); i >= 0;
              i = i + 1 < text.Length ? text.IndexOf(needle, i + 1, StringComparison.Ordinal) : -1)
-            if (i == 0 || text[i - 1] == ' ') return true;
+        {
+            var end = i + needle.Length;
+            if ((i == 0 || text[i - 1] == ' ') && (end == text.Length || text[end] == ' ')) return true;
+        }
         return false;
     }
 

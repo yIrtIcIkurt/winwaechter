@@ -368,12 +368,47 @@ public sealed class RegKeyTests : IDisposable
         Assert.Equal([a], ProgramTraces.InFolder([a, b, c], _pf + @"\Foo"));
 
         Assert.Equal("footool", ProgramTraces.NameKey("FooTool 2.3.1"));
-        var hit = F("h", null, Auto("h"), title: "FooTool Updater", group: FindingGroups.OrphanEntries);
-        var inLocation = F("l", null, Auto("l"), location: @"C:\gone\FooTool\up.exe", group: FindingGroups.OrphanEntries);
-        var notWordStart = F("n", null, Auto("n"), title: "SuperFooTool", group: FindingGroups.OrphanEntries);
-        var notOrphan = F("o", null, Auto("o"), title: "FooTool Helper");
-        var noChange = F("z", null, null, title: "FooTool Z", group: FindingGroups.OrphanEntries);
-        Assert.Equal([hit, inLocation], ProgramTraces.ByName([hit, inLocation, notWordStart, notOrphan, noChange], "FooTool 2.3.1"));
+        var gone = Path.Combine(_root, "gone") + @"\";   // never created: program files are missing
+        var hit = F("h", gone + "up.exe", Auto("h"), title: "FooTool Updater", group: FindingGroups.OrphanEntries);
+        var inLocation = F("l", gone + "up2.exe", Auto("l"), location: @"C:\gone\FooTool\up.exe", group: FindingGroups.OrphanEntries);
+        var notWordStart = F("n", gone + "n.exe", Auto("n"), title: "SuperFooTool", group: FindingGroups.OrphanEntries);
+        var notWordEnd = F("e", gone + "e.exe", Auto("e"), title: "FooToolbox Helper", group: FindingGroups.OrphanEntries);
+        var notOrphan = F("o", gone + "o.exe", Auto("o"), title: "FooTool Helper");
+        var noChange = F("z", gone + "z.exe", null, title: "FooTool Z", group: FindingGroups.OrphanEntries);
+        Assert.Equal([hit, inLocation], ProgramTraces.ByName([hit, inLocation, notWordStart, notWordEnd, notOrphan, noChange],
+            "FooTool 2.3.1", _files));
+    }
+
+    [Fact]
+    public void ByName_never_offers_live_entries_of_other_programs()
+    {
+        // tagged as orphan but the program file exists (another program sharing the name): not offered
+        var live = Path.Combine(_root, "live");
+        Directory.CreateDirectory(live);
+        File.WriteAllText(Path.Combine(live, "tool.exe"), "x");
+        var present = F("p", Path.Combine(live, "tool.exe"), Auto("p"), title: "FooTool Sync", group: FindingGroups.OrphanEntries);
+        // no or unclear path (relative, unresolved variable): not offered either
+        var noPath = F("n", null, Auto("n"), title: "FooTool Sync", group: FindingGroups.OrphanEntries);
+        var unclear = F("u", @"%FOO_UNSET_VAR%\tool.exe", Auto("u"), title: "FooTool Sync", group: FindingGroups.OrphanEntries);
+        var missing = F("m", Path.Combine(_root, "gone", "tool.exe"), Auto("m"), title: "FooTool Sync",
+            group: FindingGroups.OrphanEntries);
+        Assert.Equal([missing], ProgramTraces.ByName([present, noPath, unclear, missing], "FooTool", _files));
+    }
+
+    [Fact]
+    public void ByName_needs_the_whole_name_with_at_least_four_characters()
+    {
+        var gone = Path.Combine(_root, "gone") + @"\";
+        var foo = F("f", gone + "f.exe", Auto("f"), title: "Foo Updater", group: FindingGroups.OrphanEntries);
+        Assert.Empty(ProgramTraces.ByName([foo], "Foo 1.0", _files));           // "foo": too short
+        Assert.Empty(ProgramTraces.ByName([foo], "Fo", _files));
+
+        var pro = F("p", gone + "p.exe", Auto("p"), title: "Acme Updater", group: FindingGroups.OrphanEntries);
+        var whole = F("w", gone + "w.exe", Auto("w"), title: "Acme Photo Pro Updater", group: FindingGroups.OrphanEntries);
+        // only the whole (normalized) name counts, not one of its words
+        Assert.Equal([whole], ProgramTraces.ByName([pro, whole], "ACME Photo-Pro 2.0", _files));
+        Assert.Equal("acme", ProgramTraces.NameKey("Acme"));
+        Assert.Equal([pro], ProgramTraces.ByName([pro], "Acme", _files));
     }
 
     // ---------- forced removal ----------

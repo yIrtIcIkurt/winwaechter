@@ -4,7 +4,10 @@ using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Programs;
 
-/// <summary>Reads the installed programs (visible uninstall entries) and flags them with the rules.</summary>
+/// <summary>
+/// Reads the uninstall entries and flags them with the rules: by default only the visible programs,
+/// with includeHidden every entry (system components, updates, nameless ones) for overlap checks.
+/// </summary>
 public sealed class ProgramInventory(IRegistry reg, RuleSet rules)
 {
     static readonly string[] UpdateTypes = ["Update", "Hotfix", "Security Update"];
