@@ -9,8 +9,18 @@ namespace WinWaechter.Core.Programs;
 public interface IUninstallLauncher
 {
     /// <summary>Starts the command and returns the started process's exit code, interpreted.
-    /// installLocation: the program's folder; processes running from there count as the uninstaller.</summary>
-    Task<UninstallOutcome> RunAsync(UninstallCommand cmd, string? installLocation = null);
+    /// installLocation: the program's folder; processes running from there count as the uninstaller.
+    /// asUser: start it with the signed-in user's normal (unelevated) rights; throws UserLaunchException
+    /// when that is not possible, never falls back to elevated rights.</summary>
+    Task<UninstallOutcome> RunAsync(UninstallCommand cmd, string? installLocation = null, bool asUser = false);
+}
+
+/// <summary>An uninstaller could not be started with the user's normal rights. Reason is German and safe to show.</summary>
+public sealed class UserLaunchException(string reason, int error)
+    : InvalidOperationException(error == 0 ? reason : $"{reason} (Fehler {error}: {new Win32Exception(error).Message}).")
+{
+    public string Reason { get; } = reason;
+    public int Error { get; } = error;
 }
 
 /// <summary>
@@ -27,12 +37,19 @@ public sealed class JobUninstallLauncher : IUninstallLauncher
     const int MaxListedProcesses = 1024;
 
     readonly TimeSpan _grace;
+    readonly string? _userSid;
 
-    public JobUninstallLauncher() : this(DefaultGrace) { }
+    /// <param name="userSid">The signed-in user (owner of Explorer in the console session) whose rights
+    /// asUser launches get; its HKCU is the one the per-user entries come from.</param>
+    public JobUninstallLauncher(string? userSid = null) : this(DefaultGrace, userSid) { }
 
-    internal JobUninstallLauncher(TimeSpan grace) => _grace = grace;
+    internal JobUninstallLauncher(TimeSpan grace, string? userSid = null)
+    {
+        _grace = grace;
+        _userSid = userSid;
+    }
 
-    public async Task<UninstallOutcome> RunAsync(UninstallCommand cmd, string? installLocation = null)
+    public async Task<UninstallOutcome> RunAsync(UninstallCommand cmd, string? installLocation = null, bool asUser = false)
     {
         ArgumentNullException.ThrowIfNull(cmd);
         var uninstallerDirs = UninstallerDirs(cmd, installLocation);
@@ -40,7 +57,7 @@ public sealed class JobUninstallLauncher : IUninstallLauncher
         using var job = CreateJobObject(IntPtr.Zero, null);
         if (job.IsInvalid) throw Fail("Das Job-Objekt für die Deinstallation konnte nicht angelegt werden");
 
-        var (process, thread) = StartSuspended(cmd);
+        var (process, thread) = asUser ? UserProcess.StartSuspended(cmd, _userSid) : StartSuspended(cmd);
         using (process)
         using (thread)
         {
@@ -48,12 +65,15 @@ public sealed class JobUninstallLauncher : IUninstallLauncher
             {
                 var err = Marshal.GetLastWin32Error();
                 TerminateProcess(process, 1);
+                // still suspended, nothing ran: a user launch can go via the settings instead
+                if (asUser) throw UserProcess.NoLaunch(err);
                 throw Fail("Das Deinstallationsprogramm konnte nicht überwacht werden", err);
             }
             if (ResumeThread(thread) == uint.MaxValue)
             {
                 var err = Marshal.GetLastWin32Error();
                 TerminateProcess(process, 1);
+                if (asUser) throw UserProcess.NoLaunch(err);
                 throw Fail("Das Deinstallationsprogramm konnte nicht gestartet werden", err);
             }
 
@@ -133,9 +153,12 @@ public sealed class JobUninstallLauncher : IUninstallLauncher
         return dirs;
     }
 
-    static (SafeKernelHandle Process, SafeKernelHandle Thread) StartSuspended(UninstallCommand cmd)
+    internal static StringBuilder CommandLine(UninstallCommand cmd) =>
+        new("\"" + cmd.Exe + "\"" + (cmd.Arguments.Length > 0 ? " " + cmd.Arguments : ""));
+
+    internal static (SafeKernelHandle Process, SafeKernelHandle Thread) StartSuspended(UninstallCommand cmd)
     {
-        var line = new StringBuilder("\"" + cmd.Exe + "\"" + (cmd.Arguments.Length > 0 ? " " + cmd.Arguments : ""));
+        var line = CommandLine(cmd);
         var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>() };
         if (!CreateProcess(cmd.Exe, line, IntPtr.Zero, IntPtr.Zero, false,
                 CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, IntPtr.Zero, Path.GetDirectoryName(cmd.Exe), ref si,

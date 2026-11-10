@@ -71,6 +71,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
 {
     public const string RunningText =
         "Deinstallation läuft … Sie lässt sich hier nicht abbrechen. Bitte folgen Sie dem Fenster des Deinstallationsprogramms.";
+    public const string AsUserText = "Läuft mit Ihren normalen Benutzerrechten, nicht mit Adminrechten.";
     public const string Irreversible =
         "Das Deinstallationsprogramm des Herstellers wird gestartet. Das lässt sich in WinWächter nicht rückgängig machen.";
     public const string RestartText = "Ein Neustart ist nötig, um die Deinstallation abzuschließen.";
@@ -273,12 +274,25 @@ public sealed partial class ProgramsViewModel : ObservableObject
             var sig = await Task.Run(() => _actions.UninstallerSignature(plan));
             var cmd = plan.Command!;
             var lines = new List<string> { $"Programm: {cmd.Exe} {cmd.Arguments}".TrimEnd(), SignatureText.Line(sig) };
+            if (plan.Route == UninstallRoute.LaunchAsUser) lines.Add(AsUserText);
             var question = $"„{p.DisplayName}“ von {p.Publisher ?? "unbekanntem Herausgeber"}. {Irreversible}";
             if (!_dialogs.Confirm("Deinstallieren", question, "Deinstallieren", lines, final: true)) return;
 
             ProgressText = RunningText;
-            // CreateProcess and the job setup never run on the UI thread
-            var outcome = await Task.Run(() => _actions.RunUninstallerAsync(plan));
+            UninstallOutcome outcome;
+            try
+            {
+                // CreateProcess and the job setup never run on the UI thread
+                outcome = await Task.Run(() => _actions.RunUninstallerAsync(plan));
+            }
+            catch (UserLaunchException ex)
+            {
+                // nothing was started: the user removes it via the Windows settings, as before
+                FileLog.Warn($"Deinstallation mit Benutzerrechten nicht möglich: {p.DisplayName}", ex);
+                ProgressText = "";
+                ViaSettings(p, plan with { Route = UninstallRoute.OpenSettings, Command = null, Reason = SettingsReason(p, ex) });
+                return;
+            }
             ProgressText = "";
             if (outcome.Cancelled)
             {
@@ -336,6 +350,13 @@ public sealed partial class ProgramsViewModel : ObservableObject
         _shell.OpenLink(SystemLinks.AppsFeatures);
         Pending = p;
     }
+
+    // "liegt in einem Ordner, den auch Programme ohne Adminrechte ändern können" is only said about HKLM entries
+    // (their uninstaller is in such a folder, else it would have run elevated); per-user programs get the plain text.
+    internal static string SettingsReason(InstalledProgram p, UserLaunchException ex) =>
+        ex.Reason == UninstallPlanner.NeedsAdminReason && !p.IsMachineEntry
+            ? "Das Deinstallationsprogramm verlangt Adminrechte, das Programm wurde aber für Ihr Benutzerkonto installiert."
+            : ex.Reason;
 
     void OfferForce(InstalledProgram p, bool missing, bool finished)
     {

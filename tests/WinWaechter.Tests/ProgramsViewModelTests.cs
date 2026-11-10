@@ -102,6 +102,83 @@ public sealed class ProgramsViewModelTests : IDisposable
     static ProgramItemViewModel Row(ProgramsViewModel vm, string name) => vm.Items.Single(i => i.Name == name);
 
     [Fact]
+    public async Task User_route_starts_directly_and_says_so()
+    {
+        var plan = new UninstallPlan(UninstallRoute.LaunchAsUser, new UninstallCommand(Exe, ""), UninstallPlanner.UserWritableReason, false);
+        _actions.PlanFor = _ => plan;
+        var vm = await Loaded(P("Vavoo"));
+
+        await vm.UninstallCommand.ExecuteAsync(Row(vm, "Vavoo"));
+
+        Assert.Equal(plan, Assert.Single(_actions.Runs));
+        var confirm = Assert.Single(_dialogs.Confirms);
+        Assert.Equal("Deinstallieren", confirm.Title);
+        Assert.Contains(ProgramsViewModel.AsUserText, confirm.Items);
+        Assert.Empty(_shell.Links);
+    }
+
+    [Fact]
+    public async Task User_route_falls_back_to_settings_when_it_cannot_start()
+    {
+        _actions.PlanFor = _ => new UninstallPlan(UninstallRoute.LaunchAsUser, new UninstallCommand(Exe, ""), UninstallPlanner.UserWritableReason, false);
+        _actions.RunThrows = new UserLaunchException(UninstallPlanner.NeedsAdminReason, 740);
+        var vm = await Loaded(P("Vavoo"));
+
+        await vm.UninstallCommand.ExecuteAsync(Row(vm, "Vavoo"));
+
+        Assert.Equal(2, _dialogs.Confirms.Count);
+        var settings = _dialogs.Confirms[1];
+        Assert.Equal("Über Windows-Einstellungen deinstallieren", settings.Title);
+        Assert.StartsWith(UninstallPlanner.NeedsAdminReason, settings.Message);
+        Assert.Equal([SystemLinks.AppsFeatures], _shell.Links);
+        Assert.Equal("Vavoo", vm.Pending!.DisplayName);
+        Assert.Equal("", vm.ProgressText);
+        Assert.Empty(_dialogs.Informs);
+    }
+
+    [Fact]
+    public async Task User_route_fallback_declined_opens_nothing()
+    {
+        _actions.PlanFor = _ => new UninstallPlan(UninstallRoute.LaunchAsUser, new UninstallCommand(Exe, ""), UninstallPlanner.UserWritableReason, false);
+        _actions.RunThrows = new UserLaunchException(UninstallPlanner.NoUserLaunchReason, 5);
+        _dialogs.ConfirmResult = t => t == "Deinstallieren";
+        var vm = await Loaded(P("Vavoo"));
+
+        await vm.UninstallCommand.ExecuteAsync(Row(vm, "Vavoo"));
+
+        Assert.Equal(2, _dialogs.Confirms.Count);
+        Assert.Empty(_shell.Links);
+        Assert.Null(vm.Pending);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Other_launch_errors_still_show_the_error()
+    {
+        _actions.PlanFor = _ => new UninstallPlan(UninstallRoute.LaunchAsUser, new UninstallCommand(Exe, ""), UninstallPlanner.UserWritableReason, false);
+        _actions.RunThrows = new InvalidOperationException("kaputt");
+        var vm = await Loaded(P("Vavoo"));
+
+        await vm.UninstallCommand.ExecuteAsync(Row(vm, "Vavoo"));
+
+        Assert.Equal(("Deinstallation fehlgeschlagen", "kaputt"), (_dialogs.Informs.Single().Title, _dialogs.Informs.Single().Message));
+        Assert.Empty(_shell.Links);
+    }
+
+    [Fact]
+    public void Settings_reason_fits_the_entry()
+    {
+        var needsAdmin = new UserLaunchException(UninstallPlanner.NeedsAdminReason, 740);
+        var machine = P("Foo");
+        var user = machine with { Hive = Hive.CurrentUser };
+        Assert.Equal(UninstallPlanner.NeedsAdminReason, ProgramsViewModel.SettingsReason(machine, needsAdmin));
+        Assert.Contains("Benutzerkonto", ProgramsViewModel.SettingsReason(user, needsAdmin));
+        Assert.DoesNotContain("ohne Adminrechte ändern", ProgramsViewModel.SettingsReason(user, needsAdmin));
+        var other = new UserLaunchException(UninstallPlanner.NoUserLaunchReason, 5);
+        Assert.Equal(UninstallPlanner.NoUserLaunchReason, ProgramsViewModel.SettingsReason(user, other));
+    }
+
+    [Fact]
     public async Task Search_and_sort()
     {
         var vm = await Loaded(

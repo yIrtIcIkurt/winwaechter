@@ -67,21 +67,24 @@ public sealed class InteractiveUserContext : IUserContext
         using var proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
         if (proc.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
         if (!OpenProcessToken(proc, TOKEN_QUERY, out var token)) throw new Win32Exception(Marshal.GetLastWin32Error());
-        using (token)
+        using (token) return TokenSid(token);
+    }
+
+    /// <summary>The user SID of a token (needs TOKEN_QUERY).</summary>
+    internal static string TokenSid(Microsoft.Win32.SafeHandles.SafeAccessTokenHandle token)
+    {
+        GetTokenInformation(token, TokenUser, IntPtr.Zero, 0, out var len);
+        if (len <= 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+        var buf = Marshal.AllocHGlobal(len);
+        try
         {
-            GetTokenInformation(token, TokenUser, IntPtr.Zero, 0, out var len);
-            if (len <= 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-            var buf = Marshal.AllocHGlobal(len);
-            try
-            {
-                if (!GetTokenInformation(token, TokenUser, buf, len, out _)) throw new Win32Exception(Marshal.GetLastWin32Error());
-                // TOKEN_USER starts with SID_AND_ATTRIBUTES, whose first field is the PSID.
-                return new SecurityIdentifier(Marshal.ReadIntPtr(buf)).Value;
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(buf);
-            }
+            if (!GetTokenInformation(token, TokenUser, buf, len, out _)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            // TOKEN_USER starts with SID_AND_ATTRIBUTES, whose first field is the PSID.
+            return new SecurityIdentifier(Marshal.ReadIntPtr(buf)).Value;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
         }
     }
 

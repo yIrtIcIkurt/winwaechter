@@ -2,10 +2,13 @@ using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Programs;
 
-public enum UninstallRoute { Launch, OpenSettings }
+public enum UninstallRoute { Launch, LaunchAsUser, OpenSettings }
 
-/// <summary>Launch = WinWaechter starts Command itself; OpenSettings = send the user to ms-settings:appsfeatures.
-/// InstallLocation (Launch only): the program folder, so the launcher can tell its uninstaller copies apart.</summary>
+/// <summary>Launch = WinWaechter starts Command itself (elevated); LaunchAsUser = WinWaechter starts Command with the
+/// signed-in user's normal rights, like the Windows settings do; OpenSettings = send the user to ms-settings:appsfeatures.
+/// InstallLocation (Launch routes only): the program folder, so the launcher can tell its uninstaller copies apart.
+/// Reason (LaunchAsUser): why the program is not started elevated (for the log; the settings dialog after a failed
+/// user launch names the launch problem instead).</summary>
 public sealed record UninstallPlan(UninstallRoute Route, UninstallCommand? Command, string Reason, bool UninstallerMissing,
     string? InstallLocation = null);
 
@@ -15,10 +18,16 @@ public static class UninstallPlanner
     public const string MissingReason = "Das Deinstallationsprogramm fehlt.";
     public const string UserWritableReason =
         "Dieses Programm wurde für Ihr Benutzerkonto installiert oder liegt in einem Ordner, den auch Programme ohne Adminrechte ändern können.";
+    public const string NeedsAdminReason =
+        "Das Deinstallationsprogramm verlangt Adminrechte, liegt aber in einem Ordner, den auch Programme ohne Adminrechte ändern können.";
+    public const string NoUserLaunchReason =
+        "Das Deinstallationsprogramm ließ sich nicht mit Ihren normalen Benutzerrechten starten.";
 
     const string MsiExecName = "msiexec.exe";
 
     // Spec 7.1: only HKLM entries whose uninstaller sits in an admin-only folder are started elevated.
+    // Per-user entries and uninstallers in folders that non-admins can change are started with the signed-in
+    // user's normal rights (LaunchAsUser), exactly what the Windows settings would do; never elevated.
     // msiexec only ever runs as "/X{GUID}" with a validated product code, never with the entry's arguments.
     public static UninstallPlan Plan(InstalledProgram p, CleanerPaths paths, Func<string, bool> exists, IPathTrust trust)
     {
@@ -26,9 +35,11 @@ public static class UninstallPlanner
         if (guid is not null)
         {
             var msiexec = Path.Combine(paths.SystemRoot, "System32", MsiExecName);
-            if (!p.IsMachineEntry || !IsTrusted(msiexec, Root(paths.SystemRoot), trust))
-                return Settings(UserWritableReason);
-            return new(UninstallRoute.Launch, new UninstallCommand(msiexec, "/X" + guid), "", false, p.InstallLocation);
+            if (!IsTrusted(msiexec, Root(paths.SystemRoot), trust)) return Settings(UnsafeReason);
+            var msi = new UninstallCommand(msiexec, "/X" + guid);
+            return p.IsMachineEntry
+                ? new(UninstallRoute.Launch, msi, "", false, p.InstallLocation)
+                : AsUser(msi, p);
         }
 
         // no command at all: the uninstaller is missing (forced removal may be offered, spec 1.3)
@@ -50,12 +61,15 @@ public static class UninstallPlanner
             return Settings(UnsafeReason);
 
         if (!p.IsMachineEntry || AdminRoot(full, paths) is not { } root || !IsTrusted(full, root, trust))
-            return Settings(UserWritableReason);
+            return AsUser(cmd with { Exe = full }, p);
 
         return new(UninstallRoute.Launch, cmd with { Exe = full }, "", false, p.InstallLocation);
     }
 
     static UninstallPlan Settings(string reason) => new(UninstallRoute.OpenSettings, null, reason, false);
+
+    static UninstallPlan AsUser(UninstallCommand cmd, InstalledProgram p) =>
+        new(UninstallRoute.LaunchAsUser, cmd, UserWritableReason, false, p.InstallLocation);
 
     // Script hosts, and msiexec in any form other than the validated "/X{GUID}" above.
     static bool IsRefused(string exe)

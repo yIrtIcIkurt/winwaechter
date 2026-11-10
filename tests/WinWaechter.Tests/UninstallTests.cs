@@ -107,7 +107,10 @@ public sealed class UninstallTests : IDisposable
         Assert.Equal(Path.Combine(_paths.SystemRoot, "System32", "msiexec.exe"), plan.Command!.Exe);
         Assert.Equal("/X" + Guid, plan.Command.Arguments);
 
-        Assert.Equal(UninstallRoute.OpenSettings, Plan(Prog("MsiExec.exe /I" + Guid, Hive.CurrentUser)).Route);
+        // per-user MSI: the same validated "/X{GUID}", but only with the user's normal rights
+        var user = Plan(Prog("MsiExec.exe /I" + Guid, Hive.CurrentUser));
+        Assert.Equal(UninstallRoute.LaunchAsUser, user.Route);
+        Assert.Equal("/X" + Guid, user.Command!.Arguments);
     }
 
     [Fact]
@@ -128,38 +131,42 @@ public sealed class UninstallTests : IDisposable
         Assert.Equal(UninstallRoute.Launch, Plan(Prog("\"" + ok + "\" /uninstall")).Route);
 
         var bad = Touch(Path.Combine(_paths.LocalAppData, "Package Cache", "{x}", "setup.exe"));
-        Assert.Equal(UninstallRoute.OpenSettings, Plan(Prog("\"" + bad + "\" /uninstall")).Route);
+        Assert.Equal(UninstallRoute.LaunchAsUser, Plan(Prog("\"" + bad + "\" /uninstall")).Route);
     }
 
     [Fact]
-    public void Hklm_entry_with_appdata_uninstaller_opens_settings()
+    public void Hklm_entry_with_appdata_uninstaller_runs_as_user()
     {
         var exe = Touch(Path.Combine(_paths.LocalAppData, "Foo", "uninst.exe"));
-        var plan = Plan(Prog("\"" + exe + "\""));
-        Assert.Equal(UninstallRoute.OpenSettings, plan.Route);
+        var plan = Plan(Prog("\"" + exe + "\" /S") with { InstallLocation = Path.GetDirectoryName(exe) });
+        Assert.Equal(UninstallRoute.LaunchAsUser, plan.Route);
+        Assert.Equal(new UninstallCommand(exe, "/S"), plan.Command);
+        Assert.Equal(Path.GetDirectoryName(exe), plan.InstallLocation);
         Assert.False(plan.UninstallerMissing);
-        Assert.Contains("Benutzerkonto", plan.Reason);
+        Assert.Contains("Benutzerkonto", plan.Reason);   // shown if it has to go via the settings after all
     }
 
     [Fact]
-    public void Hkcu_entry_opens_settings_even_under_program_files()
+    public void Hkcu_entry_runs_as_user_even_under_program_files()
     {
         var exe = Touch(Path.Combine(_paths.ProgramFiles, "Foo", "uninst.exe"));
         var plan = Plan(Prog("\"" + exe + "\"", Hive.CurrentUser));
-        Assert.Equal(UninstallRoute.OpenSettings, plan.Route);
+        Assert.Equal(UninstallRoute.LaunchAsUser, plan.Route);
         Assert.False(plan.UninstallerMissing);
     }
 
     [Fact]
-    public void Path_escaping_program_files_opens_settings()
+    public void Path_escaping_program_files_never_runs_elevated()
     {
-        Touch(Path.Combine(_paths.LocalAppData, "Foo", "uninst.exe"));
+        var real = Touch(Path.Combine(_paths.LocalAppData, "Foo", "uninst.exe"));
         var sneaky = Path.Combine(_paths.ProgramFiles, "..", "profile", "AppData", "Local", "Foo", "uninst.exe");
         Assert.True(File.Exists(sneaky));
-        Assert.Equal(UninstallRoute.OpenSettings, Plan(Prog("\"" + sneaky + "\"")).Route);
+        var plan = Plan(Prog("\"" + sneaky + "\""));
+        Assert.Equal(UninstallRoute.LaunchAsUser, plan.Route);
+        Assert.Equal(real, plan.Command!.Exe);   // the normalized path is what gets started
         // A sibling folder that only shares the prefix is not "under" Program Files.
         var sibling = Touch(_paths.ProgramFiles + "Evil\\uninst.exe");
-        Assert.Equal(UninstallRoute.OpenSettings, Plan(Prog("\"" + sibling + "\"")).Route);
+        Assert.Equal(UninstallRoute.LaunchAsUser, Plan(Prog("\"" + sibling + "\"")).Route);
     }
 
     [Fact]
@@ -214,7 +221,7 @@ public sealed class UninstallTests : IDisposable
     }
 
     [Fact]
-    public void Writable_uninstaller_or_folder_opens_settings()
+    public void Writable_uninstaller_or_folder_runs_as_user()
     {
         var exe = Touch(Path.Combine(_paths.ProgramFiles, "Foo", "Bin", "uninst.exe"));
         var prog = Prog("\"" + exe + "\"");
@@ -232,7 +239,7 @@ public sealed class UninstallTests : IDisposable
             _trust.Untrusted.Clear();
             _trust.Untrusted.Add(untrusted);
             var plan = Plan(prog);
-            Assert.Equal(UninstallRoute.OpenSettings, plan.Route);
+            Assert.Equal(UninstallRoute.LaunchAsUser, plan.Route);
             Assert.Equal(UninstallPlanner.UserWritableReason, plan.Reason);
             Assert.False(plan.UninstallerMissing);
         }
@@ -241,7 +248,7 @@ public sealed class UninstallTests : IDisposable
         var cache = Touch(Path.Combine(_paths.ProgramData, "Package Cache", "{x}", "setup.exe"));
         _trust.Untrusted.Clear();
         _trust.Untrusted.Add(Path.Combine(_paths.ProgramData, "Package Cache"));
-        Assert.Equal(UninstallRoute.OpenSettings, Plan(Prog("\"" + cache + "\" /uninstall")).Route);
+        Assert.Equal(UninstallRoute.LaunchAsUser, Plan(Prog("\"" + cache + "\" /uninstall")).Route);
     }
 
     [Fact]
@@ -249,7 +256,12 @@ public sealed class UninstallTests : IDisposable
     {
         var msiexec = Path.Combine(_paths.SystemRoot, "System32", "msiexec.exe");
         _trust.Untrusted.Add(msiexec);
-        Assert.Equal(UninstallRoute.OpenSettings, Plan(Prog("MsiExec.exe /X" + Guid)).Route);
+        foreach (var hive in new[] { Hive.LocalMachine, Hive.CurrentUser })
+        {
+            var plan = Plan(Prog("MsiExec.exe /X" + Guid, hive));
+            Assert.Equal(UninstallRoute.OpenSettings, plan.Route);
+            Assert.Equal(UninstallPlanner.UnsafeReason, plan.Reason);
+        }
     }
 
     [Fact]

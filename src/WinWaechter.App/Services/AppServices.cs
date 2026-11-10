@@ -102,7 +102,7 @@ public sealed class AppServices
         }, ct), engine, dialogs, canChange, gate);
         // traces (services, tasks, autostarts) for the leftover search and the forced removal
         IReadOnlyList<Finding> TraceScan() => [.. autostart.Scan(), .. services.Scan(), .. tasks.Scan()];
-        var programService = new ProgramService(new ProgramInventory(reg, rules), reg, fo, sig, new JobUninstallLauncher(),
+        var programService = new ProgramService(new ProgramInventory(reg, rules), reg, fo, sig, new JobUninstallLauncher(user.Sid),
             new UninstallLeftoverFinder(reg, fo, rules, procs, paths, TraceScan),
             new ForcedRemovalPlanner(reg, fo, rules, procs, paths, TraceScan), paths);
         // the view model runs every read of the service on the thread pool

@@ -187,6 +187,11 @@ public sealed class ProgramLeftoverTests : IDisposable
         Assert.True(outcome.RestartRequired);
         Assert.Equal([cmd], launcher.Calls);
         Assert.Equal([_pf + @"\Foo"], launcher.InstallLocations);   // the launcher knows the program folder
+        Assert.Equal([false], launcher.AsUser);                     // admin-only uninstaller: elevated
+
+        var user = new UninstallPlan(UninstallRoute.LaunchAsUser, cmd, UninstallPlanner.UserWritableReason, false);
+        await svc.RunUninstallerAsync(user);
+        Assert.Equal([false, true], launcher.AsUser);               // per-user route: the user's normal rights
     }
 
     [Fact]

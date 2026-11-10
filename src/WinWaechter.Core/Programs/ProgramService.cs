@@ -12,7 +12,9 @@ public interface IProgramActions
     bool IsStillListed(InstalledProgram p);
     UninstallPlan PlanUninstall(InstalledProgram p);
     SignatureInfo? UninstallerSignature(UninstallPlan plan);     // null when no command; never throws
-    Task<UninstallOutcome> RunUninstallerAsync(UninstallPlan plan);   // InvalidOperationException unless Route == Launch
+    // InvalidOperationException unless Route is Launch or LaunchAsUser;
+    // UserLaunchException when a LaunchAsUser command cannot run with the user's normal rights
+    Task<UninstallOutcome> RunUninstallerAsync(UninstallPlan plan);
     IReadOnlyList<Finding> FindLeftovers(InstalledProgram removed);   // reads remaining entries itself
     ForcedRemovalPlan PlanForcedRemoval(InstalledProgram p);          // reads all entries itself
 }
@@ -55,9 +57,9 @@ public sealed class ProgramService : IProgramActions
 
     public Task<UninstallOutcome> RunUninstallerAsync(UninstallPlan plan)
     {
-        if (plan.Route != UninstallRoute.Launch || plan.Command is not { } cmd)
+        if (plan.Route is not (UninstallRoute.Launch or UninstallRoute.LaunchAsUser) || plan.Command is not { } cmd)
             throw new InvalidOperationException("Dieses Deinstallationsprogramm startet WinWächter nicht selbst.");
-        return _launcher.RunAsync(cmd, plan.InstallLocation);
+        return _launcher.RunAsync(cmd, plan.InstallLocation, asUser: plan.Route == UninstallRoute.LaunchAsUser);
     }
 
     // Hidden entries (components, updates) count as well: a folder one of them uses is never offered.

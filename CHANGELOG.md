@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+- Programme: Für Ihr Benutzerkonto installierte Programme (z. B. in AppData) deinstalliert WinWächter jetzt direkt – mit Ihren normalen Benutzerrechten, wie Windows selbst. Der Umweg über die Windows-Einstellungen entfällt; er bleibt nur, wenn ein solches Deinstallationsprogramm Adminrechte verlangt.
+- Listen scrollen mit dem Touchpad gleichmäßig (auch die Programmliste); Pfeiltasten, Bild↑/↓, Pos1/Ende und Leertaste scrollen die Seite.
+
 ## 0.3.1
 - Sicherheit: Die Prüfung „Geräteverschlüsselung“ funktioniert jetzt (zeigte bisher immer „Nicht prüfbar“).
 - Sicherheit: Schützt ein anderes Programm die Firewall, bleibt die Firewall-Zeile grün, auch wenn die Windows-Firewall gerade nicht lesbar ist.
