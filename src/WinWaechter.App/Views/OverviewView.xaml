@@ -39,6 +39,8 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Margin="0,0,16,0">
@@ -72,7 +74,17 @@
                 </StackPanel>
                 <Rectangle Grid.Column="7" Width="1" Fill="{DynamicResource Line}" />
 
-                <StackPanel Grid.Column="8" Margin="20,0,0,0">
+                <StackPanel Grid.Column="8" Margin="20,0,16,0">
+                    <TextBlock Style="{StaticResource Text.Label}" Text="Sicherheit" />
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Control Style="{StaticResource ToneMark}" Tag="{Binding SecurityTone}" Margin="0,4,10,0" />
+                        <TextBlock Style="{StaticResource Text.Readout}" FontSize="22" Padding="0,4,0,2" TextWrapping="Wrap"
+                                   Text="{Binding SecurityText}" />
+                    </StackPanel>
+                </StackPanel>
+                <Rectangle Grid.Column="9" Width="1" Fill="{DynamicResource Line}" />
+
+                <StackPanel Grid.Column="10" Margin="20,0,0,0">
                     <TextBlock Style="{StaticResource Text.Label}" Text="Wird frei" />
                     <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding FreeText}" />
                 </StackPanel>

@@ -40,7 +40,13 @@ public sealed class FakeDefender : IDefender
         return Task.FromResult(0);
     }
 
-    public Task<int> ScanPathAsync(string path, CancellationToken ct) => Task.FromResult(0);
+    public List<string> ScannedPaths { get; } = [];
+
+    public Task<int> ScanPathAsync(string path, CancellationToken ct)
+    {
+        ScannedPaths.Add(path);
+        return Task.FromResult(0);
+    }
 
     public Task<int> RemoveActiveThreatsAsync()
     {

@@ -1,0 +1,97 @@
+<UserControl x:Class="WinWaechter.App.Views.SecurityView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
+    <UserControl.Resources>
+        <!-- one traffic-light row; child rows use the same template (implicit, so it nests) -->
+        <DataTemplate DataType="{x:Type vm:SecurityItemViewModel}">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Ellipse Width="10" Height="10" Margin="0,6,14,0" VerticalAlignment="Top" Fill="{DynamicResource InkMuted}">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="{DynamicResource InkMuted}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding LightTone}" Value="{x:Static vm:Tone.Good}">
+                                        <Setter Property="Fill" Value="{DynamicResource Good}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding LightTone}" Value="{x:Static vm:Tone.Watch}">
+                                        <Setter Property="Fill" Value="{DynamicResource Watch}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding LightTone}" Value="{x:Static vm:Tone.Alarm}">
+                                        <Setter Property="Fill" Value="{DynamicResource Alarm}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <StackPanel Grid.Column="1">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            <ContentControl Margin="10,0,0,0" Style="{StaticResource Chip}" Tag="{Binding LightTone}" Content="{Binding LightText}" />
+                        </StackPanel>
+                        <TextBlock Margin="0,2,0,0" Text="{Binding Finding}" TextWrapping="Wrap" />
+                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource InkMuted}"
+                                   TextWrapping="Wrap" MaxWidth="620" HorizontalAlignment="Left" Text="{Binding Explanation}" />
+                    </StackPanel>
+                    <Button Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Top" Content="{Binding ActionLabel}"
+                            Visibility="{Binding HasAction, Converter={StaticResource Vis}}"
+                            Command="{Binding DataContext.RunActionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}" />
+                </Grid>
+                <ItemsControl Margin="24,12,0,0" ItemsSource="{Binding Children}" Focusable="False"
+                              Visibility="{Binding Children.Count, Converter={StaticResource Vis}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:SecurityItemViewModel}">
+                            <ContentControl Content="{Binding}" Focusable="False" Margin="0,0,0,12" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="{StaticResource PagePadding}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" VerticalAlignment="Center" Style="{StaticResource Button.Quiet}" Content="Erneut prüfen"
+                        Command="{Binding RefreshCommand}" />
+                <TextBlock Style="{StaticResource Text.PageTitle}" Text="Sicherheit" />
+            </DockPanel>
+            <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
+                       Text="Eine Ampel je Schutzfunktion: Grün ist in Ordnung, Gelb sollten Sie sich ansehen, bei Rot sollten Sie handeln, Grau ließ sich nicht prüfen. Geändert wird nur auf Ihren Klick; die Firewall lässt sich im Verlauf wieder zurücksetzen." />
+            <StackPanel Margin="0,18,0,0" Visibility="{Binding IsBusy, Converter={StaticResource Vis}}">
+                <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding ProgressText}"
+                           AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding AdminNotice}"
+                       Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}" />
+            <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding GateHint}"
+                       Visibility="{Binding GateHint, Converter={StaticResource Vis}}" />
+            <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding LastSummary}"
+                       Visibility="{Binding LastSummary, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+            <StackPanel Margin="32,8,32,24">
+                <Border Style="{StaticResource SurfaceBox}" Visibility="{Binding Items.Count, Converter={StaticResource Vis}}">
+                    <ItemsControl ItemsSource="{Binding Items}" Focusable="False" Margin="0,0,0,-1">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:SecurityItemViewModel}">
+                                <Border Style="{StaticResource RowDivider}" Padding="16,14,16,14">
+                                    <ContentControl Content="{Binding}" Focusable="False" />
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

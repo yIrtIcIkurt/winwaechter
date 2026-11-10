@@ -104,6 +104,7 @@ public partial class App
         var tasks = new List<Task>
         {
             shell.Protect.RefreshCommand.ExecuteAsync(null),
+            shell.Security.RefreshCommand.ExecuteAsync(null),
             shell.History.RefreshCommand.ExecuteAsync(null),
         };
         if (s.Settings.CheckUpdatesOnStart) tasks.Add(shell.Update.CheckCommand.ExecuteAsync(null));

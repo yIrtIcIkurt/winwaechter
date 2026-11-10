@@ -11,6 +11,7 @@ using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
+using WinWaechter.Core.Security.Checks;
 using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Sys;
 using WinWaechter.Core.Update;
@@ -125,7 +126,8 @@ public sealed class ViewSmokeTests : IDisposable
         var update = new UpdateViewModel(new Updates(), dialogs, canInstall: false, () => { }, gate);
         var settings = new SettingsViewModel(new AppSettings(), env, update, new Shell());
         var programs = Programs(engine, gate);
-        var shell = new ShellViewModel(optimize, protect, privacy, programs, history, settings, update, isElevated: false);
+        var security = Security(engine, gate);
+        var shell = new ShellViewModel(optimize, protect, security, privacy, programs, history, settings, update, isElevated: false);
 
         // fill the view models (no sync context here, so the commands finish inline or on the pool)
         optimize.ScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
@@ -133,6 +135,7 @@ public sealed class ViewSmokeTests : IDisposable
         protect.HeuristicScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         history.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         privacy.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        security.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         privacy.SelectRecommendedCommand.Execute(null);
         update.CheckCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         Assert.True(optimize.FindingCount == 4 && protect.HeuristicCount == 1 && history.Sessions.Count == 1 && update.IsAvailable
@@ -150,6 +153,7 @@ public sealed class ViewSmokeTests : IDisposable
             AssertFreeReadoutRightOfSuggestions(overview);
             Layout(new OptimizeView { DataContext = optimize });
             Layout(new ProtectView { DataContext = protect });
+            Layout(new SecurityView { DataContext = security });
             Layout(new PrivacyView { DataContext = privacy });
             Layout(new ProgramsView { DataContext = programs });
             Layout(new MessageDialog("Deinstallation", "Ist die Deinstallation abgeschlossen?", null, "Ja", false, "Noch nicht").Content
@@ -160,6 +164,24 @@ public sealed class ViewSmokeTests : IDisposable
             Layout(dialog.Content as FrameworkElement);
         }
         app.Shutdown();
+    }
+
+    // all four lights, one action row and one child row
+    static SecurityViewModel Security(OptimizerEngine engine, ChangeGate gate)
+    {
+        IReadOnlyList<SecurityItem> rows =
+        [
+            new("firewall-public", "Firewall (Öffentlich)", Light.Red, "Ausgeschaltet", "Ohne Firewall sind Verbindungen von außen nicht gefiltert.",
+                SecurityActionKind.Change, "Einschalten", Change: new NoChange("Firewall")),
+            new("rdp", "Remotedesktop", Light.Yellow, "Eingeschaltet", "Andere Geräte können sich aus der Ferne verbinden.",
+                SecurityActionKind.Link, "Einstellungen öffnen", SystemLinks.RemoteDesktop),
+            new("uac", "Benutzerkontensteuerung", Light.Green, "Eingeschaltet", "Programme brauchen Ihre Zustimmung."),
+            new("encryption", "Geräteverschlüsselung", Light.Grey, "Nicht verfügbar", "Der Status lässt sich nicht lesen."),
+            new("listeners", "Im Netz lauschende Programme", Light.Yellow, "1 Programm lauscht", "Ein Programm nimmt Verbindungen an.",
+                Children: [new("l1", "tool.exe", Light.Yellow, "Port 4444", "Nicht signiert, liegt in AppData.",
+                    SecurityActionKind.DefenderScan, "Von Defender prüfen lassen", ScanPath: @"C:\Users\x\AppData\Roaming\tool.exe")]),
+        ];
+        return new SecurityViewModel(_ => Task.FromResult(rows), engine, new FakeDefender(), new YesDialogs(), new Shell(), canChange: false, gate);
     }
 
     // two rows, a pending banner (settings route for „Spiel-Tool“) and a leftover panel (launched and removed „Foo“)

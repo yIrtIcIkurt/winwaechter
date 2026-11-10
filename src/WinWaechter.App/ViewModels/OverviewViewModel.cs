@@ -8,14 +8,20 @@ public sealed partial class OverviewViewModel : ObservableObject
 {
     readonly Action _showResults;
 
-    public OverviewViewModel(OptimizeViewModel optimize, ProtectViewModel protect, UpdateViewModel update, Action showResults)
+    public OverviewViewModel(OptimizeViewModel optimize, ProtectViewModel protect, SecurityViewModel security, UpdateViewModel update, Action showResults)
     {
         Optimize = optimize;
         Protect = protect;
+        Security = security;
         Update = update;
         _showResults = showResults;
         optimize.FindingsChanged += (_, _) => Recompute();
         protect.StateChanged += (_, _) => Recompute();
+        security.StateChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(SecurityText));
+            OnPropertyChanged(nameof(SecurityTone));
+        };
         optimize.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(OptimizeViewModel.IsBusy)) { Recompute(); CheckCommand.NotifyCanExecuteChanged(); }
@@ -26,7 +32,12 @@ public sealed partial class OverviewViewModel : ObservableObject
 
     public OptimizeViewModel Optimize { get; }
     public ProtectViewModel Protect { get; }
+    public SecurityViewModel Security { get; }
     public UpdateViewModel Update { get; }
+
+    /// <summary>„Sicherheit“ readout: counts of red and yellow rows.</summary>
+    public string SecurityText => Security.TileText;
+    public Tone SecurityTone => Security.TileTone;
 
     /// <summary>The one big sentence: Defender state, then the optimizer state.</summary>
     public string Statement

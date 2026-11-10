@@ -63,6 +63,13 @@ Hell/Dunkel folgt `AppsUseLightTheme` und wechselt live. Die Titelleiste bleibt 
 ## Umsetzung (WPF)
 
 - Tokens: `src/WinWaechter.App/Theme/Tokens.xaml` (Schrift, Größen, Radien), Paletten `Light.xaml`/`Dark.xaml` (gleiche Schlüssel, inkl. Skalen-Pinsel), Stile `Controls.xaml` (nur `DynamicResource` für Farben).
-- Navigation: Glyphen Übersicht `E80F`, Optimieren `E90F`, Schutz `EA18`, Datenschutz `E72E`, Programme `E71D`, Verlauf `E81C`, Einstellungen `E713`.
+- Navigation: Glyphen Übersicht `E80F`, Optimieren `E90F`, Schutz `EA18`, Sicherheit `E72E`, Datenschutz `E72E`, Programme `E71D`, Verlauf `E81C`, Einstellungen `E713`.
 - Anrede in Texten: „Sie“, sonst unpersönlich.
 - Endgültige Aktionen (Bereinigen, Prozess beenden, Ablage leeren) nutzen den Stil `Button.Final` (Ochsenblut-Rahmen); im Dialog liegt der Fokus dann auf „Abbrechen“.
+
+## Sicherheit (Ampel)
+
+- Kein neuer Farbwert: Grün = `Good`, Gelb = `Watch`, Rot = `Alarm`, Grau = `InkMuted`. Der Chip daneben nutzt die Töne `Good`/`Watch`/`Alarm`/neutral; die Farbe ist nie das einzige Signal, der Chip nennt den Zustand („In Ordnung“, „Prüfen“, „Handlungsbedarf“, „Nicht prüfbar“).
+- Zeile: gefüllter Punkt (10 px, `Ellipse`), Titel + Chip, Befund, Erklärung (`Text.Small`, `InkMuted`, max. 620), Aktionsknopf rechts im Standardstil (nie `Button.Final`). Unterzeilen sind 24 px eingerückt.
+- Übersicht: Ablesewert „Sicherheit“ in der Messleiste, Zustandsmarke + „n rot · n gelb“ bzw. „Alles in Ordnung“.
+

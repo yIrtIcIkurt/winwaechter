@@ -10,6 +10,7 @@ using WinWaechter.Core.Optimizer.Tasks;
 using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
+using WinWaechter.Core.Security.Checks;
 using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Security.Heuristics;
 using WinWaechter.Core.Sys;
@@ -53,7 +54,9 @@ public sealed class AppServices
             env.IsElevated ? FileOwner.IsAdminOrSystem : null,
             env.IsElevated ? FileOwner.SetAdmins : null);
         var defender = new DefenderClient(new ProcessRunner(), reg);
+        var firewall = new FwPolicy2Firewall();
         var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo, rules);
+        FirewallChange.Register(factory, firewall);
         DefenderRegistration.Register(factory, defender);
 
         var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);
@@ -82,6 +85,11 @@ public sealed class AppServices
         // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
         var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),
             engine, ProcessTools.KillByPath, dialogs, canChange, gate);
+        // every source runs on the thread pool with its own timeout; the whole check stays off the UI thread
+        var securitySources = new SecuritySources(firewall, new WmiSecurityCenter(), defender, reg, new WmiVolumeEncryption(),
+            new WuaUpdateSearch(), new TcpTableConnections(), procs, sig, new BrowserExtensionScanner(paths, reg));
+        var security = new SecurityViewModel(ct => Task.Run(() => new SecurityCheck(securitySources).RunAsync(ct), ct),
+            engine, defender, dialogs, shell, canChange, gate);
         // the DISM probe and the registry reads stay off the UI thread
         var privacy = new PrivacyViewModel(ct => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
         {
@@ -101,6 +109,6 @@ public sealed class AppServices
         var settingsVm = new SettingsViewModel(settings, env, update, shell);
 
         return new AppServices(env, settings, janitor, gate,
-            new ShellViewModel(optimize, protect, privacy, programs, history, settingsVm, update, env.IsElevated));
+            new ShellViewModel(optimize, protect, security, privacy, programs, history, settingsVm, update, env.IsElevated));
     }
 }

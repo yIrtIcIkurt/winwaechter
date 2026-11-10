@@ -507,30 +507,29 @@ public sealed class ProgramsViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task Shell_nav_order_with_programme()
+    public async Task Shell_first_visit_reads_privacy_and_programme_once()
     {
         _actions.Programs = [P("Foo")];
         var optimize = new OptimizeViewModel(_engine, _dialogs, canChange: false, _gate);
         var protect = new ProtectViewModel(new FakeDefender(), (_, _) => Task.FromResult<IReadOnlyList<Finding>>([]),
             _engine, _ => 0, _dialogs, canChange: false, _gate);
+        var security = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<WinWaechter.Core.Security.Checks.SecurityItem>>([]),
+            _engine, new FakeDefender(), _dialogs, _shell, canChange: false, _gate);
         var privacy = new PrivacyViewModel(_ => Task.FromResult(new PrivacyScanner(_reg, RuleSet.Default).Scan(_ => true)),
             _engine, _dialogs, canChange: false, _gate);
         var programs = Vm(canChange: false);
         var history = new HistoryViewModel(_store, _engine, new AblageJanitor(_store), _dialogs, canChange: false, _gate);
         var update = new UpdateViewModel(new NoUpdates(), _dialogs, canInstall: false, () => { }, _gate);
         var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new SemVer(0, 3, 0)), update, _shell);
-        var shell = new ShellViewModel(optimize, protect, privacy, programs, history, settings, update, isElevated: false);
+        var shell = new ShellViewModel(optimize, protect, security, privacy, programs, history, settings, update, isElevated: false);
 
-        Assert.Equal(new[] { "Übersicht", "Optimieren", "Schutz", "Datenschutz", "Programme", "Verlauf" },
-            shell.PrimaryNav.Select(n => n.Title));
-        Assert.Equal("\uE72E", shell.PrimaryNav[3].Glyph);
-        Assert.Same(privacy, shell.PrimaryNav[3].Page);
-        var nav = shell.PrimaryNav[4];
-        Assert.Equal("\uE71D", nav.Glyph);
+        Assert.Same(privacy, shell.PrimaryNav[4].Page);
+        var nav = shell.PrimaryNav[5];
+        Assert.Equal("", nav.Glyph);
         Assert.Same(programs, nav.Page);
 
         // first visit of each page reads its data
-        shell.PrimaryNav[3].IsSelected = true;
+        shell.PrimaryNav[4].IsSelected = true;
         if (privacy.RefreshCommand.ExecutionTask is { } t1) await t1;
         Assert.NotEmpty(privacy.Rows);
 

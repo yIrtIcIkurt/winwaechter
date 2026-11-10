@@ -188,6 +188,12 @@ public sealed class ViewModelTests : IDisposable
         Assert.False(vm.IsVerified);
     }
 
+    sealed class NoShell : ISystemShell
+    {
+        public void OpenFolder(string path) { }
+        public void OpenLink(string uri) { }
+    }
+
     // ---- admin gating and the shared change gate ----
 
     static Finding Heur(string id) =>
@@ -554,7 +560,9 @@ public sealed class ViewModelTests : IDisposable
     {
         var optimize = Vm([F("five", true, FindingArea.Speicher, size: 5), F("seven", false, FindingArea.Speicher, size: 7)]);
         var update = new UpdateViewModel(new RecordingUpdates([], Path.Combine(_root, "x.exe")), new YesDialogs(), false, () => { }, _gate);
-        var overview = new OverviewViewModel(optimize, Protect(true, Engine()), update, () => { });
+        var overview = new OverviewViewModel(optimize, Protect(true, Engine()),
+            new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<WinWaechter.Core.Security.Checks.SecurityItem>>([]), Engine(),
+                new FakeDefender(), new YesDialogs(), new NoShell(), canChange: true, _gate), update, () => { });
         var raised = new List<string?>();
         overview.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
         Assert.Equal("–", overview.FreeText);
