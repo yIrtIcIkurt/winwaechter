@@ -39,7 +39,7 @@ Dazu: Autor „Tahsin Yilmaz“ (Über-Bereich, Installer, Dateieigenschaften, R
 - Geräteverschlüsselung war immer „Nicht prüfbar“: WMI-Abfrage ohne Schlüssel `DeviceID` → `GetConversionStatus` scheiterte.
 - Firewall bei fremdem Schutzprogramm bleibt grün, auch wenn die Windows-Firewall nicht lesbar ist.
 - WMI-Ergebnislisten werden freigegeben; Regel-Tests zählen ab der mitgelieferten Version.
-- [ ] Auf dem Rechner prüfen: Zeile „Geräteverschlüsselung“ zeigt Grün/Gelb statt Grau.
+- [x] Auf dem Rechner geprüft (2026-11-10): „Geräteverschlüsselung“ zeigt Grün („Systemlaufwerk verschlüsselt“).
 
 ## 0.3.2
 - Benutzer-Programme (HKCU, AppData) startet WinWächter direkt mit den normalen Rechten des angemeldeten Benutzers (Explorer-Token, `CreateProcessWithTokenW`); Umweg über die Einstellungen nur noch bei Fehler 740 o. Ä. Spec 0.3 §7.1 ergänzt.
