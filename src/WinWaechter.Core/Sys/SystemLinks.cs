@@ -1,6 +1,7 @@
 namespace WinWaechter.Core.Sys;
 
-/// <summary>The only URIs WinWaechter opens through the shell.</summary>
+/// <summary>The only URIs WinWaechter opens through the shell. No web addresses: from the elevated
+/// process a browser could start elevated as well.</summary>
 public static class SystemLinks
 {
     public const string AppsFeatures = "ms-settings:appsfeatures",
@@ -8,11 +9,10 @@ public static class SystemLinks
         RemoteDesktop = "ms-settings:remotedesktop",
         DeviceEncryption = "ms-settings:deviceencryption",
         DefenderThreat = "windowsdefender://threat",
-        DefenderAppBrowser = "windowsdefender://appbrowser",
-        Repository = "https://github.com/yIrtIcIkurt/winwaechter";
+        DefenderAppBrowser = "windowsdefender://appbrowser";
 
     public static IReadOnlySet<string> Allowed { get; } = new HashSet<string>(
-        [AppsFeatures, WindowsUpdate, RemoteDesktop, DeviceEncryption, DefenderThreat, DefenderAppBrowser, Repository],
+        [AppsFeatures, WindowsUpdate, RemoteDesktop, DeviceEncryption, DefenderThreat, DefenderAppBrowser],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Exact match against <see cref="Allowed"/> (case-insensitive, no trimming).</summary>

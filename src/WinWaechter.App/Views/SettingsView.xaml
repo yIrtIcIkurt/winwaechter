@@ -115,8 +115,17 @@
             <StackPanel Margin="0,12,0,0">
                 <TextBlock Text="{x:Static vm:SettingsViewModel.AuthorText}" />
                 <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Typography.NumeralAlignment="Tabular" Text="{Binding VersionText}" />
-                <Button Margin="-8,8,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}" Content="Projekt auf GitHub"
-                        Command="{Binding OpenRepositoryCommand}" ToolTip="github.com/yIrtIcIkurt/winwaechter" />
+                <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Small}" Text="Projekt auf GitHub" />
+                <StackPanel Orientation="Horizontal">
+                    <!-- selectable text, not a link: the elevated app never opens a browser -->
+                    <TextBox Margin="-8,0,0,0" Padding="8,5" IsReadOnly="True" IsReadOnlyCaretVisible="False"
+                             Background="Transparent" BorderBrush="Transparent" VerticalAlignment="Center"
+                             Text="{x:Static vm:SettingsViewModel.RepositoryUrl}" AutomationProperties.Name="Adresse des Projekts auf GitHub" />
+                    <Button Margin="4,0,0,0" Style="{StaticResource Button.Quiet}" Content="Link kopieren"
+                            Command="{Binding CopyRepositoryLinkCommand}" AutomationProperties.Name="Link zum Projekt kopieren" />
+                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Small}"
+                               Text="{Binding LinkCopyStatus}" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

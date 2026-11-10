@@ -185,12 +185,13 @@ public sealed class PolishTests : IDisposable
         public void Launch(VerifiedUpdate update) { }
     }
 
-    SettingsViewModel Settings(RulesInfo info, Func<CancellationToken, Task<RulesUpdateResult>> update, ISystemShell shell)
+    SettingsViewModel Settings(RulesInfo info, Func<CancellationToken, Task<RulesUpdateResult>> update, ISystemShell shell,
+        Action<string>? copyText = null)
     {
         var env = new AppEnvironment(false, _root, new SemVer(0, 3, 0));
         var dialogs = new Dialogs();
         return new SettingsViewModel(new AppSettings(), env, new UpdateViewModel(new NoUpdates(), dialogs, false, () => { }, _gate),
-            shell, info, update);
+            shell, info, update, copyText ?? (_ => { }));
     }
 
     [Fact]
@@ -216,15 +217,26 @@ public sealed class PolishTests : IDisposable
     }
 
     [Fact]
-    public void Settings_about_block_opens_repository()
+    public void Settings_about_block_copies_repository_link_without_opening_it()
     {
         var shell = new RecordingShell();
-        var vm = Settings(new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")), shell);
+        var copied = new List<string>();
+        var vm = Settings(new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")), shell, copied.Add);
 
         Assert.Equal("Erstellt von Tahsin Yilmaz", SettingsViewModel.AuthorText);
-        vm.OpenRepositoryCommand.Execute(null);
-        Assert.Equal(["https://github.com/yIrtIcIkurt/winwaechter"], shell.Links);
-        Assert.True(SystemLinks.IsAllowed(SystemLinks.Repository));
+        Assert.Equal("https://github.com/yIrtIcIkurt/winwaechter", SettingsViewModel.RepositoryUrl);
+        Assert.Null(vm.LinkCopyStatus);
+        vm.CopyRepositoryLinkCommand.Execute(null);
+        Assert.Equal(["https://github.com/yIrtIcIkurt/winwaechter"], copied);
+        Assert.Equal("Link kopiert", vm.LinkCopyStatus);
+        Assert.Empty(shell.Links);
+        Assert.False(SystemLinks.IsAllowed(SettingsViewModel.RepositoryUrl));
+
+        // a locked clipboard is reported, never thrown
+        var failing = Settings(new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")), shell,
+            _ => throw new System.Runtime.InteropServices.COMException("busy"));
+        failing.CopyRepositoryLinkCommand.Execute(null);
+        Assert.Equal("Link konnte nicht kopiert werden.", failing.LinkCopyStatus);
     }
 
     [Fact]

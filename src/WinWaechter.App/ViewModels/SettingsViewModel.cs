@@ -1,8 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Logging;
 using WinWaechter.Core.Rules;
-using WinWaechter.Core.Sys;
 using WinWaechter.Core.Update;
 
 namespace WinWaechter.App.ViewModels;
@@ -14,22 +14,28 @@ public sealed partial class SettingsViewModel : ObservableObject
     readonly AppEnvironment _env;
     readonly ISystemShell _shell;
     readonly Func<CancellationToken, Task<RulesUpdateResult>> _updateRules;
+    readonly Action<string> _copyText;
 
     public const string AuthorText = "Erstellt von Tahsin Yilmaz";
 
+    /// <summary>Shown as text and copied, never opened: a browser started from here would run elevated.</summary>
+    public const string RepositoryUrl = "https://github.com/yIrtIcIkurt/winwaechter";
+
+    /// <param name="copyText">Puts text on the clipboard (UI thread); defaults to the WPF clipboard.</param>
     public SettingsViewModel(AppSettings settings, AppEnvironment env, UpdateViewModel update, ISystemShell shell,
-        RulesInfo rules, Func<CancellationToken, Task<RulesUpdateResult>> updateRules)
+        RulesInfo rules, Func<CancellationToken, Task<RulesUpdateResult>> updateRules, Action<string>? copyText = null)
     {
         _settings = settings;
         _env = env;
         _shell = shell;
         _updateRules = updateRules;
+        _copyText = copyText ?? System.Windows.Clipboard.SetText;
         Update = update;
         RulesText = rules.DisplayText;
         _checkUpdatesOnStart = settings.CheckUpdatesOnStart;
         _ablageDaysText = settings.AblageDays.ToString(Labels.De);
         UpdateRulesCommand = new AsyncRelayCommand(UpdateRulesAsync);
-        OpenRepositoryCommand = new RelayCommand(() => _shell.OpenLink(SystemLinks.Repository));
+        CopyRepositoryLinkCommand = new RelayCommand(CopyRepositoryLink);
     }
 
     public UpdateViewModel Update { get; }
@@ -45,8 +51,27 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>„Regeln aktualisieren“: fetches signed rules from GitHub; they apply from the next start.</summary>
     public IAsyncRelayCommand UpdateRulesCommand { get; }
 
-    /// <summary>„Projekt auf GitHub“.</summary>
-    public IRelayCommand OpenRepositoryCommand { get; }
+    /// <summary>„Link kopieren“ for the project address.</summary>
+    public IRelayCommand CopyRepositoryLinkCommand { get; }
+
+    /// <summary>„Link kopiert“ after a copy, or why it failed.</summary>
+    [ObservableProperty]
+    private string? _linkCopyStatus;
+
+    void CopyRepositoryLink()
+    {
+        try
+        {
+            _copyText(RepositoryUrl);
+            LinkCopyStatus = "Link kopiert";
+        }
+        catch (Exception ex)
+        {
+            // the clipboard can be held by another program
+            FileLog.Warn("Link nicht kopiert", ex);
+            LinkCopyStatus = "Link konnte nicht kopiert werden.";
+        }
+    }
 
     public string DataFolder => _env.DataRoot;
     public string LogFolder => _env.LogDir;

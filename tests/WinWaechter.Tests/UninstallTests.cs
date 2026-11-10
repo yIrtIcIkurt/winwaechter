@@ -328,10 +328,13 @@ public sealed class UninstallTests : IDisposable
                  {
                      SystemLinks.AppsFeatures, SystemLinks.WindowsUpdate, SystemLinks.RemoteDesktop,
                      SystemLinks.DeviceEncryption, SystemLinks.DefenderThreat, SystemLinks.DefenderAppBrowser,
-                     SystemLinks.Repository,
                  })
             Assert.True(SystemLinks.IsAllowed(u));
-        Assert.Equal(7, SystemLinks.Allowed.Count);
+        Assert.Equal(6, SystemLinks.Allowed.Count);
+        // the elevated process never hands a web address to the shell (the browser could start elevated)
+        Assert.All(SystemLinks.Allowed, u =>
+            Assert.True(u.StartsWith("ms-settings:", StringComparison.Ordinal) || u.StartsWith("windowsdefender:", StringComparison.Ordinal), u));
+        Assert.False(SystemLinks.IsAllowed("https://github.com/yIrtIcIkurt/winwaechter"));
         Assert.False(SystemLinks.IsAllowed("https://github.com/yIrtIcIkurt/winwaechter/releases"));
         Assert.True(SystemLinks.IsAllowed("MS-SETTINGS:APPSFEATURES"));
         Assert.False(SystemLinks.IsAllowed("ms-settings:appsfeatures "));
