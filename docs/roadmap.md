@@ -41,6 +41,13 @@ Dazu: Autor „Tahsin Yilmaz“ (Über-Bereich, Installer, Dateieigenschaften, R
 - WMI-Ergebnislisten werden freigegeben; Regel-Tests zählen ab der mitgelieferten Version.
 - [ ] Auf dem Rechner prüfen: Zeile „Geräteverschlüsselung“ zeigt Grün/Gelb statt Grau.
 
+## 0.3.2
+- Benutzer-Programme (HKCU, AppData) startet WinWächter direkt mit den normalen Rechten des angemeldeten Benutzers (Explorer-Token, `CreateProcessWithTokenW`); Umweg über die Einstellungen nur noch bei Fehler 740 o. Ä. Spec 0.3 §7.1 ergänzt.
+- Touchpad-Scrollen auch in der Programmliste gleichmäßig; Pfeiltasten/Bild/Pos1/Ende/Leertaste scrollen.
+- Sortierfeld zeigt „Name“ statt `ProgramSortOption { … }`.
+- [x] Live-Test 2026-11-10: VAVOO direkt deinstalliert (erster Versuch: Fehler 5, Token-Rechte ergänzt), Scroll-Tempo vom Nutzer bestätigt.
+- Offen aus der Sicherheitsprüfung (klein): Selbst-Elevation verlässt den Job; Kommandozeile > 1024 Zeichen fällt auf Einstellungen zurück; HKLM-Deinstaller im Profil eines anderen Benutzers läuft als angemeldeter Benutzer.
+
 ## 0.4.0 (geplant, Entscheidung Nutzer 2026-11-10)
 Neue Seite „Leistung“: Energiemodus (Netz/Akku), visuelle Effekte, Startzeit-Bericht, Live-Monitor (CPU/RAM/Datenträger/Top-Verbraucher), Hintergrund-Apps, Spielmodus + GPU-Planung, Ruhezustand-Datei (mit Hinweis), Speicheroptimierung. Alles einzeln, umkehrbar; keine „Tuning-Tricks“ (RAM-Booster, Prefetch löschen, Dienste massenhaft abschalten).
 
