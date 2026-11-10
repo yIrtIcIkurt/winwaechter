@@ -99,3 +99,25 @@ public sealed class FakeTicks : WinWaechter.App.ViewModels.ITickSource
     /// <summary>Fires one tick like the timer would; does nothing while stopped.</summary>
     public void Fire() { if (Running) _tick?.Invoke(); }
 }
+
+/// <summary>A Leistung view model over fakes only, for tests that need one to build the shell.</summary>
+public static class FakePerformanceVm
+{
+    public static WinWaechter.App.ViewModels.PerformanceViewModel Create(
+        WinWaechter.Core.Optimizer.OptimizerEngine engine, WinWaechter.App.Services.IDialogService dialogs,
+        WinWaechter.App.Services.ISystemShell shell, WinWaechter.App.Services.ChangeGate gate,
+        WinWaechter.App.ViewModels.ITickSource? ticks = null, bool canChange = false, FakeSystemSources? sources = null,
+        Action? openOptimize = null, FakeRegistry? registry = null)
+    {
+        var reg = registry ?? new FakeRegistry();
+        var broadcast = new FakeBroadcast();
+        var scanner = new PerformanceScanner(reg, new FakePowerModes(), new FakeAnimationSetting(), new FakeHibernation(),
+            new FakeAppDisplayNames(), true, broadcast);
+        return new WinWaechter.App.ViewModels.PerformanceViewModel(
+            _ => Task.FromResult<(IReadOnlyList<PerfSetting>, Func<PerfSetting, int, IReadOnlyList<WinWaechter.Core.Changes.IChange>>)>(
+                (scanner.Scan(), scanner.ChangesFor)),
+            new SystemSampler(sources ?? new FakeSystemSources(), (_, _) => { }),
+            () => BootReport.Load(new FakeBootEventSource(), DateTime.UtcNow),
+            engine, dialogs, shell, canChange, gate, openOptimize ?? (() => { }), ticks ?? new FakeTicks());
+    }
+}

@@ -1,0 +1,213 @@
+<UserControl x:Class="WinWaechter.App.Views.PerformanceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
+    <UserControl.Resources>
+        <!-- one setting: title with chips, explanation, hint, link; the choice on the right (one control type for all rows) -->
+        <DataTemplate x:Key="PerfRow" DataType="{x:Type vm:PerfSettingViewModel}">
+            <Border Style="{StaticResource RowDivider}" Padding="16,12,16,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <WrapPanel>
+                            <TextBlock Margin="0,0,10,2" Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            <ContentControl Margin="0,0,6,2" Style="{StaticResource Chip}" Content="{Binding StateText}"
+                                            Visibility="{Binding StateText, Converter={StaticResource Vis}}" />
+                            <ContentControl Margin="0,0,6,2" Style="{StaticResource Chip}" Tag="{x:Static vm:Tone.Calm}"
+                                            Content="{Binding RecommendedText}"
+                                            Visibility="{Binding RecommendedText, Converter={StaticResource Vis}}" />
+                            <ContentControl Margin="0,0,6,2" Style="{StaticResource Chip}" Content="Gilt nach einem Neustart"
+                                            Visibility="{Binding NeedsRestart, Converter={StaticResource Vis}}" />
+                            <ContentControl Margin="0,0,6,2" Style="{StaticResource Chip}" Tag="{x:Static vm:Tone.Calm}" Content="geändert"
+                                            Visibility="{Binding IsChanged, Converter={StaticResource Vis}}" />
+                        </WrapPanel>
+                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}"
+                                   HorizontalAlignment="Left" Text="{Binding Explanation}"
+                                   Visibility="{Binding Explanation, Converter={StaticResource Vis}}" />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}"
+                                   MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding Hint}"
+                                   Visibility="{Binding Hint, Converter={StaticResource Vis}}" />
+                        <Button Margin="-8,4,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}"
+                                Content="In den Windows-Einstellungen öffnen" Command="{Binding OpenLinkCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat={}{0}: in den Windows-Einstellungen öffnen}"
+                                Visibility="{Binding Link, Converter={StaticResource Vis}}" />
+                    </StackPanel>
+                    <ComboBox Grid.Column="1" Margin="16,0,0,0" MinWidth="200" VerticalAlignment="Top"
+                              ItemsSource="{Binding Options}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                              SelectedValue="{Binding Chosen, Mode=TwoWay}" IsEnabled="{Binding CanChange}"
+                              AutomationProperties.Name="{Binding Title}"
+                              Visibility="{Binding Setting.Available, Converter={StaticResource Vis}}" />
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <!-- one live readout: label, value in tabular figures, a tick scale filled to the value -->
+        <Style x:Key="ReadoutScale" TargetType="ProgressBar" BasedOn="{StaticResource Scale}">
+            <Setter Property="Margin" Value="0,10,0,0" />
+            <Setter Property="Maximum" Value="1" />
+        </Style>
+    </UserControl.Resources>
+
+    <DockPanel>
+        <!-- Header -->
+        <StackPanel DockPanel.Dock="Top" Margin="{StaticResource PagePadding}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" VerticalAlignment="Center" Style="{StaticResource Button.Quiet}" Content="Neu lesen"
+                        Command="{Binding RefreshCommand}" />
+                <TextBlock Style="{StaticResource Text.PageTitle}" Text="Leistung" />
+            </DockPanel>
+            <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
+                       Text="Was den Rechner gerade auslastet, wie lange der Start dauert und welche Windows-Einstellungen die Leistung beeinflussen; vorausgewählt ist nichts, und jede Änderung lässt sich im Verlauf rückgängig machen." />
+            <StackPanel Margin="0,18,0,0" Visibility="{Binding IsBusy, Converter={StaticResource Vis}}">
+                <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding ProgressText}"
+                           AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Footer with the apply action -->
+        <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Line}" Background="{DynamicResource Canvas}"
+                Padding="32,12,32,14">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Margin="0,0,8,0" Style="{StaticResource Button.Quiet}" Content="Auswahl zurücksetzen" Command="{Binding ResetCommand}"
+                            Visibility="{Binding PendingCount, Converter={StaticResource Vis}}" />
+                    <Button Style="{StaticResource Button.Primary}" Content="{Binding ApplyText}" Command="{Binding ApplyCommand}" />
+                </StackPanel>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding AdminNotice}"
+                               Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}" />
+                    <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding GateHint}"
+                               Visibility="{Binding GateHint, Converter={StaticResource Vis}}" />
+                    <TextBlock Style="{StaticResource Text.Small}" Text="{Binding LastSummary}"
+                               Visibility="{Binding LastSummary, Converter={StaticResource Vis}}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+            <StackPanel Margin="32,8,32,24">
+
+                <!-- Jetzt: three live readouts on a tick scale -->
+                <TextBlock Style="{StaticResource Text.Section}" Text="Jetzt" />
+                <Rectangle Margin="0,12,0,0" Style="{StaticResource ScaleRule}" />
+                <Grid Margin="0,18,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Margin="0,0,20,0">
+                        <TextBlock Style="{StaticResource Text.Label}" Text="Prozessor" />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding CpuText}" />
+                        <ProgressBar Style="{StaticResource ReadoutScale}" Value="{Binding CpuValue, Mode=OneWay}"
+                                     AutomationProperties.Name="Prozessor-Auslastung" />
+                    </StackPanel>
+                    <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource Line}" />
+
+                    <StackPanel Grid.Column="2" Margin="20,0,20,0">
+                        <TextBlock Style="{StaticResource Text.Label}" Text="Arbeitsspeicher" />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding MemoryText}" />
+                        <ProgressBar Style="{StaticResource ReadoutScale}" Value="{Binding MemoryValue, Mode=OneWay}"
+                                     AutomationProperties.Name="Arbeitsspeicher belegt" />
+                    </StackPanel>
+                    <Rectangle Grid.Column="3" Width="1" Fill="{DynamicResource Line}" />
+
+                    <StackPanel Grid.Column="4" Margin="20,0,0,0">
+                        <TextBlock Style="{StaticResource Text.Label}" Text="Datenträger" />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding DiskText}" />
+                        <ProgressBar Style="{StaticResource ReadoutScale}" Value="{Binding DiskValue, Mode=OneWay}"
+                                     AutomationProperties.Name="Datenträger-Auslastung" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Größte Verbraucher -->
+                <TextBlock Margin="0,28,0,8" Style="{StaticResource Text.Label}" Text="Größte Verbraucher" />
+                <TextBlock Style="{StaticResource Text.Small}" Text="Die erste Messung folgt in wenigen Sekunden."
+                           Visibility="{Binding Top.Count, Converter={StaticResource Vis}, ConverterParameter=not}" />
+                <Border Style="{StaticResource SurfaceBox}" Visibility="{Binding Top.Count, Converter={StaticResource Vis}}">
+                    <StackPanel>
+                        <Border Style="{StaticResource RowDivider}" Padding="16,8,16,8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="150" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Style="{StaticResource Text.Label}" Text="Programm" />
+                                <TextBlock Grid.Column="1" Style="{StaticResource Text.Label}" Text="Prozessor" HorizontalAlignment="Right" />
+                                <TextBlock Grid.Column="2" Style="{StaticResource Text.Label}" Text="Arbeitsspeicher" HorizontalAlignment="Right" />
+                            </Grid>
+                        </Border>
+                        <ItemsControl ItemsSource="{Binding Top}" Focusable="False" Margin="0,0,0,-1">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:ConsumerViewModel}">
+                                    <Border Style="{StaticResource RowDivider}" Padding="16,8,16,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="110" />
+                                                <ColumnDefinition Width="150" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding Name}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding CpuText}" HorizontalAlignment="Right"
+                                                       Typography.NumeralAlignment="Tabular" />
+                                            <TextBlock Grid.Column="2" Text="{Binding MemoryText}" HorizontalAlignment="Right"
+                                                       Typography.NumeralAlignment="Tabular" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Start: boot time from the diagnostics log -->
+                <TextBlock Margin="0,36,0,0" Style="{StaticResource Text.Section}" Text="Start" />
+                <DockPanel Margin="0,12,0,0">
+                    <Button DockPanel.Dock="Right" VerticalAlignment="Bottom" Content="Autostart-Programme prüfen"
+                            Command="{Binding OpenOptimizeCommand}" />
+                    <StackPanel Margin="0,0,16,0">
+                        <TextBlock Style="{StaticResource Text.Label}" Text="Letzter vollständiger Start" />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding BootText}" />
+                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Typography.NumeralAlignment="Tabular"
+                                   Text="{Binding BootAverageText}" Visibility="{Binding BootAverageText, Converter={StaticResource Vis}}" />
+                    </StackPanel>
+                </DockPanel>
+                <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Small}" Text="{Binding BootMessage}"
+                           Visibility="{Binding BootMessage, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
+                <StackPanel Margin="0,14,0,0" Visibility="{Binding BootSlowest.Count, Converter={StaticResource Vis}}">
+                    <TextBlock Style="{StaticResource Text.Label}" Text="Bremsten den Start (letzte 30 Tage)" />
+                    <ItemsControl Margin="0,6,0,0" ItemsSource="{Binding BootSlowest}" ItemTemplate="{StaticResource ReasonLine}"
+                                  Focusable="False" Typography.NumeralAlignment="Tabular" />
+                </StackPanel>
+                <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left"
+                           Text="Gemessen wird nur ein vollständiger Start (Neustart), nicht das Hochfahren nach „Herunterfahren“ mit Schnellstart." />
+
+                <!-- Einstellungen -->
+                <TextBlock Margin="0,36,0,12" Style="{StaticResource Text.Section}" Text="Einstellungen" />
+                <Border Style="{StaticResource SurfaceBox}" Visibility="{Binding Settings.Count, Converter={StaticResource Vis}}">
+                    <ItemsControl ItemsSource="{Binding Settings}" ItemTemplate="{StaticResource PerfRow}" Focusable="False" Margin="0,0,0,-1" />
+                </Border>
+
+                <Expander Margin="0,16,0,0" Style="{StaticResource Reasons}" Header="{Binding BackgroundHeader}"
+                          Visibility="{Binding BackgroundApps.Count, Converter={StaticResource Vis}}">
+                    <Border Style="{StaticResource SurfaceBox}">
+                        <ItemsControl ItemsSource="{Binding BackgroundApps}" ItemTemplate="{StaticResource PerfRow}" Focusable="False"
+                                      Margin="0,0,0,-1" />
+                    </Border>
+                </Expander>
+                <TextBlock Margin="0,16,0,0" Style="{StaticResource Text.Small}"
+                           Text="{Binding BackgroundNote, StringFormat=Hintergrund-Apps: {0}}"
+                           Visibility="{Binding ShowBackgroundNote, Converter={StaticResource Vis}}" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

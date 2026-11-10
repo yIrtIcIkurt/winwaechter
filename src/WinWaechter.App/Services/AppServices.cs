@@ -1,4 +1,6 @@
+using System.IO;
 using System.Net.Http;
+using System.Security.Principal;
 using WinWaechter.App.ViewModels;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
@@ -9,6 +11,7 @@ using WinWaechter.Core.Optimizer.Autostart;
 using WinWaechter.Core.Optimizer.Services;
 using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Optimizer.Tasks;
+using WinWaechter.Core.Performance;
 using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
@@ -21,15 +24,29 @@ using WinWaechter.Core.Update;
 namespace WinWaechter.App.Services;
 
 /// <summary>Composition root: wires Core services and view models with plain constructors.</summary>
-public sealed class AppServices
+public sealed class AppServices : IDisposable
 {
-    AppServices(AppEnvironment env, AppSettings settings, AblageJanitor janitor, ChangeGate gate, ShellViewModel shell)
+    readonly IDisposable[] _owned;
+
+    AppServices(AppEnvironment env, AppSettings settings, AblageJanitor janitor, ChangeGate gate, ShellViewModel shell,
+        params IDisposable[] owned)
     {
         Env = env;
         Settings = settings;
         Janitor = janitor;
         Gate = gate;
         Shell = shell;
+        _owned = owned;
+    }
+
+    /// <summary>Releases native handles (the PDH query of the live monitor).</summary>
+    public void Dispose()
+    {
+        foreach (var d in _owned)
+        {
+            try { d.Dispose(); }
+            catch (Exception ex) { FileLog.Warn("Freigeben beim Beenden fehlgeschlagen", ex); }
+        }
     }
 
     public AppEnvironment Env { get; }
@@ -62,6 +79,12 @@ public sealed class AppServices
         var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo, rules);
         FirewallChange.Register(factory, firewall);
         DefenderRegistration.Register(factory, defender);
+        var power = new WinPowerModes(reg);
+        var animation = new WinAnimationSetting();
+        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows) is { Length: > 0 } w ? w : @"C:\Windows";
+        var hibernation = new WinHibernation(reg, new ProcessRunner(), windowsDir, Path.GetPathRoot(windowsDir) ?? @"C:\");
+        var broadcast = new WinSettingBroadcast();
+        PerformanceRegistration.Register(factory, reg, power, animation, hibernation, broadcast);
 
         var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);
         var services = new ServiceScanner(sc, sig, rules, reg, fo);
@@ -107,13 +130,26 @@ public sealed class AppServices
             new ForcedRemovalPlanner(reg, fo, rules, procs, paths, TraceScan), paths);
         // the view model runs every read of the service on the thread pool
         var programs = new ProgramsViewModel(programService, engine, dialogs, shell, canChange, gate);
+        // Leistung: the animation switch (SPI) acts on the process's own account, so it is offered only when
+        // that is the signed-in user. The view model runs the scan, the samples and the boot report on the pool.
+        var ownAccount = string.Equals(WindowsIdentity.GetCurrent().User?.Value, user.Sid, StringComparison.OrdinalIgnoreCase);
+        var perfScanner = new PerformanceScanner(reg, power, animation, hibernation, new WinAppDisplayNames(reg), ownAccount, broadcast);
+        var systemSources = new WinSystemSources();
+        var bootSource = new WinBootEventSource();
+        ShellViewModel? shellVm = null;
+        var performance = new PerformanceViewModel(
+            _ => Task.FromResult<(IReadOnlyList<PerfSetting>, Func<PerfSetting, int, IReadOnlyList<IChange>>)>(
+                (perfScanner.Scan(), perfScanner.ChangesFor)),
+            new SystemSampler(systemSources), () => BootReport.Load(bootSource, DateTime.UtcNow),
+            engine, dialogs, shell, canChange, gate, () => shellVm?.Navigate(optimize), new DispatcherTickSource());
         var janitor = new AblageJanitor(store);
         var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate);
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
         var settingsVm = new SettingsViewModel(settings, env, update, shell, rulesInfo, updateRules);
 
-        return new AppServices(env, settings, janitor, gate,
-            new ShellViewModel(optimize, protect, security, privacy, programs, history, settingsVm, update, env.IsElevated));
+        shellVm = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settingsVm, update,
+            env.IsElevated);
+        return new AppServices(env, settings, janitor, gate, shellVm, systemSources);
     }
 
     // Downloaded rules live in <data>\Regeln. Elevated, that folder is secured before the store reads from it.

@@ -280,7 +280,8 @@ public sealed class SecurityViewModelTests : IDisposable
         var update = new UpdateViewModel(new NoUpdates(), _dialogs, canInstall: false, () => { }, _gate);
         var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new SemVer(0, 3, 0)), update, _shell,
             new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")));
-        return new ShellViewModel(optimize, protect, security, privacy, programs, history, settings, update, isElevated: false);
+        var performance = FakePerformanceVm.Create(_engine, _dialogs, _shell, _gate);
+        return new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, isElevated: false);
     }
 
     [Fact]
@@ -305,11 +306,11 @@ public sealed class SecurityViewModelTests : IDisposable
         var vm = Vm(Mixed());
         var shell = Shell(vm);
 
-        Assert.Equal(new[] { "Übersicht", "Optimieren", "Schutz", "Sicherheit", "Datenschutz", "Programme", "Verlauf" },
+        Assert.Equal(new[] { "Übersicht", "Optimieren", "Leistung", "Schutz", "Sicherheit", "Datenschutz", "Programme", "Verlauf" },
             shell.PrimaryNav.Select(n => n.Title));
-        var nav = shell.PrimaryNav[3];
+        var nav = shell.PrimaryNav[4];
         Assert.Equal("", nav.Glyph);
-        Assert.Equal("", shell.PrimaryNav[4].Glyph);
+        Assert.Equal("", shell.PrimaryNav[5].Glyph);
         Assert.Same(vm, nav.Page);
 
         // the first visit reads the check when startup did not

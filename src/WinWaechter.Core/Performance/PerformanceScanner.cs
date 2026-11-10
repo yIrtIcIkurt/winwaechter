@@ -22,9 +22,9 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     const string BackgroundPrefix = "bg:";
     public const string BackgroundUnavailableId = "bg-unavailable";
 
-    const string VisualLink = "ms-settings:easeofaccess-visualeffects";
-    const string GpuLink = "ms-settings:display-advancedgraphics";
-    const string StorageLink = "ms-settings:storagepolicies";
+    const string VisualLink = SystemLinks.VisualEffects;
+    const string GpuLink = SystemLinks.AdvancedGraphics;
+    const string StorageLink = SystemLinks.StoragePolicies;
 
     static readonly PerfOption[] OnOff = [new(1, "An"), new(0, "Aus")];
     static readonly PerfOption[] GpuOptions = [new(2, "An"), new(1, "Aus")];
@@ -111,7 +111,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
             return new(id, "power", title, explanation, PowerBase, 0, false, Unreadable, hint, null, false, null);
         var index = PowerModeIds.All.ToList().IndexOf(mode.Value);
         IReadOnlyList<PerfOption> options = index < 0 ? [new PerfOption(-1, CustomLabel), .. PowerBase] : PowerBase;
-        return new(id, "power", title, explanation, options, index, true, null, hint, null, false, "ms-settings:powersleep");
+        return new(id, "power", title, explanation, options, index, true, null, hint, null, false, SystemLinks.PowerSleep);
     }
 
     // ---- visual ----

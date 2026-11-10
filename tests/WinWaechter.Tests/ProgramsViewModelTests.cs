@@ -741,15 +741,16 @@ public sealed class ProgramsViewModelTests : IDisposable
         var update = new UpdateViewModel(new NoUpdates(), _dialogs, canInstall: false, () => { }, _gate);
         var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new SemVer(0, 3, 0)), update, _shell,
             new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")));
-        var shell = new ShellViewModel(optimize, protect, security, privacy, programs, history, settings, update, isElevated: false);
+        var performance = FakePerformanceVm.Create(_engine, _dialogs, _shell, _gate);
+        var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, isElevated: false);
 
-        Assert.Same(privacy, shell.PrimaryNav[4].Page);
-        var nav = shell.PrimaryNav[5];
+        Assert.Same(privacy, shell.PrimaryNav[5].Page);
+        var nav = shell.PrimaryNav[6];
         Assert.Equal("", nav.Glyph);
         Assert.Same(programs, nav.Page);
 
         // first visit of each page reads its data
-        shell.PrimaryNav[4].IsSelected = true;
+        shell.PrimaryNav[5].IsSelected = true;
         if (privacy.RefreshCommand.ExecutionTask is { } t1) await t1;
         Assert.NotEmpty(privacy.Rows);
 

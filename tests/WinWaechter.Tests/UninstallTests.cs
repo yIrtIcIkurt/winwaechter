@@ -364,9 +364,11 @@ public sealed class UninstallTests : IDisposable
                  {
                      SystemLinks.AppsFeatures, SystemLinks.WindowsUpdate, SystemLinks.RemoteDesktop,
                      SystemLinks.DeviceEncryption, SystemLinks.DefenderThreat, SystemLinks.DefenderAppBrowser,
+                     "ms-settings:easeofaccess-visualeffects", "ms-settings:display-advancedgraphics",
+                     "ms-settings:storagepolicies", "ms-settings:powersleep",
                  })
             Assert.True(SystemLinks.IsAllowed(u));
-        Assert.Equal(6, SystemLinks.Allowed.Count);
+        Assert.Equal(10, SystemLinks.Allowed.Count);
         // the elevated process never hands a web address to the shell (the browser could start elevated)
         Assert.All(SystemLinks.Allowed, u =>
             Assert.True(u.StartsWith("ms-settings:", StringComparison.Ordinal) || u.StartsWith("windowsdefender:", StringComparison.Ordinal), u));

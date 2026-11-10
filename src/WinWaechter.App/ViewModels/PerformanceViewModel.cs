@@ -48,6 +48,11 @@ public sealed partial class PerfSettingViewModel : ObservableObject
     public string? UnavailableText => Setting.UnavailableText;
     public bool IsRecommendedDifferent => Setting.Recommended is { } r && r != Setting.Current;
 
+    /// <summary>Chip text such as „empfohlen: An“ while the recommendation differs from the current state.</summary>
+    public string? RecommendedText => IsRecommendedDifferent
+        ? $"empfohlen: {Setting.Options.FirstOrDefault(o => o.Value == Setting.Recommended)?.Label}"
+        : null;
+
     public string StateText => Setting.Available
         ? Setting.Options.FirstOrDefault(o => o.Value == Setting.Current)?.Label ?? ""
         : Setting.UnavailableText ?? "";
@@ -132,6 +137,9 @@ public sealed partial class PerformanceViewModel : ObservableObject
     private string? _backgroundNote;
 
     public bool ShowBackgroundNote => !string.IsNullOrEmpty(BackgroundNote);
+
+    /// <summary>Header of the collapsible background list, counting the apps Windows currently allows.</summary>
+    public string BackgroundHeader => $"Hintergrund-Apps ({BackgroundApps.Count(r => r.Setting.Current == 1)} erlaubt)";
 
     // ---- live readouts ----
 
@@ -280,6 +288,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
                 var row = new PerfSettingViewModel(s, CanChange, _shell, UpdatePending);
                 (s.Group == "background" ? BackgroundApps : Settings).Add(row);
             }
+            OnPropertyChanged(nameof(BackgroundHeader));
             UpdatePending();
         }
         catch (OperationCanceledException)

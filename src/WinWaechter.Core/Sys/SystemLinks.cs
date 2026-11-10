@@ -9,10 +9,15 @@ public static class SystemLinks
         RemoteDesktop = "ms-settings:remotedesktop",
         DeviceEncryption = "ms-settings:deviceencryption",
         DefenderThreat = "windowsdefender://threat",
-        DefenderAppBrowser = "windowsdefender://appbrowser";
+        DefenderAppBrowser = "windowsdefender://appbrowser",
+        VisualEffects = "ms-settings:easeofaccess-visualeffects",
+        AdvancedGraphics = "ms-settings:display-advancedgraphics",
+        StoragePolicies = "ms-settings:storagepolicies",
+        PowerSleep = "ms-settings:powersleep";
 
     public static IReadOnlySet<string> Allowed { get; } = new HashSet<string>(
-        [AppsFeatures, WindowsUpdate, RemoteDesktop, DeviceEncryption, DefenderThreat, DefenderAppBrowser],
+        [AppsFeatures, WindowsUpdate, RemoteDesktop, DeviceEncryption, DefenderThreat, DefenderAppBrowser,
+            VisualEffects, AdvancedGraphics, StoragePolicies, PowerSleep],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Exact match against <see cref="Allowed"/> (case-insensitive, no trimming).</summary>

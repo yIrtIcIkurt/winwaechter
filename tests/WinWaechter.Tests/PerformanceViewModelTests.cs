@@ -380,4 +380,70 @@ public sealed class PerformanceViewModelTests : IDisposable
         await other;
         Assert.True(vm.ApplyCommand.CanExecute(null));
     }
+
+    sealed class NoUpdates : IUpdateService
+    {
+        public Task<WinWaechter.Core.Update.UpdateCheckResult> CheckAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<WinWaechter.Core.Update.VerifiedUpdate> DownloadAndVerifyAsync(WinWaechter.Core.Update.UpdateInfo info,
+            IProgress<double>? progress, CancellationToken ct) => throw new NotSupportedException();
+        public void Launch(WinWaechter.Core.Update.VerifiedUpdate update) { }
+    }
+
+    ShellViewModel Shell(PerformanceViewModel performance)
+    {
+        var optimize = new OptimizeViewModel(_engine, _dialogs, canChange: false, _gate);
+        var protect = new ProtectViewModel(new FakeDefender(), (_, _) => Task.FromResult<IReadOnlyList<Finding>>([]),
+            _engine, _ => 0, _dialogs, canChange: false, _gate);
+        var security = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<WinWaechter.Core.Security.Checks.SecurityItem>>([]),
+            _engine, new FakeDefender(), _dialogs, _shell, canChange: false, _gate);
+        var privacy = new PrivacyViewModel(
+            _ => Task.FromResult(new WinWaechter.Core.Privacy.PrivacyScanner(new FakeRegistry(), RuleSet.Default).Scan(_ => true)),
+            _engine, _dialogs, canChange: false, _gate);
+        var programs = new ProgramsViewModel(new FakeProgramActions(), _engine, _dialogs, _shell, canChange: false, _gate);
+        var history = new HistoryViewModel(_store, _engine, new WinWaechter.Core.Optimizer.Storage.AblageJanitor(_store), _dialogs,
+            canChange: false, _gate);
+        var update = new UpdateViewModel(new NoUpdates(), _dialogs, canInstall: false, () => { }, _gate);
+        var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new WinWaechter.Core.Update.SemVer(0, 4, 0)),
+            update, _shell, new RulesInfo(1, false, null),
+            _ => Task.FromResult(new WinWaechter.Core.Update.RulesUpdateResult(null, "")));
+        return new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, isElevated: false);
+    }
+
+    [Fact]
+    public async Task Leistung_nav_starts_and_stops_monitor()
+    {
+        var scans = 0;
+        var vm = new PerformanceViewModel(ct => { Interlocked.Increment(ref scans); return Scan(ct); },
+            new SystemSampler(_src, (_, _) => { }), () => BootReport.Load(_boot, DateTime.UtcNow),
+            _engine, _dialogs, _shell, true, _gate, () => _optimizeOpened++, _ticks);
+        var shell = Shell(vm);
+
+        Assert.Equal(new[] { "Übersicht", "Optimieren", "Leistung", "Schutz", "Sicherheit", "Datenschutz", "Programme", "Verlauf" },
+            shell.PrimaryNav.Select(n => n.Title));
+        var nav = shell.PrimaryNav[2];
+        Assert.Equal("", nav.Glyph);
+        Assert.Same(vm, nav.Page);
+        Assert.Same(vm, shell.Performance);
+        Assert.False(_ticks.Running);
+
+        // the first visit reads the settings and starts the monitor
+        nav.IsSelected = true;
+        Assert.Same(vm, shell.CurrentPage);
+        Assert.True(_ticks.Running);
+        if (vm.RefreshCommand.ExecutionTask is { } t) await t;
+        Assert.NotEmpty(vm.Settings);
+        Assert.Equal(1, scans);
+
+        // leaving the page stops it
+        shell.PrimaryNav[0].IsSelected = true;
+        Assert.False(_ticks.Running);
+
+        // a second visit restarts the monitor without reading again
+        nav.IsSelected = true;
+        Assert.True(_ticks.Running);
+        Assert.Equal(1, scans);
+
+        shell.SettingsNav.IsSelected = true;
+        Assert.False(_ticks.Running);
+    }
 }

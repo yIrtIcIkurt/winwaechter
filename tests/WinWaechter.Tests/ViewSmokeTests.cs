@@ -130,7 +130,19 @@ public sealed class ViewSmokeTests : IDisposable
             new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")));
         var programs = Programs(engine, gate);
         var security = Security(engine, gate);
-        var shell = new ShellViewModel(optimize, protect, security, privacy, programs, history, settings, update, isElevated: false);
+        var perfTicks = new FakeTicks();
+        var perfSources = new FakeSystemSources
+        {
+            Cores = 4,
+            Procs = [new(10, "chrome", TimeSpan.Zero, 200L << 20), new(11, "chrome", TimeSpan.Zero, 100L << 20),
+                new(12, "Code", TimeSpan.Zero, 400L << 20)],
+        };
+        var perfReg = new FakeRegistry();
+        perfReg.SeedKey(Hive.CurrentUser, WinWaechter.Core.Performance.PerfValues.BackgroundRoot + @"\Microsoft.WindowsCalculator_8wekyb3d8bbwe");
+        perfReg.SeedKey(Hive.CurrentUser, WinWaechter.Core.Performance.PerfValues.BackgroundRoot + @"\Microsoft.YourPhone_8wekyb3d8bbwe");
+        var performance = FakePerformanceVm.Create(engine, dialogs, new Shell(), gate, perfTicks, canChange: true, sources: perfSources,
+            registry: perfReg);
+        var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, isElevated: false);
 
         // fill the view models (no sync context here, so the commands finish inline or on the pool)
         optimize.ScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
@@ -141,6 +153,23 @@ public sealed class ViewSmokeTests : IDisposable
         security.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         privacy.SelectRecommendedCommand.Execute(null);
         update.CheckCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        performance.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        // two samples: the second one has CPU differences for the consumer rows
+        performance.OnShown();
+        perfTicks.Fire();
+        performance.LastSampling?.GetAwaiter().GetResult();
+        perfSources.CpuValue = new(100, 50, 50);
+        perfSources.Procs = [new(10, "chrome", TimeSpan.FromMilliseconds(500), 200L << 20),
+            new(11, "chrome", TimeSpan.FromMilliseconds(100), 100L << 20), new(12, "Code", TimeSpan.FromMilliseconds(200), 400L << 20)];
+        perfTicks.Fire();
+        performance.LastSampling?.GetAwaiter().GetResult();
+        performance.OnHidden();
+        performance.Settings.First(r => r.CanChange).Chosen = performance.Settings.First(r => r.CanChange).Options
+            .First(o => o.Value != performance.Settings.First(r => r.CanChange).Setting.Current).Value;
+        Assert.True(performance.Settings.Count > 0 && performance.BackgroundApps.Count > 0 && performance.Top.Count == 2
+            && performance.PendingCount == 1 && performance.BackgroundHeader == "Hintergrund-Apps (2 erlaubt)");
+        // every link button on the page opens an allowed system link
+        Assert.All(performance.Settings.Where(r => r.Link is not null), r => Assert.True(SystemLinks.IsAllowed(r.Link), r.Link));
         Assert.True(optimize.FindingCount == 4 && protect.HeuristicCount == 1 && history.Sessions.Count == 1 && update.IsAvailable
             && privacy.Rows.Count > 0);
 
@@ -164,7 +193,15 @@ public sealed class ViewSmokeTests : IDisposable
             Layout(new PrivacyView { DataContext = privacy });
             var programsView = new ProgramsView { DataContext = programs };
             Layout(programsView);
-            AssertComboShowsLabel(programsView);
+            AssertComboShowsLabel(programsView, "ProgramSortOption");
+            var performanceView = new PerformanceView { DataContext = performance };
+            Layout(performanceView);
+            AssertComboShowsLabel(performanceView, "PerfOption");
+            // the shell has a template for the page
+            shell.Navigate(performance);
+            Layout(shellContent);
+            Assert.NotEmpty(FindAll<PerformanceView>(shellContent!));
+            shell.Navigate(shell.Overview);
             Layout(new MessageDialog("Deinstallation", "Ist die Deinstallation abgeschlossen?", null, "Ja", false, "Noch nicht").Content
                 as FrameworkElement);
             Layout(new HistoryView { DataContext = history });
@@ -176,11 +213,11 @@ public sealed class ViewSmokeTests : IDisposable
     }
 
     // the closed sort box shows the option's Label (DisplayMemberPath), not the record's ToString()
-    static void AssertComboShowsLabel(FrameworkElement root)
+    static void AssertComboShowsLabel(FrameworkElement root, string recordType)
     {
         var combo = Descendants(root).OfType<ComboBox>().First();
         var texts = Descendants(combo).OfType<TextBlock>().Select(t => t.Text).ToList();
-        Assert.DoesNotContain(texts, t => t.Contains("ProgramSortOption"));
+        Assert.DoesNotContain(texts, t => t.Contains(recordType));
         Assert.Contains(texts, t => t == ((dynamic)combo.SelectedItem).Label);
     }
 

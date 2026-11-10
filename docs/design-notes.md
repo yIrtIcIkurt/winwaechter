@@ -1,6 +1,6 @@
 # WinWächter – Gestaltungsnotizen
 
-Stand: 2026-11-08 · Skill `frontend-design`
+Stand: 2026-11-11 · Skill `frontend-design`
 
 ## Richtung: Messinstrument statt Dashboard
 
@@ -63,7 +63,7 @@ Hell/Dunkel folgt `AppsUseLightTheme` und wechselt live. Die Titelleiste bleibt 
 ## Umsetzung (WPF)
 
 - Tokens: `src/WinWaechter.App/Theme/Tokens.xaml` (Schrift, Größen, Radien), Paletten `Light.xaml`/`Dark.xaml` (gleiche Schlüssel, inkl. Skalen-Pinsel), Stile `Controls.xaml` (nur `DynamicResource` für Farben).
-- Navigation: Glyphen Übersicht `E80F`, Optimieren `E90F`, Schutz `EA18`, Sicherheit `E8D7`, Datenschutz `E72E`, Programme `E71D`, Verlauf `E81C`, Einstellungen `E713`.
+- Navigation: Glyphen Übersicht `E80F`, Optimieren `E90F`, Leistung `EC4A` (SpeedHigh), Schutz `EA18`, Sicherheit `E8D7`, Datenschutz `E72E`, Programme `E71D`, Verlauf `E81C`, Einstellungen `E713`.
 - Anrede in Texten: „Sie“, sonst unpersönlich.
 - Endgültige Aktionen (Bereinigen, Prozess beenden, Ablage leeren) nutzen den Stil `Button.Final` (Ochsenblut-Rahmen); im Dialog liegt der Fokus dann auf „Abbrechen“.
 
@@ -73,3 +73,8 @@ Hell/Dunkel folgt `AppsUseLightTheme` und wechselt live. Die Titelleiste bleibt 
 - Zeile: gefüllter Punkt (10 px, `Ellipse`), Titel + Chip, Befund, Erklärung (`Text.Small`, `InkMuted`, max. 620), Aktionsknopf rechts im Standardstil (nie `Button.Final`). Unterzeilen sind 24 px eingerückt.
 - Übersicht: Ablesewert „Sicherheit“ in der Messleiste, Zustandsmarke + „n rot · n gelb“ bzw. „Alles in Ordnung“.
 
+## Leistung
+
+- Messleiste „Jetzt“ wie auf der Übersicht: Skalenlinie, drei Ablesewerte (Prozessor, Arbeitsspeicher, Datenträger) mit Tabellenziffern, getrennt durch 1-px-Linien; unter jedem Wert eine Strichskala (`Scale`), gefüllt bis zum Messwert.
+- „Größte Verbraucher“ als Tabelle in einer `SurfaceBox`, Zahlen rechtsbündig mit Tabellenziffern.
+- Einstellungen: Zeilen wie Datenschutz, rechts immer eine Auswahlliste (ein Bedienelement für alle Zeilen); Chips für Zustand, „empfohlen: …“, „Gilt nach einem Neustart“ und „geändert“. Hintergrund-Apps stecken in einem aufklappbaren Block.

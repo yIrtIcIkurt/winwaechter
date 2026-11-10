@@ -140,6 +140,7 @@ public partial class App
     protected override void OnExit(ExitEventArgs e)
     {
         FileLog.Info("WinWächter wird beendet");
+        _services?.Dispose();
         if (_instance is not null)
         {
             if (_ownsMutex)

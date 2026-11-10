@@ -23,10 +23,12 @@ public sealed partial class NavItem(string title, string glyph, object page, Act
 /// <summary>Window-level state: navigation, update banner, admin notice.</summary>
 public sealed partial class ShellViewModel : ObservableObject
 {
-    public ShellViewModel(OptimizeViewModel optimize, ProtectViewModel protect, SecurityViewModel security, PrivacyViewModel privacy,
-        ProgramsViewModel programs, HistoryViewModel history, SettingsViewModel settings, UpdateViewModel update, bool isElevated)
+    public ShellViewModel(OptimizeViewModel optimize, PerformanceViewModel performance, ProtectViewModel protect,
+        SecurityViewModel security, PrivacyViewModel privacy, ProgramsViewModel programs, HistoryViewModel history,
+        SettingsViewModel settings, UpdateViewModel update, bool isElevated)
     {
         Optimize = optimize;
+        Performance = performance;
         Protect = protect;
         Security = security;
         Privacy = privacy;
@@ -41,6 +43,7 @@ public sealed partial class ShellViewModel : ObservableObject
         [
             new NavItem("Übersicht", "\uE80F", Overview, OnSelected),
             new NavItem("Optimieren", "\uE90F", optimize, OnSelected),
+            new NavItem("Leistung", "\uEC4A", performance, OnSelected),
             new NavItem("Schutz", "\uEA18", protect, OnSelected),
             new NavItem("Sicherheit", "", security, OnSelected),
             new NavItem("Datenschutz", "", privacy, OnSelected),
@@ -61,10 +64,12 @@ public sealed partial class ShellViewModel : ObservableObject
         };
         privacy.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         programs.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
+        performance.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
     }
 
     public OverviewViewModel Overview { get; }
     public OptimizeViewModel Optimize { get; }
+    public PerformanceViewModel Performance { get; }
     public ProtectViewModel Protect { get; }
     public SecurityViewModel Security { get; }
     public PrivacyViewModel Privacy { get; }
@@ -85,7 +90,16 @@ public sealed partial class ShellViewModel : ObservableObject
     void OnSelected(NavItem item)
     {
         foreach (var n in Nav) if (!ReferenceEquals(n, item)) n.IsSelected = false;
+        var previous = CurrentPage;
         CurrentPage = item.Page;
+        // the live monitor samples only while its page is the current one
+        if (ReferenceEquals(previous, Performance) && !ReferenceEquals(item.Page, Performance)) Performance.OnHidden();
+        if (ReferenceEquals(item.Page, Performance) && !ReferenceEquals(previous, Performance))
+        {
+            Performance.OnShown();
+            // the settings are read on the first visit
+            if (Performance.Settings.Count == 0 && !Performance.RefreshCommand.IsRunning) Performance.RefreshCommand.Execute(null);
+        }
         // the security check normally ran at startup; read it on the first visit otherwise
         if (ReferenceEquals(item.Page, Security) && !Security.IsLoaded && !Security.RefreshCommand.IsRunning)
             Security.RefreshCommand.Execute(null);
