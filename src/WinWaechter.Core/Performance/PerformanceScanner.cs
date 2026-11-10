@@ -1,0 +1,249 @@
+using System.Globalization;
+using Microsoft.Win32;
+using WinWaechter.Core.Changes;
+using WinWaechter.Core.Logging;
+using WinWaechter.Core.Model;
+using WinWaechter.Core.Sys;
+
+namespace WinWaechter.Core.Performance;
+
+public sealed record PerfOption(int Value, string Label);
+
+public sealed record PerfSetting(string Id, string Group, string Title, string Explanation,
+    IReadOnlyList<PerfOption> Options, int Current, bool Available, string? UnavailableText,
+    string? Hint, int? Recommended, bool NeedsRestart, string? Link);
+
+/// <summary>Reads the current state behind the Leistung page and turns a chosen value into changes.</summary>
+public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimationSetting anim, IHibernation hib,
+    IAppDisplayNames names, bool animationOwnAccount, ISettingBroadcast broadcast)
+{
+    const string Unreadable = "Nicht lesbar";
+    const string CustomLabel = "Benutzerdefiniert";
+    const string BackgroundPrefix = "bg:";
+
+    const string VisualLink = "ms-settings:easeofaccess-visualeffects";
+    const string GpuLink = "ms-settings:display-advancedgraphics";
+    const string StorageLink = "ms-settings:storagepolicies";
+
+    static readonly PerfOption[] OnOff = [new(1, "An"), new(0, "Aus")];
+    static readonly PerfOption[] GpuOptions = [new(2, "An"), new(1, "Aus")];
+    static readonly PerfOption[] BackgroundOptions = [new(1, "Erlaubt"), new(0, "Nicht erlaubt")];
+    static readonly PerfOption[] Frequencies =
+        [new(1, "Täglich"), new(7, "Wöchentlich"), new(30, "Monatlich"), new(0, "Bei wenig Speicherplatz")];
+    static readonly PerfOption[] PowerBase =
+        PowerModeIds.All.Select((g, i) => new PerfOption(i, PowerModeIds.Label(g))).ToArray();
+
+    readonly HashSet<string> _logged = [];
+
+    public IReadOnlyList<PerfSetting> Scan()
+    {
+        var rows = new List<PerfSetting>();
+        Source(rows, "power", ScanPower, () => Broken("power-ac", "power", "Energiemodus (Netzbetrieb)", PowerBase));
+        Source(rows, "transparency", () => [ScanTransparency()], () => Broken("transparency", "visual", "Transparenzeffekte", OnOff));
+        Source(rows, "animation", () => [ScanAnimation()], () => Broken("animation", "visual", "Animationseffekte", OnOff));
+        Source(rows, "gamemode", () => [ScanGameMode()], () => Broken("gamemode", "gaming", "Spielmodus", OnOff));
+        Source(rows, "gpu", () => [ScanGpu()], () => Broken("gpu", "gaming", "Hardwarebeschleunigte GPU-Planung", GpuOptions));
+        Source(rows, "hibernate", ScanHibernate, () => Broken("hibernate", "storage", "Ruhezustand-Datei", OnOff));
+        Source(rows, "storagesense", ScanStorageSense, () => Broken("storagesense", "storage", "Speicheroptimierung", OnOff));
+        Source(rows, "background", ScanBackground, () => Broken("background", "background", "Hintergrund-Apps", OnOff));
+        return rows;
+    }
+
+    // One failing source greys out only its own rows and is logged once.
+    void Source(List<PerfSetting> rows, string name, Func<IEnumerable<PerfSetting>> read, Func<PerfSetting> broken)
+    {
+        try
+        {
+            rows.AddRange(read().ToList());
+        }
+        catch (Exception ex)
+        {
+            if (_logged.Add(name)) FileLog.Warn($"Leistung: Quelle „{name}“ nicht lesbar", ex);
+            rows.Add(broken());
+        }
+    }
+
+    static PerfSetting Broken(string id, string group, string title, IReadOnlyList<PerfOption> options) =>
+        new(id, group, title, "", options, 0, false, Unreadable, null, null, false, null);
+
+    /// <summary>The DWORD, or the Windows default when missing. Other value types throw.</summary>
+    int ReadDword(PerfValue v)
+    {
+        var kind = reg.GetKind(v.Hive, v.Key, v.Name);
+        if (kind is null) return v.DefaultWhenMissing;
+        if (kind != RegistryValueKind.DWord || reg.Get(v.Hive, v.Key, v.Name) is not { } o)
+            throw new InvalidOperationException($"Der Wert „{v.Name}“ hat einen unerwarteten Typ ({kind}).");
+        return Convert.ToInt32(o, CultureInfo.InvariantCulture);
+    }
+
+    // ---- power ----
+
+    IEnumerable<PerfSetting> ScanPower()
+    {
+        yield return PowerRow(PowerSource.Ac, "power-ac", "Energiemodus (Netzbetrieb)",
+            "Legt fest, wie Windows am Netzteil zwischen Leistung und Stromverbrauch abwägt.", null);
+        if (power.HasBattery)
+            yield return PowerRow(PowerSource.Dc, "power-dc", "Energiemodus (Akkubetrieb)",
+                "Legt fest, wie Windows im Akkubetrieb zwischen Leistung und Laufzeit abwägt.",
+                "Beste Leistung im Akkubetrieb leert den Akku spürbar schneller.");
+    }
+
+    PerfSetting PowerRow(PowerSource s, string id, string title, string explanation, string? hint)
+    {
+        var mode = power.Get(s);
+        if (mode is null)
+            return new(id, "power", title, explanation, PowerBase, 0, false, Unreadable, hint, null, false, null);
+        var index = PowerModeIds.All.ToList().IndexOf(mode.Value);
+        IReadOnlyList<PerfOption> options = index < 0 ? [new PerfOption(-1, CustomLabel), .. PowerBase] : PowerBase;
+        return new(id, "power", title, explanation, options, index, true, null, hint, null, false, "ms-settings:powersleep");
+    }
+
+    // ---- visual ----
+
+    PerfSetting ScanTransparency() => new("transparency", "visual", "Transparenzeffekte",
+        "Durchscheinende Flächen in Startmenü, Taskleiste und Fenstern. Ausschalten spart etwas Grafikleistung.",
+        OnOff, ReadDword(PerfValues.Transparency) == 0 ? 0 : 1, true, null, null, null, false, VisualLink);
+
+    PerfSetting ScanAnimation() => new("animation", "visual", "Animationseffekte",
+        "Bewegte Übergänge beim Öffnen, Schließen und Wechseln von Fenstern.",
+        OnOff, anim.Get() ? 1 : 0, animationOwnAccount,
+        animationOwnAccount ? null : "Nur im eigenen Benutzerkonto änderbar", null, null, false, VisualLink);
+
+    // ---- gaming ----
+
+    PerfSetting ScanGameMode() => new("gamemode", "gaming", "Spielmodus",
+        "Windows gibt Spielen Vorrang bei Prozessor und Grafikkarte und hält Hintergrundaufgaben zurück.",
+        OnOff, ReadDword(PerfValues.GameMode) == 0 ? 0 : 1, true, null, null, null, false, null);
+
+    PerfSetting ScanGpu()
+    {
+        const string title = "Hardwarebeschleunigte GPU-Planung";
+        const string explanation = "Die Grafikkarte plant ihre Aufgaben selbst, statt den Prozessor zu belasten. Gilt nach einem Neustart.";
+        var v = ReadDword(PerfValues.GpuScheduling);
+        if (v is 1 or 2)
+            return new("gpu", "gaming", title, explanation, GpuOptions, v, true, null, null, null, true, GpuLink);
+        return new("gpu", "gaming", title, explanation, GpuOptions, 0, false,
+            "Wird von Windows für Ihre Grafikkarte automatisch geregelt", null, null, true, GpuLink);
+    }
+
+    // ---- storage ----
+
+    IEnumerable<PerfSetting> ScanHibernate()
+    {
+        var enabled = hib.IsEnabled;
+        var bytes = hib.FileBytes;
+        if (!enabled && bytes <= 0) yield break;
+        yield return new("hibernate", "storage", "Ruhezustand-Datei",
+            $"Gibt {SizeText.Format(bytes)} frei. Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer.",
+            OnOff, enabled ? 1 : 0, true, null,
+            power.HasBattery ? "Bei leerem Akku sichert Windows Ihre Arbeit sonst über den Ruhezustand." : null,
+            null, false, null);
+    }
+
+    IEnumerable<PerfSetting> ScanStorageSense()
+    {
+        var on = ReadDword(PerfValues.StorageSenseOn) == 1 ? 1 : 0;
+        yield return new("storagesense", "storage", "Speicheroptimierung",
+            "Windows räumt temporäre Dateien und den Papierkorb automatisch auf.",
+            OnOff, on, true, null, null, 1, false, StorageLink);
+
+        var freq = ReadDword(PerfValues.StorageSenseFrequency);
+        var known = Frequencies.Any(o => o.Value == freq);
+        IReadOnlyList<PerfOption> options = known ? Frequencies : [new PerfOption(-1, CustomLabel), .. Frequencies];
+        yield return new("storagesense-frequency", "storage", "Speicheroptimierung: Häufigkeit",
+            "Wie oft Windows automatisch aufräumt.",
+            options, known ? freq : -1, on == 1, on == 1 ? null : "Nur bei eingeschalteter Speicheroptimierung",
+            null, null, false, null);
+    }
+
+    // ---- background apps ----
+
+    IEnumerable<PerfSetting> ScanBackground()
+    {
+        var apps = reg.SubKeyNames(Hive.CurrentUser, PerfValues.BackgroundRoot)
+            .Where(PerfValues.IsBackgroundApp)
+            .Select(a => (App: a, Title: SafeName(a)))
+            .OrderBy(a => a.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        foreach (var (app, title) in apps)
+        {
+            PerfSetting row;
+            try
+            {
+                row = new(BackgroundPrefix + app, "background", title,
+                    "Darf als Store-App im Hintergrund laufen, auch wenn sie nicht geöffnet ist.",
+                    BackgroundOptions, ReadDword(PerfValues.BackgroundDisabled(app)) == 1 ? 0 : 1, true, null,
+                    null, null, false, null);
+            }
+            catch (Exception ex)
+            {
+                if (_logged.Add("bg:" + app)) FileLog.Warn($"Leistung: Hintergrund-App „{app}“ nicht lesbar", ex);
+                row = new(BackgroundPrefix + app, "background", title, "", BackgroundOptions, 0, false, Unreadable,
+                    null, null, false, null);
+            }
+            yield return row;
+        }
+    }
+
+    string SafeName(string app)
+    {
+        try
+        {
+            var n = names.Resolve(app);
+            return string.IsNullOrWhiteSpace(n) ? app : n;
+        }
+        catch { return app; }
+    }
+
+    // ---- changes ----
+
+    /// <summary>The changes that bring the setting from its current value to the chosen one; empty when nothing differs.</summary>
+    public IReadOnlyList<IChange> ChangesFor(PerfSetting s, int chosen)
+    {
+        if (chosen == -1)
+            throw new ArgumentException("„Benutzerdefiniert“ kann nicht gewählt werden.", nameof(chosen));
+        if (!s.Available || chosen == s.Current) return [];
+        if (s.Options.All(o => o.Value != chosen))
+            throw new ArgumentException($"Der Wert {chosen} gehört nicht zu „{s.Title}“.", nameof(chosen));
+
+        var on = chosen != 0;
+        switch (s.Id)
+        {
+            case "power-ac": return [new PowerModeChange(power, PowerSource.Ac, PowerModeIds.All[chosen])];
+            case "power-dc": return [new PowerModeChange(power, PowerSource.Dc, PowerModeIds.All[chosen])];
+            case "transparency":
+                return [new PerfValueChange(reg, PerfValues.Transparency, chosen,
+                    on ? "Transparenzeffekte einschalten" : "Transparenzeffekte ausschalten", broadcast)];
+            case "animation": return [new AnimationChange(anim, on)];
+            case "gamemode":
+                return [new PerfValueChange(reg, PerfValues.GameMode, chosen,
+                    on ? "Spielmodus einschalten" : "Spielmodus ausschalten", null)];
+            case "gpu":
+                return [new PerfValueChange(reg, PerfValues.GpuScheduling, chosen,
+                    chosen == 2 ? "Hardwarebeschleunigte GPU-Planung einschalten" : "Hardwarebeschleunigte GPU-Planung ausschalten", null)];
+            case "hibernate": return [new HibernateChange(hib, on)];
+            case "storagesense":
+                return [new PerfValueChange(reg, PerfValues.StorageSenseOn, chosen,
+                    on ? "Speicheroptimierung einschalten" : "Speicheroptimierung ausschalten", null)];
+            case "storagesense-frequency":
+                return [new PerfValueChange(reg, PerfValues.StorageSenseFrequency, chosen,
+                    $"Speicheroptimierung: {Frequencies.First(o => o.Value == chosen).Label}", null)];
+        }
+
+        if (s.Id.StartsWith(BackgroundPrefix, StringComparison.Ordinal))
+        {
+            var app = s.Id[BackgroundPrefix.Length..];
+            var disabled = on ? 0 : 1;
+            var what = on ? "darf im Hintergrund laufen" : "im Hintergrund sperren";
+            var list = new List<IChange>
+            {
+                new PerfValueChange(reg, PerfValues.BackgroundDisabled(app), disabled, $"{s.Title}: {what}", null),
+            };
+            var byUser = PerfValues.BackgroundDisabledByUser(app);
+            if (ReadDword(byUser) != disabled)
+                list.Add(new PerfValueChange(reg, byUser, disabled, $"{s.Title}: {what} (Benutzerwahl)", null));
+            return list;
+        }
+        throw new ArgumentException($"Unbekannte Einstellung „{s.Id}“.", nameof(s));
+    }
+}

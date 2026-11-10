@@ -42,3 +42,11 @@ public sealed class FakeHibernation : IHibernation
     public List<bool> SetCalls { get; } = [];
     public void Set(bool on) { IsEnabled = on; SetCalls.Add(on); }
 }
+
+public sealed class FakeAppDisplayNames : IAppDisplayNames
+{
+    public Dictionary<string, string> Names { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public string Resolve(string packageFamilyName) =>
+        Names.TryGetValue(packageFamilyName, out var n) ? n : packageFamilyName.Split('_')[0];
+}
