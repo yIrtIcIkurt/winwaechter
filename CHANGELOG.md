@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+- Sicherheit: Die Prüfung „Geräteverschlüsselung“ funktioniert jetzt (zeigte bisher immer „Nicht prüfbar“).
+- Sicherheit: Schützt ein anderes Programm die Firewall, bleibt die Firewall-Zeile grün, auch wenn die Windows-Firewall gerade nicht lesbar ist.
+- Kleinere Aufräumarbeiten im Hintergrund.
+
 ## 0.3.0
 - Neue Seite „Programme“: installierte Programme mit Suche und Sortierung; offizielle Deinstallation (bei Bedarf über die Windows-Einstellungen), danach gezielte Suche nach Resten.
 - Notfall „Erzwungen entfernen“ für Programme ohne funktionierendes Deinstallationsprogramm – alles gesichert und im Verlauf rückgängig zu machen.
