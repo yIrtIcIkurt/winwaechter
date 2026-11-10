@@ -1,0 +1,18 @@
+using WinWaechter.Core.Changes;
+
+namespace WinWaechter.Core.Security.Checks;
+
+public enum Light { Green, Yellow, Red, Grey }
+
+public enum SecurityActionKind { None, Link, Change, DefenderScan }
+
+public sealed record SecurityItem(string Id, string Title, Light Light, string Finding, string Explanation,
+    SecurityActionKind Action = SecurityActionKind.None, string? ActionLabel = null, string? Link = null,
+    IChange? Change = null, string? ScanPath = null, IReadOnlyList<SecurityItem>? Children = null);
+
+public static class SecurityIds
+{
+    public const string FirewallDomain = "firewall-domain", FirewallPrivate = "firewall-private", FirewallPublic = "firewall-public",
+        Defender = "defender", SmartScreen = "smartscreen", Uac = "uac", RemoteDesktop = "rdp", Encryption = "encryption",
+        Updates = "updates", Listeners = "listeners", Extensions = "extensions";
+}
