@@ -28,6 +28,11 @@ UninstallDisplayIcon={app}\WinWaechter.App.exe
 #ifexist "..\assets\icon\winwaechter.ico"
 SetupIconFile=..\assets\icon\winwaechter.ico
 #endif
+; Wizard images in all DPI sizes (built by tools\make-installer-images.ps1)
+#ifexist "..\assets\installer\wizard-164x314.bmp"
+WizardImageFile=..\assets\installer\wizard-164x314.bmp,..\assets\installer\wizard-205x393.bmp,..\assets\installer\wizard-246x471.bmp,..\assets\installer\wizard-328x628.bmp,..\assets\installer\wizard-410x785.bmp
+WizardSmallImageFile=..\assets\installer\small-55.bmp,..\assets\installer\small-69.bmp,..\assets\installer\small-83.bmp,..\assets\installer\small-110.bmp,..\assets\installer\small-138.bmp
+#endif
 
 [Languages]
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
