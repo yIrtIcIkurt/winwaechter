@@ -36,7 +36,7 @@ public sealed class ServiceScanner
                 if (_rules.Classify(new ItemFacts(s.DisplayName, file, null, s.ImagePath)) == RuleVerdict.Protected) continue;
                 result.Add(new Finding($"service|{s.Name}", FindingArea.Dienst, s.DisplayName, s.ImagePath,
                     [OrphanRules.OrphanReason], Rating.Entbehrlich, true, new ServiceStartModeChange(_sc, _reg, s.Name),
-                    Group: FindingGroups.OrphanEntries));
+                    Group: FindingGroups.OrphanEntries, ExePath: file));
                 continue;
             }
 
@@ -74,7 +74,7 @@ public sealed class ServiceScanner
             }
 
             result.Add(new Finding($"service|{s.Name}", FindingArea.Dienst, s.DisplayName, s.ImagePath, reasons, rating,
-                preselect, new ServiceStartModeChange(_sc, _reg, s.Name), Publisher: sig.Publisher));
+                preselect, new ServiceStartModeChange(_sc, _reg, s.Name), Publisher: sig.Publisher, ExePath: file));
         }
         return result;
     }

@@ -55,7 +55,7 @@ public sealed class TaskScanner
                 // Program file is gone: no signature to check, only the protected list can veto.
                 if (_rules.Classify(new ItemFacts(t.Name, exe, t.Author, location)) == RuleVerdict.Protected) continue;
                 result.Add(new Finding(id, FindingArea.Aufgabe, t.Name, location, [OrphanRules.OrphanReason],
-                    Rating.Entbehrlich, true, change, Group: FindingGroups.OrphanEntries));
+                    Rating.Entbehrlich, true, change, Group: FindingGroups.OrphanEntries, ExePath: exe));
                 continue;
             }
 
@@ -105,7 +105,7 @@ public sealed class TaskScanner
             }
 
             result.Add(new Finding(id, FindingArea.Aufgabe, t.Name, location, reasons, rating, preselect, change,
-                Publisher: sig.Publisher));
+                Publisher: sig.Publisher, ExePath: exe));
         }
         return result;
     }

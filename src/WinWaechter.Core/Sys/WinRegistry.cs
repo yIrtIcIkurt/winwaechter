@@ -61,6 +61,24 @@ public sealed class WinRegistry(IUserContext user) : IRegistry
         k?.DeleteValue(name, throwOnMissingValue: false);
     }
 
+    public void CreateKey(Hive h, string key)
+    {
+        using var root = Base(h);
+        root.CreateSubKey(SubPath(h, NonEmpty(key)), writable: true).Dispose();
+    }
+
+    public void DeleteKeyTree(Hive h, string key)
+    {
+        using var root = Base(h);
+        root.DeleteSubKeyTree(SubPath(h, NonEmpty(key)), throwOnMissingSubKey: false);
+    }
+
+    // An empty key would mean the hive itself (for CurrentUser: the whole HKU\<SID>).
+    static string NonEmpty(string key) =>
+        string.IsNullOrWhiteSpace(key?.Trim('\\'))
+            ? throw new ArgumentException("Ein Registry-Schlüssel ohne Namen wird nicht bearbeitet.", nameof(key))
+            : key;
+
     public void Export(Hive h, string key, string file)
     {
         var dir = Path.GetDirectoryName(Path.GetFullPath(file));

@@ -1,6 +1,7 @@
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer.Autostart;
 using WinWaechter.Core.Privacy;
+using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Optimizer.Services;
 using WinWaechter.Core.Optimizer.Storage;
@@ -32,6 +33,7 @@ public sealed class ChangeFactory : IChangeFactory
         f.Register("cache", r => MoveToAblageChange.FromRecord(r, fo));
         f.Register("folder", r => MoveToAblageChange.FromRecord(r, fo));
         f.Register("regvalue", r => RegValueChange.FromRecord(r, reg, rules));
+        f.Register("regkey", r => RegKeyChange.FromRecord(r, reg));
         return f;
     }
 }

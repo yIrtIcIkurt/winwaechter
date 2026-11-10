@@ -110,7 +110,8 @@ public sealed class AutostartScanner
         }
 
         result.Add(new Finding(id, FindingArea.Autostart, title, location, reasons, rating, preselect, change,
-            Publisher: sig?.Publisher, Group: orphan ? FindingGroups.OrphanEntries : null));
+            Publisher: sig?.Publisher, Group: orphan ? FindingGroups.OrphanEntries : null,
+            ExePath: string.IsNullOrWhiteSpace(exe) ? null : PathNormalizer.NormalizePath(exe)));
     }
 
     enum ApprovedStatus { Enabled, Disabled, Unclear }

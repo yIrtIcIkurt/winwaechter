@@ -74,6 +74,35 @@ public sealed class SysSmokeTests : IDisposable
     }
 
     [Fact]
+    public void Registry_create_and_delete_tree_under_test_key()
+    {
+        var reg = new WinRegistry(new FakeUserContext(_dir, CurrentSid));
+        var deep = _key + @"\a\b";
+        reg.CreateKey(Hive.CurrentUser, deep);
+        reg.CreateKey(Hive.CurrentUser, deep);   // no-op when present
+        Assert.True(reg.KeyExists(Hive.CurrentUser, deep));
+
+        // value types as RegKeyChange reads them
+        reg.Set(Hive.CurrentUser, deep, "D", 7, RegistryValueKind.DWord);
+        reg.Set(Hive.CurrentUser, deep, "Q", 1L << 40, RegistryValueKind.QWord);
+        reg.Set(Hive.CurrentUser, deep, "M", new[] { "a", "b" }, RegistryValueKind.MultiString);
+        reg.Set(Hive.CurrentUser, deep, "N", new byte[] { 9 }, RegistryValueKind.None);
+        Assert.IsType<int>(reg.Get(Hive.CurrentUser, deep, "D"));
+        Assert.IsType<long>(reg.Get(Hive.CurrentUser, deep, "Q"));
+        Assert.Equal(new[] { "a", "b" }, reg.Get(Hive.CurrentUser, deep, "M"));
+        Assert.Equal(RegistryValueKind.None, reg.GetKind(Hive.CurrentUser, deep, "N"));
+        Assert.Equal(new byte[] { 9 }, reg.Get(Hive.CurrentUser, deep, "N"));
+
+        reg.DeleteKeyTree(Hive.CurrentUser, _key + @"\a");
+        Assert.False(reg.KeyExists(Hive.CurrentUser, _key + @"\a"));
+        Assert.True(reg.KeyExists(Hive.CurrentUser, _key));
+        reg.DeleteKeyTree(Hive.CurrentUser, _key + @"\a");   // no-op when missing
+
+        // an empty key would mean the whole hive: refused (checked via CreateKey, which is harmless)
+        Assert.Throws<ArgumentException>(() => reg.CreateKey(Hive.CurrentUser, @"\"));
+    }
+
+    [Fact]
     public void Registry_missing_key_reads_empty()
     {
         var reg = new WinRegistry(new FakeUserContext(_dir, CurrentSid));

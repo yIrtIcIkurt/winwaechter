@@ -11,6 +11,8 @@ public sealed class FakeRegistry : IRegistry
     public List<(Hive Hive, string Key, string Name, object Value, RegistryValueKind Kind)> SetCalls { get; } = [];
     public List<(Hive Hive, string Key, string Name)> DeleteCalls { get; } = [];
     public List<(Hive Hive, string Key, string File)> ExportCalls { get; } = [];
+    public List<(Hive Hive, string Key)> CreateKeyCalls { get; } = [];
+    public List<(Hive Hive, string Key)> DeleteTreeCalls { get; } = [];
 
     /// <summary>SubKeyNames, ValueNames and Get on these keys throw (simulates an unreadable key).</summary>
     public HashSet<string> ThrowingKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -75,6 +77,29 @@ public sealed class FakeRegistry : IRegistry
     {
         DeleteCalls.Add((h, key, name));
         Values(h, key, create: false)?.Remove(name);
+    }
+
+    public void CreateKey(Hive h, string key)
+    {
+        CreateKeyCalls.Add((h, key));
+        Values(h, key, create: true);
+    }
+
+    /// <summary>When set, DeleteKeyTree removes only the subkeys and then throws it (partly deleted tree).</summary>
+    public Exception? DeleteTreeFailsMidway { get; set; }
+
+    // Removes the key and every key below it.
+    public void DeleteKeyTree(Hive h, string key)
+    {
+        DeleteTreeCalls.Add((h, key));
+        var k = key.Trim('\\');
+        foreach (var victim in _keys.Keys.Where(x => x.Item1 == h && (string.Equals(x.Item2, k, StringComparison.OrdinalIgnoreCase)
+                     || x.Item2.StartsWith(k + "\\", StringComparison.OrdinalIgnoreCase))).ToList())
+        {
+            if (DeleteTreeFailsMidway is not null && string.Equals(victim.Item2, k, StringComparison.OrdinalIgnoreCase)) continue;
+            _keys.Remove(victim);
+        }
+        if (DeleteTreeFailsMidway is { } e) throw e;
     }
 
     // Writes a small marker file so callers can check the backup exists.

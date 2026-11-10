@@ -18,4 +18,10 @@ public interface IRegistry
     IReadOnlyList<string> SubKeyNames(Hive h, string key);
 
     void Export(Hive h, string key, string file);   // reg.exe export /y
+
+    /// <summary>Creates the key and any missing parents; no-op when it exists.</summary>
+    void CreateKey(Hive h, string key);
+
+    /// <summary>Deletes the key with all its subkeys and values; no-op when it is missing.</summary>
+    void DeleteKeyTree(Hive h, string key);
 }

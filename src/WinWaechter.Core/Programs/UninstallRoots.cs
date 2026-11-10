@@ -19,10 +19,11 @@ public static class UninstallRoots
     /// <summary>
     /// True when key is exactly "root\name" for one of the (hive, root) pairs in <see cref="All"/>:
     /// name non-empty, no backslash, not "." or "..". The hive must match the pair
-    /// and roots match case-insensitively, like the registry itself.
+    /// and roots match case-insensitively, like the registry itself. False for null.
     /// </summary>
-    public static bool IsDirectChild(Hive h, string key)
+    public static bool IsDirectChild(Hive h, string? key)
     {
+        if (key is null) return false;
         foreach (var (hive, root) in All)
         {
             if (hive != h || !key.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
