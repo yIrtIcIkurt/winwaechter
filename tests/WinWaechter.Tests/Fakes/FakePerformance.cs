@@ -86,3 +86,16 @@ public sealed class FakeBootEventSource : IBootEventSource
         return Events;
     }
 }
+
+public sealed class FakeTicks : WinWaechter.App.ViewModels.ITickSource
+{
+    Action? _tick;
+    public bool Running { get; private set; }
+    public TimeSpan? Every { get; private set; }
+
+    public void Start(TimeSpan every, Action tick) { Running = true; Every = every; _tick = tick; }
+    public void Stop() => Running = false;
+
+    /// <summary>Fires one tick like the timer would; does nothing while stopped.</summary>
+    public void Fire() { if (Running) _tick?.Invoke(); }
+}
