@@ -168,6 +168,36 @@ public sealed class CacheScannerTests : IDisposable
     }
 
     [Fact]
+    public void Opera_location_names_the_moved_folders_not_AppData()
+    {
+        var cache = Local(@"Opera Software\Opera Stable\Default\Cache");
+        var shader = Path.Combine(_paths.RoamingAppData, @"Opera Software\Opera Stable\GraphiteDawnCache");
+        Make(Path.Combine(cache, "a"), 2);
+        Make(Path.Combine(shader, "b"), 5);
+
+        var f = Only("Browser-Cache Opera");
+
+        Assert.NotEqual(Path.GetDirectoryName(_paths.LocalAppData), f.Location);
+        Assert.StartsWith(cache, f.Location);
+        Assert.EndsWith(" (+1 weitere)", f.Location);
+        Assert.Equal($"Zwischenspeicher in „{f.Location}“ in die Ablage verschieben", f.Change!.Description);
+        Assert.Contains(cache, f.Reasons);
+        Assert.Contains(shader, f.Reasons);
+    }
+
+    [Fact]
+    public void Single_include_location_is_that_full_path()
+    {
+        var crash = Local("CrashDumps");
+        Make(Path.Combine(crash, "a.dmp"), 1, 3);
+
+        var f = Only("Absturzabbilder (Programme)");
+
+        Assert.Equal(crash, f.Location);
+        Assert.Equal($"Zwischenspeicher in „{crash}“ in die Ablage verschieben", f.Change!.Description);
+    }
+
+    [Fact]
     public void Firefox_cache2_per_profile()
     {
         Make(Local(@"Mozilla\Firefox\Profiles\abc.default\cache2\entries\e1"), 3);
@@ -269,7 +299,11 @@ public sealed class CacheScannerTests : IDisposable
 
         Assert.All(all, f => Assert.Equal(FindingGroups.WindowsRemnants, f.Group));
         Assert.Equal(1, all.Single(f => f.Title == "Absturzabbilder (Programme)").SizeBytes);   // fresh dump not counted
-        Assert.Equal(6, all.Single(f => f.Title == "Absturzabbilder (Windows)").SizeBytes);
+        var win = all.Single(f => f.Title == "Absturzabbilder (Windows)");
+        Assert.Equal(6, win.SizeBytes);
+        Assert.Equal(Path.Combine(_paths.SystemRoot, "Minidump") + " (+1 weitere)", win.Location);
+        Assert.Equal($"Zwischenspeicher in „{win.Location}“ in die Ablage verschieben", win.Change!.Description);
+        Assert.Contains(Path.Combine(_paths.SystemRoot, "LiveKernelReports"), win.Reasons);
         Assert.Equal(8, all.Single(f => f.Title == "Fehlerberichte (Windows)").SizeBytes);
         Assert.Equal(16, all.Single(f => f.Title == "Fehlerberichte (Benutzer)").SizeBytes);
         var mem = all.Single(f => f.Title == "Speicherabbild (MEMORY.DMP)");

@@ -32,4 +32,6 @@ public interface IFileOps
     void MoveDirectory(string src, string dst);
 }
 
-public sealed record FolderFacts(long Bytes, int Files, DateTime LatestWriteUtc, bool HasBinaries, bool HasReparsePoints);
+public sealed record FolderFacts(long Bytes, int Files, DateTime LatestWriteUtc, bool HasBinaries, bool HasReparsePoints,
+    DateTime LatestFileWriteUtc = default);
+// LatestWriteUtc includes directory timestamps; LatestFileWriteUtc looks at files only (default = no file).

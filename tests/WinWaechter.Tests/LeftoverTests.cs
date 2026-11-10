@@ -54,6 +54,25 @@ public sealed class LeftoverTests : IDisposable
     IReadOnlyList<Finding> Scan(RuleSet? rules = null, IRegistry? reg = null) =>
         new LeftoverFolderScanner(_files, reg ?? _reg, rules ?? RuleSet.Default, _procs, _services, _tasks, _user, _lnk, [_pf]).Scan();
 
+    [Fact]
+    public void Fresh_directory_timestamp_but_old_files_is_offered()
+    {
+        var dir = Make("Glary Utilities", "gu.exe");
+        Directory.SetLastWriteTimeUtc(dir, DateTime.UtcNow.AddDays(-2));   // uninstall touched the folder
+
+        Assert.Equal("Glary Utilities", Assert.Single(Scan()).Title);
+    }
+
+    [Fact]
+    public void Folder_with_a_file_written_yesterday_is_not_offered()
+    {
+        var dir = Make("Recent", "r.exe");
+        File.WriteAllBytes(Path.Combine(dir, "log.txt"), [1]);
+        File.SetLastWriteTimeUtc(Path.Combine(dir, "log.txt"), DateTime.UtcNow.AddDays(-1));
+
+        Assert.Empty(Scan());
+    }
+
     // Writes an (empty) .lnk file and lets the fake resolver point it at target.
     void Shortcut(string lnkPath, string target)
     {

@@ -84,10 +84,10 @@ public sealed class LeftoverFolderScanner
                     var inside = dir + "\\";
                     if (used.Any(u => u.Contains(inside, StringComparison.OrdinalIgnoreCase))) continue;
                     if (_files.InspectFolder(dir) is not { } facts) continue;
-                    if (facts.HasReparsePoints || !facts.HasBinaries || facts.LatestWriteUtc >= cutoff) continue;
+                    if (facts.HasReparsePoints || !facts.HasBinaries || facts.LatestFileWriteUtc >= cutoff) continue;
 
                     result.Add(new Finding($"leftover|{dir}", FindingArea.Speicher, name, dir,
-                        [NoProgram, $"Zuletzt geändert am {facts.LatestWriteUtc.ToLocalTime():dd.MM.yyyy}"],
+                        [NoProgram, $"Zuletzt geändert am {facts.LatestFileWriteUtc.ToLocalTime():dd.MM.yyyy}"],
                         Rating.Info, false, MoveToAblageChange.ForFolder(_files, dir), facts.Bytes,
                         Group: FindingGroups.OrphanFolders));
                 }

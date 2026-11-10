@@ -87,9 +87,16 @@ public sealed class MoveToAblageChange : IChange
     {
         "folder" => $"Ordner „{FolderName}“ in die Ablage verschieben",
         _ when _single => $"Datei „{Path.GetFileName(_path)}“ in die Ablage verschieben",
-        "cache" => $"Zwischenspeicher in „{_path}“ in die Ablage verschieben",
+        "cache" => $"Zwischenspeicher in „{MovedText}“ in die Ablage verschieben",
         _ => $"Temporäre Dateien in „{_path}“ in die Ablage verschieben",
     };
+
+    /// <summary>What a cache change really moves: the only include, or the first one plus " (+n weitere)".</summary>
+    public string MovedText => _kind != "cache" || _single || _includes.Count == 0 ? _path
+        : _includes.Count == 1 ? _includes[0] : $"{_includes[0]} (+{_includes.Count - 1} weitere)";
+
+    /// <summary>The include folders of a cache change (empty for the other kinds).</summary>
+    public IReadOnlyList<string> IncludePaths => _kind == "cache" && !_single ? _includes : [];
 
     string FolderName => Path.GetFileName(Path.GetFullPath(_path).TrimEnd('\\'));
 

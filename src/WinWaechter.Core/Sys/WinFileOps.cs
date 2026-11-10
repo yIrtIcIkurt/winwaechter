@@ -92,6 +92,7 @@ public sealed class WinFileOps : IFileOps
             long bytes = 0;
             var files = 0;
             var latest = root.LastWriteTimeUtc;
+            var latestFile = DateTime.MinValue;
             bool binaries = false, reparse = false;
             var stack = new Stack<DirectoryInfo>();
             stack.Push(root);
@@ -106,11 +107,12 @@ public sealed class WinFileOps : IFileOps
                     var f = (FileInfo)e;
                     bytes += f.Length;
                     files++;
+                    if (f.LastWriteTimeUtc > latestFile) latestFile = f.LastWriteTimeUtc;
                     if (f.Extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
                         || f.Extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)) binaries = true;
                 }
             }
-            return new FolderFacts(bytes, files, latest, binaries, reparse);
+            return new FolderFacts(bytes, files, latest, binaries, reparse, latestFile);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

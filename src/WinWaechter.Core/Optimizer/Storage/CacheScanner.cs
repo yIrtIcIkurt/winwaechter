@@ -201,11 +201,18 @@ public sealed class CacheScanner
         var (count, bytes) = t.Change.Measure();
         if (count == 0) return;
         var line = t.Age > 0 ? $"{count} Dateien älter als {t.Age} Tage" : $"{count} Dateien";
+        // show what is really moved, not the common root
+        var where = t.Change.MovedText;
+        var reasons = new List<string> { line };
+        reasons.AddRange(t.Change.IncludePaths);
         if (t.Blocked is null)
-            result.Add(new Finding($"cache|{t.Title}", FindingArea.Speicher, t.Title, t.Location, [line],
+            result.Add(new Finding($"cache|{t.Title}", FindingArea.Speicher, t.Title, where, reasons,
                 Rating.Entbehrlich, true, t.Change, bytes, Group: t.Group));
         else
-            result.Add(new Finding($"cache|{t.Title}", FindingArea.Speicher, t.Title, t.Location, [line, t.Blocked],
+        {
+            reasons.Add(t.Blocked);
+            result.Add(new Finding($"cache|{t.Title}", FindingArea.Speicher, t.Title, where, reasons,
                 Rating.Info, false, null, bytes, Group: t.Group));
+        }
     }
 }
