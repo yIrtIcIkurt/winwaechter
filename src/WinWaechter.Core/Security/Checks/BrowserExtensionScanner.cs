@@ -5,7 +5,7 @@ using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Security.Checks;
 
-public enum ExtensionOrigin { Store, Policy, External, Builtin }
+public enum ExtensionOrigin { Store, Policy, External, Builtin, Unknown }
 
 public sealed record BrowserExtension(string Browser, string Profile, string Id, string Name, ExtensionOrigin Origin);
 
@@ -16,6 +16,7 @@ public sealed record BrowserExtension(string Browser, string Profile, string Id,
 public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistry reg)
 {
     public const long MaxFileBytes = 20 * 1024 * 1024;
+    public const int MaxNameLength = 100;
     public const string PolicyProfile = "Richtlinie";
 
     static readonly (string Browser, string Key)[] ForceLists =
@@ -32,17 +33,37 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
         Safe("Opera", () => ChromiumProfile("Opera", "Standard", Path.Combine(paths.RoamingAppData, @"Opera Software\Opera Stable"), all));
         Safe("Firefox", () => Firefox(all));
         Safe("Richtlinien", () => ApplyPolicies(all));
-        return all.Where(e => e.Origin != ExtensionOrigin.Builtin).ToList();
+        return all.Where(e => e.Origin != ExtensionOrigin.Builtin)
+            .Select(e => e with { Name = CleanName(e.Name, e.Id) })
+            .ToList();
     }
 
-    /// <summary>Chromium <c>location</c> values (ruling R8): 1 store; 5/10 built-in; 7/9 policy; 2/3/4/6/8 from outside.</summary>
-    public static ExtensionOrigin ChromiumOrigin(int location) => location switch
+    /// <summary>Chromium <c>location</c> values (ruling R8): 1 store; 5/10 built-in; 7/9 policy; 2/3/4/6/8 from outside;
+    /// missing or any other value is unknown.</summary>
+    public static ExtensionOrigin ChromiumOrigin(int? location) => location switch
     {
+        1 => ExtensionOrigin.Store,
         5 or 10 => ExtensionOrigin.Builtin,
         7 or 9 => ExtensionOrigin.Policy,
         2 or 3 or 4 or 6 or 8 => ExtensionOrigin.External,
-        _ => ExtensionOrigin.Store,
+        _ => ExtensionOrigin.Unknown,
     };
+
+    /// <summary>Chromium extension ids are 32 letters a–p; only those are used to build paths.</summary>
+    public static bool IsChromiumId(string id) => ChromiumIdPattern().IsMatch(id);
+
+    // Display names come from files anyone can write: no control characters, bounded length.
+    static string CleanName(string name, string id)
+    {
+        static string Clean(string t)
+        {
+            var c = new string(t.Where(ch => !char.IsControl(ch)).ToArray()).Trim();
+            return c.Length > MaxNameLength ? c[..MaxNameLength] : c;
+        }
+        var n = Clean(name);
+        if (n.Length == 0) n = Clean(id);
+        return n.Length == 0 ? "(ohne Namen)" : n;
+    }
 
     static void Safe(string what, Action a)
     {
@@ -52,6 +73,9 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
 
     [GeneratedRegex(@"^Profile \d+$", RegexOptions.IgnoreCase)]
     private static partial Regex ProfileFolder();
+
+    [GeneratedRegex("^[a-p]{32}$")]
+    private static partial Regex ChromiumIdPattern();
 
     static void ChromiumUserData(string browser, string userData, List<BrowserExtension> into)
     {
@@ -77,7 +101,7 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
             foreach (var ext in settings.EnumerateObject())
             {
                 if (ext.Value.ValueKind != JsonValueKind.Object || !seen.Add(ext.Name)) continue;
-                var location = ext.Value.TryGetProperty("location", out var l) && l.TryGetInt32(out var li) ? li : 0;
+                int? location = ext.Value.TryGetProperty("location", out var l) && l.TryGetInt32(out var li) ? li : null;
                 var origin = ChromiumOrigin(location);
                 var name = origin == ExtensionOrigin.Builtin ? ext.Name : ChromiumName(dir, ext.Name, ext.Value);
                 into.Add(new BrowserExtension(browser, profile, ext.Name, name, origin));
@@ -88,7 +112,9 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
     // settings.manifest first, then the highest installed version's manifest.json; __MSG_x__ via _locales.
     static string ChromiumName(string profileDir, string id, JsonElement settings)
     {
-        var versionDir = HighestVersionDir(Path.Combine(profileDir, "Extensions", id));
+        // Disk lookups only for well-formed ids, and only inside <profile>\Extensions.
+        var extRoot = Path.GetFullPath(Path.Combine(profileDir, "Extensions")) + Path.DirectorySeparatorChar;
+        var versionDir = IsChromiumId(id) ? HighestVersionDir(extRoot, Path.Combine(extRoot, id)) : null;
         string? name = null, locale = null;
         if (settings.TryGetProperty("manifest", out var m) && m.ValueKind == JsonValueKind.Object)
         {
@@ -97,7 +123,7 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
         }
         if (string.IsNullOrWhiteSpace(name) && versionDir is not null)
         {
-            using var manifest = ReadJson(Path.Combine(versionDir, "manifest.json"));
+            using var manifest = ReadJson(InsideFile(extRoot, Path.Combine(versionDir, "manifest.json")));
             if (manifest?.RootElement.ValueKind == JsonValueKind.Object)
             {
                 name = Str(manifest.RootElement, "name");
@@ -105,14 +131,16 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
             }
         }
         if (name is not null && name.StartsWith("__MSG_", StringComparison.Ordinal) && name.EndsWith("__", StringComparison.Ordinal))
-            name = versionDir is not null && locale is not null ? LocalizedMessage(versionDir, locale, name[6..^2]) : null;
+            name = versionDir is not null && locale is not null ? LocalizedMessage(extRoot, versionDir, locale, name[6..^2]) : null;
         return string.IsNullOrWhiteSpace(name) ? id : name;
     }
 
-    static string? LocalizedMessage(string versionDir, string locale, string key)
+    static string? LocalizedMessage(string extRoot, string versionDir, string locale, string key)
     {
         if (locale.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || locale.Contains("..")) return null;
-        using var doc = ReadJson(Path.Combine(versionDir, "_locales", locale, "messages.json"));
+        var localeDir = Inside(extRoot, Path.Combine(versionDir, "_locales", locale));
+        if (localeDir is null || IsReparsePoint(Path.Combine(versionDir, "_locales")) || IsReparsePoint(localeDir)) return null;
+        using var doc = ReadJson(InsideFile(extRoot, Path.Combine(localeDir, "messages.json")));
         if (doc?.RootElement.ValueKind != JsonValueKind.Object) return null;
         foreach (var p in doc.RootElement.EnumerateObject())
             if (string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.Object)
@@ -120,10 +148,11 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
         return null;
     }
 
-    static string? HighestVersionDir(string extDir)
+    static string? HighestVersionDir(string extRoot, string extDir)
     {
-        if (!Directory.Exists(extDir)) return null;
+        if (Inside(extRoot, extDir) is null || !Directory.Exists(extDir) || IsReparsePoint(extDir)) return null;
         return Directory.EnumerateDirectories(extDir)
+            .Where(d => Inside(extRoot, d) is not null && !IsReparsePoint(d))
             .Select(d => (Dir: d, Key: VersionKey(Path.GetFileName(d))))
             .OrderByDescending(x => x.Key, VersionComparer.Instance)
             .Select(x => x.Dir)
@@ -206,11 +235,32 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
                 });
     }
 
-    static JsonDocument? ReadJson(string path)
+    /// <summary>The full path when it lies below root (root ends with a separator), else null.</summary>
+    static string? Inside(string root, string path)
     {
         try
         {
-            if (!File.Exists(path)) return null;
+            var full = Path.GetFullPath(path);
+            return full.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? full : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
+    }
+
+    static string? InsideFile(string root, string path) =>
+        Inside(root, path) is { } full && File.Exists(full) && !IsReparsePoint(full) ? full : null;
+
+    // Junctions and symlinks under Extensions could point anywhere; they are not followed.
+    static bool IsReparsePoint(string path)
+    {
+        try { return File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return true; }
+    }
+
+    static JsonDocument? ReadJson(string? path)
+    {
+        try
+        {
+            if (path is null || !File.Exists(path)) return null;
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             if (fs.Length > MaxFileBytes) return null;
             return JsonDocument.Parse(fs, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });

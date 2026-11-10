@@ -47,7 +47,7 @@ public sealed class WuaUpdateSearch : IWindowsUpdateSearch
             {
                 if (DateTime.UtcNow >= deadline)
                 {
-                    try { Invoke(job, "RequestAbort"); } catch (COMException) { /* already finished */ }
+                    try { Invoke(job, "RequestAbort"); } catch (Exception) { /* already finished or agent gone: still a timeout */ }
                     return new(null, lastSearch, true);
                 }
                 Thread.Sleep(250);

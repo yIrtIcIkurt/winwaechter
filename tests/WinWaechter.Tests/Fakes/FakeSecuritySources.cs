@@ -8,9 +8,17 @@ public sealed class FakeSecurityCenter : ISecurityCenter
     public List<SecurityProduct> Av { get; } = [];
     public List<SecurityProduct> Fw { get; } = [];
     public bool Throw { get; set; }
+    /// <summary>Each call sleeps this long first (slow WMI).</summary>
+    public TimeSpan Block { get; set; }
 
-    public IReadOnlyList<SecurityProduct> AntiVirus() => Throw ? throw new InvalidOperationException("SecurityCenter fehlt") : Av;
-    public IReadOnlyList<SecurityProduct> Firewalls() => Throw ? throw new InvalidOperationException("SecurityCenter fehlt") : Fw;
+    public IReadOnlyList<SecurityProduct> AntiVirus() => Answer(Av);
+    public IReadOnlyList<SecurityProduct> Firewalls() => Answer(Fw);
+
+    IReadOnlyList<SecurityProduct> Answer(List<SecurityProduct> list)
+    {
+        if (Block > TimeSpan.Zero) Thread.Sleep(Block);
+        return Throw ? throw new InvalidOperationException("SecurityCenter fehlt") : list;
+    }
 }
 
 public sealed class FakeVolumeEncryption : IVolumeEncryption

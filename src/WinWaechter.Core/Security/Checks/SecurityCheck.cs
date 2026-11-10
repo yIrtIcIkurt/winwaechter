@@ -30,26 +30,36 @@ public sealed class SecurityCheck(SecuritySources s, TimeSpan? sourceTimeout = n
         var antiVirus = Guard<IReadOnlyList<SecurityProduct>>("Sicherheitscenter (Virenschutz)", () => s.Center.AntiVirus(), _ => [], ct);
         var firewalls = Guard<IReadOnlyList<SecurityProduct>>("Sicherheitscenter (Firewall)", () => s.Center.Firewalls(), _ => [], ct);
 
-        var smartScreen = One(SecurityIds.SmartScreen, Titles.SmartScreen, () => SecurityChecks.SmartScreen(s.Registry), ct);
-        var uac = One(SecurityIds.Uac, Titles.Uac, () => SecurityChecks.Uac(s.Registry), ct);
-        var rdp = One(SecurityIds.RemoteDesktop, Titles.RemoteDesktop, () => SecurityChecks.RemoteDesktop(s.Registry), ct);
-        var encryption = One(SecurityIds.Encryption, Titles.Encryption, () => SecurityChecks.Encryption(s.Encryption.SystemDrive()), ct);
-        var updates = One(SecurityIds.Updates, Titles.Updates, () => SecurityChecks.Updates(
+        var smartScreen = One(SecurityIds.SmartScreen, SecurityTitles.SmartScreen, () => SecurityChecks.SmartScreen(s.Registry), ct);
+        var uac = One(SecurityIds.Uac, SecurityTitles.Uac, () => SecurityChecks.Uac(s.Registry), ct);
+        var rdp = One(SecurityIds.RemoteDesktop, SecurityTitles.RemoteDesktop, () => SecurityChecks.RemoteDesktop(s.Registry), ct);
+        var encryption = One(SecurityIds.Encryption, SecurityTitles.Encryption, () => SecurityChecks.Encryption(s.Encryption.SystemDrive()), ct);
+        var updates = One(SecurityIds.Updates, SecurityTitles.Updates, () => SecurityChecks.Updates(
             s.Registry.KeyExists(Hive.LocalMachine, SecurityChecks.RebootRequiredKey), s.Updates.Search(UpdateSearchTimeout)), ct);
-        var listeners = One(SecurityIds.Listeners, Titles.Listeners,
+        var listeners = One(SecurityIds.Listeners, SecurityTitles.Listeners,
             () => SecurityChecks.Listeners(s.Listeners.Listening(), s.Processes.Snapshot(), s.Signatures), ct);
-        var extensions = One(SecurityIds.Extensions, Titles.Extensions, () => SecurityChecks.Extensions(s.Extensions.Scan()), ct);
+        var extensions = One(SecurityIds.Extensions, SecurityTitles.Extensions, () => SecurityChecks.Extensions(s.Extensions.Scan()), ct);
 
-        // These two need the security-center answer; their own timeout starts once it is there.
+        // Raw reads start right away, each with its own timeout; the center answer is applied afterwards.
+        var defenderRead = Guard("Defender", async () => Outcome<DefenderStatus>.Of(await s.Defender.GetStatusAsync().ConfigureAwait(false)),
+            Outcome<DefenderStatus>.Failed, ct);
+        var firewallRead = Guard("Firewall", () => Outcome<IReadOnlyDictionary<FirewallProfile, bool>>.Of(
+            Profiles.ToDictionary(p => p, s.Firewall.IsEnabled)), Outcome<IReadOnlyDictionary<FirewallProfile, bool>>.Failed, ct);
+
         var av = await antiVirus.ConfigureAwait(false);
-        var defender = Guard(Titles.Defender, async () => SecurityChecks.Defender(await s.Defender.GetStatusAsync().ConfigureAwait(false), av),
-            d => SecurityChecks.Unavailable(SecurityIds.Defender, Titles.Defender, d), ct);
-        var fwProducts = await firewalls.ConfigureAwait(false);
-        var firewall = Guard<IReadOnlyList<SecurityItem>>("Firewall", () => SecurityChecks.Firewall(s.Firewall, fwProducts),
-            d => Profiles.Select((p, i) => SecurityChecks.Unavailable(FirewallIds[i], Titles.Firewall(p), d)).ToList(), ct);
+        var status = await defenderRead.ConfigureAwait(false);
+        var defender = status.Ok
+            ? SecurityChecks.Defender(status.Value!, av)
+            : SecurityChecks.Unavailable(SecurityIds.Defender, SecurityTitles.Defender, status.Detail);
 
-        var rows = new List<SecurityItem>(await firewall.ConfigureAwait(false));
-        foreach (var t in new[] { defender, smartScreen, uac, rdp, encryption, updates, listeners, extensions })
+        var fwProducts = await firewalls.ConfigureAwait(false);
+        var states = await firewallRead.ConfigureAwait(false);
+        var firewall = states.Ok
+            ? SecurityChecks.Firewall(s.Firewall, fwProducts, states.Value)
+            : Profiles.Select((p, i) => SecurityChecks.Unavailable(FirewallIds[i], SecurityTitles.Firewall(p), states.Detail)).ToList();
+
+        var rows = new List<SecurityItem>(firewall) { defender };
+        foreach (var t in new[] { smartScreen, uac, rdp, encryption, updates, listeners, extensions })
             rows.Add(await t.ConfigureAwait(false));
         return rows;
     }
@@ -83,5 +93,12 @@ public sealed class SecurityCheck(SecuritySources s, TimeSpan? sourceTimeout = n
             FileLog.Warn($"Sicherheitsprüfung „{what}“ nicht möglich", ex);
             return fallback(null);
         }
+    }
+
+    // Result of a guarded raw read: the value, or the reason it is missing (null = error, else e.g. "Zeitüberschreitung").
+    sealed record Outcome<T>(bool Ok, T? Value, string? Detail)
+    {
+        public static Outcome<T> Of(T value) => new(true, value, null);
+        public static Outcome<T> Failed(string? detail) => new(false, default, detail);
     }
 }

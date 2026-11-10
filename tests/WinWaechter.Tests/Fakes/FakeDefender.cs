@@ -10,9 +10,15 @@ public sealed class FakeDefender : IDefender
     /// <summary>When set, GetStatusAsync fails with it.</summary>
     public Exception? StatusError { get; set; }
 
-    public Task<DefenderStatus> GetStatusAsync() => StatusError is { } e
-        ? Task.FromException<DefenderStatus>(e)
-        : Task.FromResult(new DefenderStatus(true, true, true, PuaMode, null, 0, null, null, null));
+    /// <summary>GetStatusAsync waits this long before answering.</summary>
+    public TimeSpan StatusDelay { get; set; }
+
+    public async Task<DefenderStatus> GetStatusAsync()
+    {
+        if (StatusDelay > TimeSpan.Zero) await Task.Delay(StatusDelay);
+        if (StatusError is { } e) throw e;
+        return new DefenderStatus(true, true, true, PuaMode, null, 0, null, null, null);
+    }
 
     /// <summary>Order of operations, e.g. "update", "scan:Quick", "remove".</summary>
     public List<string> Calls { get; } = [];

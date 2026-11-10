@@ -14,7 +14,9 @@ public static class SecurityChecks
     const string WinNt = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
     const string TermServer = @"SYSTEM\CurrentControlSet\Control\Terminal Server";
 
-    public static IReadOnlyList<SecurityItem> Firewall(IFirewall fw, IReadOnlyList<SecurityProduct> firewalls)
+    /// <param name="states">Already read profile states; when null, <paramref name="fw"/> is asked.</param>
+    public static IReadOnlyList<SecurityItem> Firewall(IFirewall fw, IReadOnlyList<SecurityProduct> firewalls,
+        IReadOnlyDictionary<FirewallProfile, bool>? states = null)
     {
         var takeover = firewalls.FirstOrDefault(f => f.Enabled && !f.IsMicrosoft);
         var items = new List<SecurityItem>();
@@ -25,11 +27,11 @@ public static class SecurityChecks
             (FirewallProfile.Public, SecurityIds.FirewallPublic),
         })
         {
-            var title = Titles.Firewall(p);
+            var title = SecurityTitles.Firewall(p);
             if (takeover is not null)
                 items.Add(new(id, title, Light.Green, $"Übernommen von {takeover.Name}",
                     "Eine andere Sicherheitssoftware schützt Ihren Rechner. Die Windows-Firewall bleibt unangetastet."));
-            else if (fw.IsEnabled(p))
+            else if (states?[p] ?? fw.IsEnabled(p))
                 items.Add(new(id, title, Light.Green, "Eingeschaltet",
                     "Die Firewall blockiert unerwünschte Verbindungen von außen."));
             else
@@ -42,7 +44,7 @@ public static class SecurityChecks
 
     public static SecurityItem Defender(DefenderStatus s, IReadOnlyList<SecurityProduct> antiVirus)
     {
-        const string title = Titles.Defender;
+        const string title = SecurityTitles.Defender;
         var other = antiVirus.FirstOrDefault(a => a.Enabled && !a.IsMicrosoft);
         if (other is not null)
             return new(SecurityIds.Defender, title, Light.Green, $"Übernommen von {other.Name}",
@@ -63,13 +65,13 @@ public static class SecurityChecks
         var off = Dword(reg, PoliciesSystem, "EnableSmartScreen") == 0
                   || string.Equals(reg.Get(Hive.LocalMachine, Explorer, "SmartScreenEnabled") as string, "Off", StringComparison.OrdinalIgnoreCase);
         const string why = "SmartScreen warnt vor unbekannten oder gefährlichen Programmen und Webseiten.";
-        return new(SecurityIds.SmartScreen, Titles.SmartScreen, off ? Light.Yellow : Light.Green, off ? "Ausgeschaltet" : "Eingeschaltet", why,
+        return new(SecurityIds.SmartScreen, SecurityTitles.SmartScreen, off ? Light.Yellow : Light.Green, off ? "Ausgeschaltet" : "Eingeschaltet", why,
             SecurityActionKind.Link, "Einstellungen öffnen", SystemLinks.DefenderAppBrowser);
     }
 
     public static SecurityItem Uac(IRegistry reg)
     {
-        const string title = Titles.Uac;
+        const string title = SecurityTitles.Uac;
         if (Dword(reg, UacKey, "EnableLUA") == 0)
             return new(SecurityIds.Uac, title, Light.Red, "Ausgeschaltet", "Ohne Benutzerkontensteuerung laufen Programme ungefragt mit Administratorrechten.");
         if (Dword(reg, UacKey, "ConsentPromptBehaviorAdmin") == 0)
@@ -81,7 +83,7 @@ public static class SecurityChecks
 
     public static SecurityItem RemoteDesktop(IRegistry reg)
     {
-        const string title = Titles.RemoteDesktop;
+        const string title = SecurityTitles.RemoteDesktop;
         var edition = reg.Get(Hive.LocalMachine, WinNt, "EditionID") as string;
         if (edition?.StartsWith("Core", StringComparison.OrdinalIgnoreCase) == true)
             return new(SecurityIds.RemoteDesktop, title, Light.Grey, "Nicht verfügbar (Home)", "Windows Home kann keine eingehenden Remotedesktop-Verbindungen annehmen.");
@@ -94,7 +96,7 @@ public static class SecurityChecks
 
     public static SecurityItem Encryption(VolumeEncryptionState? s)
     {
-        const string title = Titles.Encryption;
+        const string title = SecurityTitles.Encryption;
         if (s is null)
             return new(SecurityIds.Encryption, title, Light.Grey, "Nicht verfügbar", "Für dieses Gerät lässt sich der Verschlüsselungsstatus nicht lesen.");
         SecurityItem Row(Light l, string finding, string why) =>
@@ -112,7 +114,7 @@ public static class SecurityChecks
     {
         var stamp = s?.LastSearchUtc is { } t ? $" (Stand der letzten Windows-Suche: {t.ToLocalTime():dd.MM.yyyy HH:mm})" : "";
         SecurityItem Row(Light l, string finding, string why) =>
-            new(SecurityIds.Updates, Titles.Updates, l, finding, why, SecurityActionKind.Link, "Windows Update öffnen", SystemLinks.WindowsUpdate);
+            new(SecurityIds.Updates, SecurityTitles.Updates, l, finding, why, SecurityActionKind.Link, "Windows Update öffnen", SystemLinks.WindowsUpdate);
 
         if (rebootRequired)
             return Row(Light.Yellow, "Neustart nötig" + stamp, "Installierte Updates werden erst nach einem Neustart wirksam.");
@@ -149,7 +151,7 @@ public static class SecurityChecks
 
         var yellow = children.Any(c => c.Light == Light.Yellow);
         var n = children.Count;
-        return new(SecurityIds.Listeners, Titles.Listeners, yellow ? Light.Yellow : Light.Green,
+        return new(SecurityIds.Listeners, SecurityTitles.Listeners, yellow ? Light.Yellow : Light.Green,
             n == 0 ? "Keine Programme lauschen im Netz" : n == 1 ? "1 Programm" : $"{n} Programme",
             yellow ? "Mindestens ein Programm, das Verbindungen aus dem Netz annimmt, ist auffällig. Lassen Sie es von Defender prüfen."
                    : "Diese Programme nehmen Verbindungen aus dem Netz an. Auffälligkeiten wurden nicht gefunden.",
@@ -189,13 +191,15 @@ public static class SecurityChecks
                     "Eine Richtlinie installiert diese Erweiterung. Das ist in Firmen üblich, auf privaten Rechnern aber oft ein Zeichen für Werbe- oder Schadsoftware."),
                 ExtensionOrigin.External => new SecurityItem(SecurityIds.Extensions, title, Light.Yellow, "Von außen installiert",
                     "Diese Erweiterung stammt nicht aus dem Store, sondern wurde von einem Programm oder von Hand eingespielt."),
-                _ => new SecurityItem(SecurityIds.Extensions, title, Light.Green, "Aus dem Store",
+                ExtensionOrigin.Store => new SecurityItem(SecurityIds.Extensions, title, Light.Green, "Aus dem Store",
                     "Diese Erweiterung wurde aus dem offiziellen Store installiert."),
+                _ => new SecurityItem(SecurityIds.Extensions, title, Light.Yellow, "Herkunft unbekannt",
+                    "Woher diese Erweiterung stammt, ist nicht vermerkt. Prüfen Sie, ob Sie sie selbst installiert haben."),
             };
         }).ToList();
         var yellow = children.Any(c => c.Light == Light.Yellow);
         var n = children.Count;
-        return new(SecurityIds.Extensions, Titles.Extensions, yellow ? Light.Yellow : Light.Green,
+        return new(SecurityIds.Extensions, SecurityTitles.Extensions, yellow ? Light.Yellow : Light.Green,
             n == 0 ? "Keine Erweiterungen gefunden" : n == 1 ? "1 Erweiterung" : $"{n} Erweiterungen",
             "Erweiterungen sehen mit, was Sie im Browser tun. Unbekannte oder nicht mehr benötigte Erweiterungen können Sie im Browser unter Erweiterungen entfernen.",
             Children: children);

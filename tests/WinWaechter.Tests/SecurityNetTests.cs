@@ -41,6 +41,8 @@ public sealed class SecurityNetTests : IDisposable
 
     BrowserExtensionScanner Scanner() => new(_paths, _reg);
 
+    static readonly string IdD = new('d', 32), IdN = new('n', 32);
+
     // ---------- Windows Update ----------
 
     [Fact]
@@ -250,6 +252,7 @@ public sealed class SecurityNetTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Smoke")]
     public void WindowsUpdate_search_smoke_read_only()
     {
         // Online=false: only cached data, no download, no install.
@@ -264,11 +267,11 @@ public sealed class SecurityNetTests : IDisposable
     public void Chromium_locations_and_names()
     {
         var profile = Path.Combine(_paths.LocalAppData, EdgeData, "Default");
-        Write(Path.Combine(profile, "Secure Preferences"), Prefs(("A", 1, "Alpha"), ("B", 5, "Builtin"), ("C", 7, "Corp"), ("D", 4, null)));
-        var ver = Path.Combine(profile, "Extensions", "D", "1.0_0");
+        Write(Path.Combine(profile, "Secure Preferences"), Prefs(("A", 1, "Alpha"), ("B", 5, "Builtin"), ("C", 7, "Corp"), (IdD, 4, null)));
+        var ver = Path.Combine(profile, "Extensions", IdD, "1.0_0");
         Write(Path.Combine(ver, "manifest.json"), "{\"name\":\"__MSG_appName__\",\"default_locale\":\"de\"}");
         Write(Path.Combine(ver, "_locales", "de", "messages.json"), "{\"APPNAME\":{\"message\":\"Dings\"}}");
-        Write(Path.Combine(profile, "Extensions", "D", "0.9_0", "manifest.json"), "{\"name\":\"Alt\"}");
+        Write(Path.Combine(profile, "Extensions", IdD, "0.9_0", "manifest.json"), "{\"name\":\"Alt\"}");
 
         var exts = Scanner().Scan();
 
@@ -277,7 +280,7 @@ public sealed class SecurityNetTests : IDisposable
         Assert.Equal(ExtensionOrigin.Store, exts.Single(e => e.Id == "A").Origin);
         Assert.Equal("Alpha", exts.Single(e => e.Id == "A").Name);
         Assert.Equal(ExtensionOrigin.Policy, exts.Single(e => e.Id == "C").Origin);
-        var d = exts.Single(e => e.Id == "D");
+        var d = exts.Single(e => e.Id == IdD);
         Assert.Equal(ExtensionOrigin.External, d.Origin);
         Assert.Equal("Dings", d.Name);
     }
@@ -293,7 +296,10 @@ public sealed class SecurityNetTests : IDisposable
     [InlineData(9, ExtensionOrigin.Policy)]
     [InlineData(5, ExtensionOrigin.Builtin)]
     [InlineData(10, ExtensionOrigin.Builtin)]
-    public void Chromium_location_mapping(int location, ExtensionOrigin origin) =>
+    [InlineData(0, ExtensionOrigin.Unknown)]
+    [InlineData(11, ExtensionOrigin.Unknown)]
+    [InlineData(null, ExtensionOrigin.Unknown)]
+    public void Chromium_location_mapping(int? location, ExtensionOrigin origin) =>
         Assert.Equal(origin, BrowserExtensionScanner.ChromiumOrigin(location));
 
     [Fact]
@@ -365,8 +371,8 @@ public sealed class SecurityNetTests : IDisposable
     {
         Write(Path.Combine(_paths.LocalAppData, ChromeData, "Default", "Preferences"), "{\"extensions\":{\"settings\":{\"A\":{\"loca");
         var chrome2 = Path.Combine(_paths.LocalAppData, ChromeData, "Profile 1");
-        Write(Path.Combine(chrome2, "Preferences"), Prefs(("M", 1, "__MSG_x__"), ("N", 1, null)));
-        Write(Path.Combine(chrome2, "Extensions", "N", "2.0_0", "manifest.json"), "{\"name\":\"__MSG_y__\",\"default_locale\":\"en\"}");
+        Write(Path.Combine(chrome2, "Preferences"), Prefs(("M", 1, "__MSG_x__"), (IdN, 1, null)));
+        Write(Path.Combine(chrome2, "Extensions", IdN, "2.0_0", "manifest.json"), "{\"name\":\"__MSG_y__\",\"default_locale\":\"en\"}");
         var locked = Write(Path.Combine(_paths.LocalAppData, EdgeData, "Default", "Preferences"), Prefs(("L", 1, "Locked")));
         Write(Path.Combine(_paths.RoamingAppData, "Opera Software", "Opera Stable", "Preferences"), "[1,2");
 
@@ -376,7 +382,7 @@ public sealed class SecurityNetTests : IDisposable
 
         Assert.DoesNotContain(exts!, e => e.Id == "L");
         Assert.Equal("M", exts!.Single(e => e.Id == "M").Name);
-        Assert.Equal("N", exts!.Single(e => e.Id == "N").Name);
+        Assert.Equal(IdN, exts!.Single(e => e.Id == IdN).Name);
         Assert.Equal(2, exts!.Count);
     }
 
@@ -390,6 +396,67 @@ public sealed class SecurityNetTests : IDisposable
     }
 
     [Fact]
+    public void Extension_id_cannot_leave_the_extensions_folder()
+    {
+        var userData = Path.Combine(_paths.LocalAppData, ChromeData);
+        var profile = Path.Combine(userData, "Default");
+        // ..\..\evil resolves to <User Data>\evil; the absolute id points somewhere else entirely.
+        Write(Path.Combine(userData, "evil", "1.0_0", "manifest.json"), "{\"name\":\"Planted\"}");
+        var outside = Path.Combine(_root, "outside");
+        Write(Path.Combine(outside, "1.0_0", "manifest.json"), "{\"name\":\"Planted\"}");
+        var traversal = @"..\..\evil";
+        static string J(string v) => System.Text.Json.JsonSerializer.Serialize(v);
+        var json = "{\"extensions\":{\"settings\":{" +
+                   $"{J(traversal)}:{{\"location\":1}}," +
+                   $"{J(outside)}:{{\"location\":1}}," +
+                   $"{J(IdD)}:{{\"location\":1,\"manifest\":{{\"name\":\"__MSG_n__\",\"default_locale\":{J(@"..\..\x")}}}}}" +
+                   "}}}";
+        Write(Path.Combine(profile, "Preferences"), json);
+
+        var exts = Scanner().Scan();
+
+        Assert.Equal(3, exts.Count);
+        Assert.DoesNotContain(exts, e => e.Name == "Planted");
+        Assert.Equal(traversal, exts.Single(e => e.Id == traversal).Name);
+        Assert.Equal(outside, exts.Single(e => e.Id == outside).Name);
+        Assert.Equal(IdD, exts.Single(e => e.Id == IdD).Name);
+        Assert.False(BrowserExtensionScanner.IsChromiumId(traversal));
+        Assert.True(BrowserExtensionScanner.IsChromiumId(IdD));
+    }
+
+    [Fact]
+    public void Missing_location_is_unknown_and_names_are_cleaned()
+    {
+        var longName = "Bad\u0007\nName" + new string('x', 150);
+        Write(Path.Combine(_paths.LocalAppData, EdgeData, "Default", "Preferences"),
+            "{\"extensions\":{\"settings\":{\"q\":{\"manifest\":{\"name\":" + System.Text.Json.JsonSerializer.Serialize(longName) + "}}}}}");
+
+        var e = Assert.Single(Scanner().Scan());
+
+        Assert.Equal(ExtensionOrigin.Unknown, e.Origin);
+        Assert.Equal(BrowserExtensionScanner.MaxNameLength, e.Name.Length);
+        Assert.StartsWith("BadName", e.Name);
+        Assert.DoesNotContain(e.Name, char.IsControl);
+        Assert.Equal(Light.Yellow, SecurityChecks.Extensions([e]).Light);
+    }
+
+    [Fact]
+    public async Task Defender_read_does_not_wait_for_security_center()
+    {
+        var (s, _, center, def, _, _, _) = Sources();
+        center.Block = TimeSpan.FromMilliseconds(800);
+        def.StatusDelay = TimeSpan.FromMilliseconds(800);
+
+        var sw = Stopwatch.StartNew();
+        var items = await new SecurityCheck(s, TimeSpan.FromSeconds(5)).RunAsync(CancellationToken.None);
+        sw.Stop();
+
+        Assert.Equal(Light.Green, items.Single(i => i.Id == SecurityIds.Defender).Light);
+        // in parallel: about 0.8 s, not 1.6 s
+        Assert.True(sw.Elapsed < TimeSpan.FromMilliseconds(1400), sw.Elapsed.ToString());
+    }
+
+    [Fact]
     public void Extension_rules()
     {
         var item = SecurityChecks.Extensions(
@@ -397,11 +464,12 @@ public sealed class SecurityNetTests : IDisposable
             new("Edge", "Default", "a", "Alpha", ExtensionOrigin.Store),
             new("Chrome", "Richtlinie", "p", "p", ExtensionOrigin.Policy),
             new("Firefox", "default-release", "x", "Xeno", ExtensionOrigin.External),
+            new("Edge", "Default", "u", "Unk", ExtensionOrigin.Unknown),
         ]);
         Assert.Equal(SecurityIds.Extensions, item.Id);
         Assert.Equal("Browser-Erweiterungen", item.Title);
         Assert.Equal(Light.Yellow, item.Light);
-        Assert.Equal("3 Erweiterungen", item.Finding);
+        Assert.Equal("4 Erweiterungen", item.Finding);
         Assert.Contains("im Browser unter Erweiterungen entfernen", item.Explanation);
         Assert.Equal(SecurityActionKind.None, item.Action);
         var k = item.Children!;
@@ -409,6 +477,7 @@ public sealed class SecurityNetTests : IDisposable
         Assert.Equal((Light.Green, "Aus dem Store"), (k[0].Light, k[0].Finding));
         Assert.Equal((Light.Yellow, "Per Richtlinie erzwungen"), (k[1].Light, k[1].Finding));
         Assert.Equal((Light.Yellow, "Von außen installiert"), (k[2].Light, k[2].Finding));
+        Assert.Equal((Light.Yellow, "Herkunft unbekannt"), (k[3].Light, k[3].Finding));
 
         var green = SecurityChecks.Extensions([new("Edge", "Default", "a", "Alpha", ExtensionOrigin.Store)]);
         Assert.Equal(Light.Green, green.Light);

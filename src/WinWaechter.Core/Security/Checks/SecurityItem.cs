@@ -18,7 +18,7 @@ public static class SecurityIds
 }
 
 /// <summary>Row titles, shared by the rules and the grey fallback rows.</summary>
-public static class Titles
+public static class SecurityTitles
 {
     public const string Defender = "Microsoft Defender", SmartScreen = "SmartScreen", Uac = "Benutzerkontensteuerung",
         RemoteDesktop = "Remotedesktop", Encryption = "Geräteverschlüsselung", Updates = "Windows-Updates",
