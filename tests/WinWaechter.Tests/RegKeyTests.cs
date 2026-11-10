@@ -138,6 +138,35 @@ public sealed class RegKeyTests : IDisposable
     }
 
     [Fact]
+    public async Task Entry_that_vanished_before_apply_is_neither_undoable_nor_counted_as_undone()
+    {
+        var factory = ChangeFactory.CreateDefault(_reg, _sc, _store, _files, RuleSet.Default);
+        var engine = new OptimizerEngine([], new SessionStore(Path.Combine(_root, "sessions")), factory,
+            _ => new RestorePointResult(true, "ok"));
+        var finding = new Finding("f", FindingArea.Einstellung, "Alpha", Key, ["r"], Rating.Info, true, Change());
+        var res = await engine.ApplyAsync("T", [finding], null, CancellationToken.None);   // key never existed
+
+        Assert.Equal(1, res.Failed);
+        var rec = Assert.Single(res.Session.Records);
+        Assert.Equal(ChangeStatus.Failed, rec.Status);
+        Assert.False(OptimizerEngine.IsUndoable(rec));
+        var u = engine.UndoSession(res.Session);
+        Assert.Equal(0, u.Undone);
+        Assert.Equal(0, u.Failed);
+        Assert.Equal(ChangeStatus.Failed, res.Session.Records.Single().Status);
+        Assert.Empty(_reg.CreateKeyCalls);
+
+        // a failed delete that left its backup behind stays undoable (it may have removed parts of the key)
+        Assert.True(OptimizerEngine.IsUndoable(rec with { After = new() { ["backup"] = Touch(Path.Combine(_root, "b.json")) } }));
+    }
+
+    static string Touch(string path)
+    {
+        File.WriteAllText(path, "{}");
+        return path;
+    }
+
+    [Fact]
     public void Apply_refuses_value_data_that_does_not_match_its_kind()
     {
         var ctx = Ctx();
@@ -330,6 +359,22 @@ public sealed class RegKeyTests : IDisposable
         // the entry itself never counts as "another" one
         var selfWithIcon = Prog("Self", icon: _pf + @"\Foo\foo.exe");
         Assert.Null(ProgramFolderRules.Check(_pf + @"\Foo", selfWithIcon, [selfWithIcon], _paths, RuleSet.Default).Refusal);
+    }
+
+    [Fact]
+    public void Folder_rules_refuse_vendor_collection_folders_from_the_leftover_ignore_list()
+    {
+        var self = Prog("Self");
+        FolderCheck Check(string folder) => ProgramFolderRules.Check(folder, self, [self], _paths, RuleSet.Default);
+        const string Shared = "Gemeinsam genutzte Ordner werden nie angeboten.";
+
+        Assert.Equal(new FolderCheck(null, Shared), Check(_pf + @"\Google"));
+        Assert.Equal(new FolderCheck(null, Shared), Check(_pf + @"\mozilla"));          // case-insensitive
+        Assert.Equal(new FolderCheck(null, Shared), Check(_pf + @"\NVIDIA Corporation")); // prefix pattern
+        Assert.Equal(new FolderCheck(null, Shared), Check(Path.Combine(_paths.LocalAppData, "Programs", "Steam")));
+        // a program's own folder below such a collection is still judged by the other rules
+        Assert.Null(Check(_pf + @"\Google\Foo Tool").Refusal);
+        Assert.Null(Check(_pf + @"\Googlex").Refusal);
     }
 
     // ---------- scanners and traces ----------

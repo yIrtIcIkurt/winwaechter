@@ -95,11 +95,21 @@ public sealed class OptimizerEngine
 
     /// <summary>
     /// Applied records, plus Pending/Failed ones whose plan names what was written (e.g. files moved
-    /// before a crash). Ablage records that moved nothing are left out.
+    /// before a crash). Ablage records that moved nothing and uninstall entries that were never removed are left out.
     /// </summary>
     public static bool IsUndoable(ChangeRecord r) =>
         (r.Status == ChangeStatus.Applied || ((r.Status is ChangeStatus.Pending or ChangeStatus.Failed) && r.After.Count > 0))
-        && !MovedNothing(r);
+        && !MovedNothing(r) && !RemovedNoKey(r);
+
+    /// <summary>A regkey record that stopped before its backup (e.g. the entry vanished before Apply):
+    /// RegKeyChange writes the backup before it deletes anything, so no backup file means nothing was removed.</summary>
+    static bool RemovedNoKey(ChangeRecord r)
+    {
+        if (r.Kind != "regkey" || r.Status == ChangeStatus.Applied || r.After.ContainsKey("sha256")) return false;
+        var backup = r.After.GetValueOrDefault("backup");
+        try { return string.IsNullOrWhiteSpace(backup) || !File.Exists(backup); }
+        catch (Exception) { return false; }
+    }
 
     /// <summary>An Ablage record (temp/file/cache/folder) whose Apply moved nothing (found nothing or a refused folder move).</summary>
     public static bool MovedNothing(ChangeRecord r) =>
