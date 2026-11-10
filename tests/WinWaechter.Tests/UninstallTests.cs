@@ -189,6 +189,21 @@ public sealed class UninstallTests : IDisposable
         Assert.Equal("Das Deinstallationsprogramm fehlt.", plan.Reason);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Empty_uninstall_string_counts_as_missing_uninstaller(string? uninstall)
+    {
+        var plan = Plan(Prog(uninstall));
+        Assert.Equal(UninstallRoute.OpenSettings, plan.Route);
+        Assert.Null(plan.Command);
+        Assert.True(plan.UninstallerMissing);
+        Assert.Equal(UninstallPlanner.MissingReason, plan.Reason);
+        // an MSI product code still takes the msiexec route
+        Assert.Equal(UninstallRoute.Launch, Plan(Prog(uninstall, key: Guid, msi: true)).Route);
+    }
+
     [Fact]
     public void Writable_uninstaller_or_folder_opens_settings()
     {

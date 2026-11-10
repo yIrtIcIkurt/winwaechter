@@ -29,6 +29,9 @@ public static class UninstallPlanner
             return new(UninstallRoute.Launch, new UninstallCommand(msiexec, "/X" + guid), "", false);
         }
 
+        // no command at all: the uninstaller is missing (forced removal may be offered, spec 1.3)
+        if (string.IsNullOrWhiteSpace(p.UninstallString)) return new(UninstallRoute.OpenSettings, null, MissingReason, true);
+
         var cmd = UninstallCommandParser.Parse(p.UninstallString, exists);
         if (cmd is null) return Settings(UnsafeReason);
 
