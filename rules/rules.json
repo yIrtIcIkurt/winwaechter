@@ -1,4 +1,6 @@
 {
+  "rulesVersion": 1,
+  "minAppVersion": "0.3.0",
   "protected": [
     { "publisher": "Microsoft" }, { "publisher": "Dell" }, { "publisher": "Intel" }, { "publisher": "Realtek" },
     { "publisher": "Haufe" }, { "publisher": "Lexware" }, { "publisher": "NVIDIA" }, { "publisher": "Advanced Micro Devices" },

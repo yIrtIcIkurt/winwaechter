@@ -68,16 +68,16 @@ public sealed class UpdateTests : IDisposable
     [Fact]
     public void HostPolicy_rejects_http_and_foreign_hosts()
     {
-        Assert.False(HostPolicy.IsAllowed(new Uri("http://github.com/x")));
-        Assert.False(HostPolicy.IsAllowed(new Uri("https://evil.com")));
-        Assert.True(HostPolicy.IsAllowed(new Uri("https://release-assets.githubusercontent.com/x")));
-        Assert.True(HostPolicy.IsAllowed(new Uri("https://GitHub.com/x")));
-        Assert.False(HostPolicy.IsAllowed(new Uri("https://github.com.evil.com/x")));
-        Assert.False(HostPolicy.IsAllowed(new Uri("https://evil.com/github.com")));
-        Assert.False(HostPolicy.IsAllowed(new Uri("https://user:pw@github.com/x")));
-        Assert.False(HostPolicy.IsAllowed(new Uri("https://github.com:8443/x")));
-        Assert.False(HostPolicy.IsAllowed(new Uri("ftp://github.com/x")));
-        Assert.False(HostPolicy.IsAllowed(null));
+        Assert.False(HostPolicy.Updates.IsAllowed(new Uri("http://github.com/x")));
+        Assert.False(HostPolicy.Updates.IsAllowed(new Uri("https://evil.com")));
+        Assert.True(HostPolicy.Updates.IsAllowed(new Uri("https://release-assets.githubusercontent.com/x")));
+        Assert.True(HostPolicy.Updates.IsAllowed(new Uri("https://GitHub.com/x")));
+        Assert.False(HostPolicy.Updates.IsAllowed(new Uri("https://github.com.evil.com/x")));
+        Assert.False(HostPolicy.Updates.IsAllowed(new Uri("https://evil.com/github.com")));
+        Assert.False(HostPolicy.Updates.IsAllowed(new Uri("https://user:pw@github.com/x")));
+        Assert.False(HostPolicy.Updates.IsAllowed(new Uri("https://github.com:8443/x")));
+        Assert.False(HostPolicy.Updates.IsAllowed(new Uri("ftp://github.com/x")));
+        Assert.False(HostPolicy.Updates.IsAllowed(null));
     }
 
     // ---- Verifier ----
@@ -389,7 +389,7 @@ public sealed class UpdateTests : IDisposable
         Assert.Equal("small", File.ReadAllText(sums));
         Assert.Equal("small", File.ReadAllText(sig));
         Assert.StartsWith(TargetDir() + Path.DirectorySeparatorChar + "0.1.1-", Path.GetDirectoryName(setup)! + Path.DirectorySeparatorChar);
-        Assert.All(h.Requests, u => Assert.True(HostPolicy.IsAllowed(u)));
+        Assert.All(h.Requests, u => Assert.True(HostPolicy.Updates.IsAllowed(u)));
         Assert.Equal(1.0, prog.Last());
     }
 

@@ -39,6 +39,16 @@ if ($new -ne $text) { [IO.File]::WriteAllText($props, $new) }
 & $dotnet test (Join-Path $root 'WinWaechter.sln') -c Release
 Assert-Ok 'dotnet test'
 
+# 2b. Regeln signieren (before publish, so the shipped rules.json matches the committed, signed one)
+$tool = Join-Path $root 'tools\ReleaseTool\ReleaseTool.csproj'
+$rulesJson = Join-Path $root 'rules\rules.json'
+$rulesSig = Join-Path $root 'rules\rules.json.sig'
+& $dotnet run --project $tool -c Release -- sign-rules $KeyPath $rulesJson
+Assert-Ok 'ReleaseTool sign-rules'
+& $dotnet run --project $tool -c Release -- verify-rules-embedded $rulesJson $rulesSig
+Assert-Ok 'ReleaseTool verify-rules-embedded'
+Write-Host 'rules.json.sig aktualisiert – bitte mit committen.'
+
 # 3. Publish
 $publishDir = Join-Path $root "publish\$Version"
 if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
@@ -54,7 +64,6 @@ Assert-Ok 'ISCC'
 if (-not (Test-Path $setup)) { throw "Installer fehlt: $setup" }
 
 # 5. Sign
-$tool = Join-Path $root 'tools\ReleaseTool\ReleaseTool.csproj'
 & $dotnet run --project $tool -c Release -- sign $KeyPath $Version $setup $dist
 Assert-Ok 'ReleaseTool sign'
 

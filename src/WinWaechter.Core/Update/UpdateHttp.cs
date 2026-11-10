@@ -3,7 +3,7 @@ using System.Net;
 namespace WinWaechter.Core.Update;
 
 // The only handler the app should give to UpdateChecker/UpdateDownloader. Redirects are never followed
-// automatically, so the downloader can check every hop against HostPolicy.
+// automatically, so the downloader can check every hop against the HostPolicy.
 public static class UpdateHttp
 {
     public static SocketsHttpHandler CreateHandler() => new()

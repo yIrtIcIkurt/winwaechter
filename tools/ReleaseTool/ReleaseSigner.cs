@@ -2,6 +2,7 @@ using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
+using WinWaechter.Core.Rules;
 using WinWaechter.Core.Update;
 
 namespace WinWaechter.ReleaseTool;
@@ -62,6 +63,26 @@ public static class ReleaseSigner
         File.WriteAllBytes(sumsPath, sums);
         File.WriteAllText(sigPath, Convert.ToBase64String(sig), Encoding.ASCII);
         return (sumsPath, sigPath);
+    }
+
+    // Signs "winwaechter-rules\n" + the exact bytes of rules.json; writes <rulesJson>.sig (Base64, ASCII).
+    // Refuses files the app would reject anyway (too large or not loadable as RuleSet).
+    public static string SignRules(ECDsa key, string rulesJsonPath)
+    {
+        var json = File.ReadAllBytes(rulesJsonPath);
+        if (json.Length > RulesStore.MaxBytes) throw new InvalidDataException("rules.json ist größer als 1 MB.");
+        RuleSet.Parse(json);
+        var sig = key.SignData(RulesSignature.Payload(json), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        var sigPath = rulesJsonPath + ".sig";
+        File.WriteAllText(sigPath, Convert.ToBase64String(sig), Encoding.ASCII);
+        return sigPath;
+    }
+
+    public static string SignRules(string keyPemPath, string rulesJsonPath)
+    {
+        using var key = ECDsa.Create();
+        key.ImportFromPem(File.ReadAllText(keyPemPath));
+        return SignRules(key, rulesJsonPath);
     }
 
     static void WriteNew(string path, string text, FileSecurity? acl)

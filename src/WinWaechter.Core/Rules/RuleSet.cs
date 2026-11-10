@@ -38,6 +38,8 @@ public sealed class RuleSet
 
     sealed class Dto
     {
+        public int? RulesVersion { get; set; }
+        public string? MinAppVersion { get; set; }
         public List<MatcherDto>? Protected { get; set; }
         public List<MatcherDto>? ExpendableAutostart { get; set; }
         public List<MatcherDto>? Pua { get; set; }
@@ -90,11 +92,19 @@ public sealed class RuleSet
     /// <summary>Known miner program names (matched against exe file names by the heuristics).</summary>
     public IReadOnlyList<string> MinerNames => _minerNames;
 
+    /// <summary>Version of the rules file ("rulesVersion"); 0 when the field is missing.</summary>
+    public int RulesVersion { get; }
+
+    /// <summary>Raw "minAppVersion" string; null when missing.</summary>
+    public string? MinAppVersion { get; }
+
     RuleSet(Dto d)
     {
         // The protected list is the safety core: refuse to run without it.
         if (d.Protected is null || d.Protected.Count == 0)
             throw new InvalidDataException("rules.json enthält keine Schutzliste (\"protected\").");
+        RulesVersion = d.RulesVersion ?? 0;
+        MinAppVersion = d.MinAppVersion;
         _protected = ToMatchers(d.Protected);
         _expendable = ToMatchers(d.ExpendableAutostart);
         _pua = ToMatchers(d.Pua);
@@ -103,6 +113,38 @@ public sealed class RuleSet
         PoolPorts = new HashSet<int>(d.PoolPorts ?? []);
         LeftoverIgnore = (d.LeftoverIgnore ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
         Privacy = (d.Privacy ?? []).Select(ToSetting).ToArray();
+    }
+
+    // Used by UnionWith only.
+    RuleSet(int version, string? minApp, Matcher[] prot, Matcher[] exp, Matcher[] pua, string[] minerNames,
+        string[] minerCmd, IReadOnlySet<int> ports, IReadOnlyList<string> leftoverIgnore, IReadOnlyList<PrivacySetting> privacy)
+    {
+        RulesVersion = version;
+        MinAppVersion = minApp;
+        _protected = prot;
+        _expendable = exp;
+        _pua = pua;
+        _minerNames = minerNames;
+        _minerCmd = minerCmd;
+        PoolPorts = ports;
+        LeftoverIgnore = leftoverIgnore;
+        Privacy = privacy;
+    }
+
+    /// <summary>
+    /// Bundled rules (this) plus downloaded rules (other). Lists are only ever unioned, so an update can add
+    /// protection but never remove it. Privacy always stays this set's (never taken from the network).
+    /// </summary>
+    public RuleSet UnionWith(RuleSet other)
+    {
+        static Matcher[] M(Matcher[] a, Matcher[] b) => a.Concat(b).DistinctBy(
+            m => (m.Name?.ToUpperInvariant(), m.Publisher?.ToUpperInvariant(), m.Path?.ToUpperInvariant())).ToArray();
+        static string[] S(IEnumerable<string> a, IEnumerable<string> b) => a.Concat(b).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+
+        return new RuleSet(Math.Max(RulesVersion, other.RulesVersion), other.MinAppVersion,
+            M(_protected, other._protected), M(_expendable, other._expendable), M(_pua, other._pua),
+            S(_minerNames, other._minerNames), S(_minerCmd, other._minerCmd),
+            new HashSet<int>(PoolPorts.Concat(other.PoolPorts)), S(LeftoverIgnore, other.LeftoverIgnore), Privacy);
     }
 
     // The fixed list of registry values the privacy feature may ever write.
@@ -159,10 +201,23 @@ public sealed class RuleSet
 
     public static RuleSet Load(string jsonPath)
     {
+        byte[] bytes;
+        try { bytes = File.ReadAllBytes(jsonPath); }
+        catch (Exception ex)
+        {
+            throw new InvalidDataException($"rules.json konnte nicht geladen werden ({jsonPath}): {ex.Message}", ex);
+        }
+        return Parse(bytes);
+    }
+
+    /// <summary>Parses rules.json bytes (UTF-8, BOM allowed). Throws InvalidDataException on any error.</summary>
+    public static RuleSet Parse(byte[] json)
+    {
         try
         {
-            var json = File.ReadAllText(jsonPath);
-            var dto = JsonSerializer.Deserialize<Dto>(json, new JsonSerializerOptions
+            ReadOnlySpan<byte> span = json;
+            if (span.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF])) span = span[3..];
+            var dto = JsonSerializer.Deserialize<Dto>(span, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
                 ReadCommentHandling = JsonCommentHandling.Skip,
@@ -172,7 +227,7 @@ public sealed class RuleSet
         }
         catch (Exception ex) when (ex is not InvalidDataException)
         {
-            throw new InvalidDataException($"rules.json konnte nicht geladen werden ({jsonPath}): {ex.Message}", ex);
+            throw new InvalidDataException($"rules.json konnte nicht geladen werden: {ex.Message}", ex);
         }
     }
 

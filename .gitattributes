@@ -1,0 +1,3 @@
+# Signed rule files: bytes in the repo must equal the signed bytes (no EOL conversion).
+rules/rules.json -text
+rules/rules.json.sig -text

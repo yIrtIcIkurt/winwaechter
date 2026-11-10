@@ -26,7 +26,7 @@ public sealed class UpdateChecker
     public async Task<UpdateCheckResult> CheckAsync(CancellationToken ct)
     {
         var url = new Uri($"https://api.github.com/repos/{_repo}/releases/latest");
-        if (!HostPolicy.IsAllowed(url)) return Fail("Ungültige Download-Adresse im Release.");
+        if (!HostPolicy.Updates.IsAllowed(url)) return Fail("Ungültige Download-Adresse im Release.");
 
         byte[] body;
         try
@@ -110,7 +110,7 @@ public sealed class UpdateChecker
     static bool TryAllowed(string s, out Uri? uri)
     {
         uri = null;
-        if (!Uri.TryCreate(s, UriKind.Absolute, out var u) || !HostPolicy.IsAllowed(u)) return false;
+        if (!Uri.TryCreate(s, UriKind.Absolute, out var u) || !HostPolicy.Updates.IsAllowed(u)) return false;
         uri = u;
         return true;
     }
