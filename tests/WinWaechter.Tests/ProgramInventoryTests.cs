@@ -118,8 +118,30 @@ public sealed class ProgramInventoryTests
         Assert.False(UninstallRoots.IsDirectChild(Hive.LocalMachine, UninstallRoots.Native));
         Assert.False(UninstallRoots.IsDirectChild(Hive.LocalMachine, UninstallRoots.Native + @"\A\B"));
         Assert.False(UninstallRoots.IsDirectChild(Hive.LocalMachine, UninstallRoots.Native + @"\.."));
-        Assert.False(UninstallRoots.IsDirectChild(Hive.CurrentUser, UninstallRoots.Native + @"\A"));
         Assert.True(UninstallRoots.IsDirectChild(Hive.CurrentUser, UninstallRoots.User + @"\A"));
         Assert.False(UninstallRoots.IsDirectChild(Hive.LocalMachine, @"SOFTWARE\Evil\A"));
+    }
+
+    [Fact]
+    public void IsDirectChild_is_case_insensitive_and_hive_aware()
+    {
+        Assert.True(UninstallRoots.IsDirectChild(Hive.CurrentUser, @"software\microsoft\windows\currentversion\uninstall\A"));
+        // Native and User are the same registry path apart from case
+        Assert.True(UninstallRoots.IsDirectChild(Hive.CurrentUser, UninstallRoots.Native + @"\A"));
+        Assert.True(UninstallRoots.IsDirectChild(Hive.LocalMachine, UninstallRoots.User + @"\A"));
+        Assert.True(UninstallRoots.IsDirectChild(Hive.LocalMachine, UninstallRoots.Wow64 + @"\A"));
+        // the Wow64 root exists only under HKLM
+        Assert.False(UninstallRoots.IsDirectChild(Hive.CurrentUser, UninstallRoots.Wow64 + @"\A"));
+    }
+
+    [Fact]
+    public void IsDirectChild_rejects_grandchildren_for_all_roots()
+    {
+        foreach (var (hive, root) in UninstallRoots.All)
+        {
+            Assert.True(UninstallRoots.IsDirectChild(hive, root + @"\A"));
+            Assert.False(UninstallRoots.IsDirectChild(hive, root + @"\A\B"));
+            Assert.False(UninstallRoots.IsDirectChild(hive, root + @"\"));
+        }
     }
 }

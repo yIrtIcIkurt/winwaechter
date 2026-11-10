@@ -18,14 +18,14 @@ public static class UninstallRoots
 
     /// <summary>
     /// True when key is exactly "root\name" for one of the (hive, root) pairs in <see cref="All"/>:
-    /// name non-empty, no backslash, not "." or "..". Roots match case-insensitively for HKLM;
-    /// for HKCU the root must be spelled exactly as <see cref="User"/> (so the HKLM text never passes there).
+    /// name non-empty, no backslash, not "." or "..". The hive must match the pair
+    /// and roots match case-insensitively, like the registry itself.
     /// </summary>
     public static bool IsDirectChild(Hive h, string key)
     {
         foreach (var (hive, root) in All)
         {
-            if (hive != h || !key.StartsWith(root, hive == Hive.LocalMachine ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) continue;
+            if (hive != h || !key.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
             if (key.Length <= root.Length + 1 || key[root.Length] != '\\') continue;
             var name = key[(root.Length + 1)..];
             if (name.Contains('\\') || name is "." or "..") continue;
