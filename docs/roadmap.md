@@ -32,11 +32,11 @@ App-Übersicht + offizielles/erzwungenes Deinstallieren mit Reste-Suche, Sicherh
 
 Dazu: Autor „Tahsin Yilmaz“ (Über-Bereich, Installer, Dateieigenschaften, README).
 
-## 0.5.0 (geplant, Entscheidung Nutzer 2026-11-10)
-Mehrsprachigkeit Deutsch, Englisch, Türkisch (App, Regeltexte, Installer). Startsprache wie Windows, sonst Englisch; umschaltbar in den Einstellungen. Türkische Texte vom Nutzer gegenlesen lassen.
-
 ## 0.4.0 (geplant, Entscheidung Nutzer 2026-11-10)
 Neue Seite „Leistung“: Energiemodus (Netz/Akku), visuelle Effekte, Startzeit-Bericht, Live-Monitor (CPU/RAM/Datenträger/Top-Verbraucher), Hintergrund-Apps, Spielmodus + GPU-Planung, Ruhezustand-Datei (mit Hinweis), Speicheroptimierung. Alles einzeln, umkehrbar; keine „Tuning-Tricks“ (RAM-Booster, Prefetch löschen, Dienste massenhaft abschalten).
+
+## 0.5.0 (geplant, Entscheidung Nutzer 2026-11-10)
+Mehrsprachigkeit Deutsch, Englisch, Türkisch (App, Regeltexte, Installer). Startsprache wie Windows, sonst Englisch; umschaltbar in den Einstellungen. Türkische Texte vom Nutzer gegenlesen lassen.
 
 ## Nach 0.1.x (Entscheidung Nutzer 2026-11-08)
 - Signierte `rules.json` direkt aus dem eigenen GitHub-Repo aktualisieren (ohne neues Release, ohne Drittanbieter-Listen). Defender bleibt die Scan-Engine.
@@ -44,7 +44,6 @@ Neue Seite „Leistung“: Energiemodus (Netz/Akku), visuelle Effekte, Startzeit
 
 ## Bekannte kleine Punkte
 - Tag `v0.1.1` auf GitHub zeigt auf aa249ae statt 7114d33 (nur Quellcode-ZIP betroffen; Korrektur braucht Force-Push durch den Nutzer).
-- Defender-Status 106 ist nicht dokumentiert und wird als „Status 106“ angezeigt.
 - Wiederherstellungspunkt scheitert, solange der Computerschutz-Dienst aus ist (0x80070422) – App meldet es, eigene Sicherung greift.
 - Langes Zurückverschieben vieler Temp-Dateien zeigt keinen Fortschritt.
 - History-Ansicht bricht ab, wenn ein Ablage-Ordner nicht lesbar ist; Link-Warnung bei jeder Vorschau im Log.
