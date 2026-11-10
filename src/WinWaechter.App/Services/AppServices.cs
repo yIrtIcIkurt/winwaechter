@@ -89,7 +89,7 @@ public sealed class AppServices
         var securitySources = new SecuritySources(firewall, new WmiSecurityCenter(), defender, reg, new WmiVolumeEncryption(),
             new WuaUpdateSearch(), new TcpTableConnections(), procs, sig, new BrowserExtensionScanner(paths, reg));
         var security = new SecurityViewModel(ct => Task.Run(() => new SecurityCheck(securitySources).RunAsync(ct), ct),
-            engine, defender, dialogs, shell, canChange, gate);
+            engine, defender, dialogs, shell, canChange, gate, () => protect.IsDefenderBusy);
         // the DISM probe and the registry reads stay off the UI thread
         var privacy = new PrivacyViewModel(ct => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
         {

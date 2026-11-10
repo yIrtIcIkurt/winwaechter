@@ -50,10 +50,12 @@ public sealed partial class SecurityViewModel : ObservableObject
     readonly IDialogService _dialogs;
     readonly ISystemShell _shell;
     readonly ChangeGate _gate;
+    readonly Func<bool> _defenderBusy;
 
     public SecurityViewModel(Func<CancellationToken, Task<IReadOnlyList<SecurityItem>>> check, OptimizerEngine engine,
-        IDefender defender, IDialogService dialogs, ISystemShell shell, bool canChange, ChangeGate gate)
+        IDefender defender, IDialogService dialogs, ISystemShell shell, bool canChange, ChangeGate gate, Func<bool>? defenderBusy = null)
     {
+        _defenderBusy = defenderBusy ?? (() => false);
         _check = check;
         _engine = engine;
         _defender = defender;
@@ -179,7 +181,8 @@ public sealed partial class SecurityViewModel : ObservableObject
     {
         SecurityActionKind.Link => true,
         SecurityActionKind.Change => row.Item.Change is not null && CanChange && !IsBusy && !_gate.IsBusy,
-        SecurityActionKind.DefenderScan => !string.IsNullOrWhiteSpace(row.Item.ScanPath) && !IsBusy,
+        // like the Schutz page: needs admin rights and no other Defender operation
+        SecurityActionKind.DefenderScan => !string.IsNullOrWhiteSpace(row.Item.ScanPath) && CanChange && !IsBusy && !_defenderBusy(),
         _ => false,
     };
 

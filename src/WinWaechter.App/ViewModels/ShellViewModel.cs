@@ -42,7 +42,7 @@ public sealed partial class ShellViewModel : ObservableObject
             new NavItem("Übersicht", "\uE80F", Overview, OnSelected),
             new NavItem("Optimieren", "\uE90F", optimize, OnSelected),
             new NavItem("Schutz", "\uEA18", protect, OnSelected),
-            new NavItem("Sicherheit", "", security, OnSelected),
+            new NavItem("Sicherheit", "", security, OnSelected),
             new NavItem("Datenschutz", "", privacy, OnSelected),
             new NavItem("Programme", "\uE71D", programs, OnSelected),
             new NavItem("Verlauf", "\uE81C", history, OnSelected),
@@ -54,6 +54,11 @@ public sealed partial class ShellViewModel : ObservableObject
         optimize.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         protect.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         security.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
+        // the Defender scan on the Sicherheit page waits while the Schutz page runs a Defender operation
+        protect.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ProtectViewModel.IsDefenderBusy)) security.RunActionCommand.NotifyCanExecuteChanged();
+        };
         privacy.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         programs.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
     }

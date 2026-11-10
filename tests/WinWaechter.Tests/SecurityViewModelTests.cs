@@ -75,8 +75,8 @@ public sealed class SecurityViewModelTests : IDisposable
         Row("e", Light.Green, children: [Row("e1", Light.Yellow)]),
     ];
 
-    SecurityViewModel Vm(IReadOnlyList<SecurityItem> items, bool canChange = true) =>
-        new(_ => Task.FromResult(items), _engine, _defender, _dialogs, _shell, canChange, _gate);
+    SecurityViewModel Vm(IReadOnlyList<SecurityItem> items, bool canChange = true, Func<bool>? defenderBusy = null) =>
+        new(_ => Task.FromResult(items), _engine, _defender, _dialogs, _shell, canChange, _gate, defenderBusy);
 
     [Fact]
     public async Task Counts_and_tile_text()
@@ -215,6 +215,24 @@ public sealed class SecurityViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Defender_scan_disabled_without_admin_or_while_defender_is_busy()
+    {
+        var child = new SecurityItem("l1", "tool.exe", Light.Yellow, "Port", "e", SecurityActionKind.DefenderScan, "Prüfen", ScanPath: @"C:\x\tool.exe");
+        var items = new[] { Row("listeners", Light.Yellow, children: [child]) };
+
+        var noAdmin = Vm(items, canChange: false);
+        await noAdmin.RefreshCommand.ExecuteAsync(null);
+        Assert.False(noAdmin.RunActionCommand.CanExecute(noAdmin.Items[0].Children[0]));
+
+        var busy = false;
+        var vm = Vm(items, defenderBusy: () => busy);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.True(vm.RunActionCommand.CanExecute(vm.Items[0].Children[0]));
+        busy = true;
+        Assert.False(vm.RunActionCommand.CanExecute(vm.Items[0].Children[0]));
+    }
+
+    [Fact]
     public async Task Change_disabled_without_admin()
     {
         _fw.State[FirewallProfile.Domain] = false;
@@ -283,7 +301,8 @@ public sealed class SecurityViewModelTests : IDisposable
         Assert.Equal(new[] { "Übersicht", "Optimieren", "Schutz", "Sicherheit", "Datenschutz", "Programme", "Verlauf" },
             shell.PrimaryNav.Select(n => n.Title));
         var nav = shell.PrimaryNav[3];
-        Assert.Equal("\uE72E", nav.Glyph);
+        Assert.Equal("", nav.Glyph);
+        Assert.Equal("", shell.PrimaryNav[4].Glyph);
         Assert.Same(vm, nav.Page);
 
         // the first visit reads the check when startup did not
