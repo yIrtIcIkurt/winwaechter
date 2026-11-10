@@ -17,7 +17,9 @@ namespace WinWaechter.Core.Programs;
 /// </summary>
 internal static class UserProcess
 {
-    const uint DupAccess = TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY;
+    // seclogon adjusts the duplicated token (session id, default DACL) before creating the process;
+    // without ADJUST_DEFAULT and ADJUST_SESSIONID CreateProcessWithTokenW fails with "access denied".
+    const uint DupAccess = TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID;
 
     public static (SafeKernelHandle Process, SafeKernelHandle Thread) StartSuspended(UninstallCommand cmd, string? userSid)
     {

@@ -162,7 +162,9 @@ public sealed class ViewSmokeTests : IDisposable
             Layout(securityView);
             AssertLightsDiffer(securityView, theme);
             Layout(new PrivacyView { DataContext = privacy });
-            Layout(new ProgramsView { DataContext = programs });
+            var programsView = new ProgramsView { DataContext = programs };
+            Layout(programsView);
+            AssertComboShowsLabel(programsView);
             Layout(new MessageDialog("Deinstallation", "Ist die Deinstallation abgeschlossen?", null, "Ja", false, "Noch nicht").Content
                 as FrameworkElement);
             Layout(new HistoryView { DataContext = history });
@@ -171,6 +173,25 @@ public sealed class ViewSmokeTests : IDisposable
             Layout(dialog.Content as FrameworkElement);
         }
         app.Shutdown();
+    }
+
+    // the closed sort box shows the option's Label (DisplayMemberPath), not the record's ToString()
+    static void AssertComboShowsLabel(FrameworkElement root)
+    {
+        var combo = Descendants(root).OfType<ComboBox>().First();
+        var texts = Descendants(combo).OfType<TextBlock>().Select(t => t.Text).ToList();
+        Assert.DoesNotContain(texts, t => t.Contains("ProgramSortOption"));
+        Assert.Contains(texts, t => t == ((dynamic)combo.SelectedItem).Label);
+    }
+
+    static IEnumerable<DependencyObject> Descendants(DependencyObject d)
+    {
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(d); i++)
+        {
+            var c = System.Windows.Media.VisualTreeHelper.GetChild(d, i);
+            yield return c;
+            foreach (var x in Descendants(c)) yield return x;
+        }
     }
 
     // all four lights, one action row and one child row
