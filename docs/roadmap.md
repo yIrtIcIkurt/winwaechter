@@ -48,7 +48,15 @@ Dazu: Autor „Tahsin Yilmaz“ (Über-Bereich, Installer, Dateieigenschaften, R
 - [x] Live-Test 2026-11-10: VAVOO direkt deinstalliert (erster Versuch: Fehler 5, Token-Rechte ergänzt), Scroll-Tempo vom Nutzer bestätigt.
 - Offen aus der Sicherheitsprüfung (klein): Selbst-Elevation verlässt den Job; Kommandozeile > 1024 Zeichen fällt auf Einstellungen zurück; HKLM-Deinstaller im Profil eines anderen Benutzers läuft als angemeldeter Benutzer.
 
-## 0.4.0 (geplant, Entscheidung Nutzer 2026-11-10)
+## 0.4.0 (gebaut 2026-11-11, Branch feature/v0.4)
+Design `docs/superpowers/specs/2026-11-10-winwaechter-0.4-design.md`, Plan `docs/superpowers/plans/2026-11-10-winwaechter-0.4.md`. 764 Tests, Einzel- und Gesamtprüfung.
+- [ ] Auf dem Rechner: Seite öffnen (Monitor, Start-Bericht), echtes Fenster/Minimieren
+- [ ] §4.3 Energiemodus: Windows-Einstellungen zeigen den gesetzten Modus, auch nach Neustart
+- [ ] §4.9 Hintergrund-Apps: Windows schreibt `Disabled`/`DisabledByUser` (eine App in den Einstellungen auf „Nie“ stellen, vergleichen), Namen lesbar
+- [ ] Je eine Änderung aus Energie, Effekte, Spielmodus, Speicher anwenden und im Verlauf zurücknehmen; Ruhezustand nur nach Zustimmung
+Bekannte Kleinigkeiten (aus den Prüfungen): Liste wird nach Undo im Verlauf erst beim nächsten Öffnen aktualisiert; Wechsel des Energiesparplans bei offener Seite wird erst nach „Neu lesen“ erkannt; ein einzelnes kaputtes Ereignis macht den Start-Bericht unlesbar.
+
+## 0.4.0 Plan (Entscheidung Nutzer 2026-11-10)
 Neue Seite „Leistung“: Energiemodus (Netz/Akku), visuelle Effekte, Startzeit-Bericht, Live-Monitor (CPU/RAM/Datenträger/Top-Verbraucher), Hintergrund-Apps, Spielmodus + GPU-Planung, Ruhezustand-Datei (mit Hinweis), Speicheroptimierung. Alles einzeln, umkehrbar; keine „Tuning-Tricks“ (RAM-Booster, Prefetch löschen, Dienste massenhaft abschalten).
 
 ## 0.5.0 (geplant, Entscheidung Nutzer 2026-11-10)

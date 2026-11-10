@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+- Neue Seite „Leistung“:
+  - „Jetzt“: Prozessor, Arbeitsspeicher und Datenträger live sowie die größten Verbraucher. Gemessen wird nur, solange die Seite offen ist.
+  - „Start“: Dauer der letzten vollständigen Starts und was den Start gebremst hat, mit Sprung zu den Autostart-Programmen.
+  - „Einstellungen“: Energiemodus für Netzbetrieb und Akku, Transparenz- und Animationseffekte, Spielmodus, GPU-Planung, Ruhezustand-Datei, Speicheroptimierung und Hintergrund-Apps. Jede Einstellung einzeln, nichts vorausgewählt, alles im Verlauf rückgängig zu machen.
+- Bewusst ohne „Tuning-Tricks“ wie RAM-Booster oder das massenhafte Abschalten von Diensten.
+
 ## 0.3.2
 - Programme: Für Ihr Benutzerkonto installierte Programme (z. B. in AppData) deinstalliert WinWächter jetzt direkt – mit Ihren normalen Benutzerrechten, wie Windows selbst. Der Umweg über die Windows-Einstellungen entfällt; er bleibt nur, wenn ein solches Deinstallationsprogramm Adminrechte verlangt.
 - Listen scrollen mit dem Touchpad gleichmäßig (auch die Programmliste); Pfeiltasten, Bild↑/↓, Pos1/Ende und Leertaste scrollen die Seite.
