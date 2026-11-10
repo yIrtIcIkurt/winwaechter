@@ -8,6 +8,7 @@ using WinWaechter.Core.Optimizer.Services;
 using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Optimizer.Tasks;
 using WinWaechter.Core.Privacy;
+using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Security.Heuristics;
@@ -87,12 +88,19 @@ public sealed class AppServices
             var recall = await RecallProbe.IsPresentAsync(new ProcessRunner(), ct);
             return new PrivacyScanner(reg, rules).Scan(r => r == "recall" && recall);
         }, ct), engine, dialogs, canChange, gate);
+        // traces (services, tasks, autostarts) for the leftover search and the forced removal
+        IReadOnlyList<Finding> TraceScan() => [.. autostart.Scan(), .. services.Scan(), .. tasks.Scan()];
+        var programService = new ProgramService(new ProgramInventory(reg, rules), reg, fo, sig, new JobUninstallLauncher(),
+            new UninstallLeftoverFinder(reg, fo, rules, procs, paths, TraceScan),
+            new ForcedRemovalPlanner(reg, fo, rules, procs, paths, TraceScan), paths);
+        // the view model runs every read of the service on the thread pool
+        var programs = new ProgramsViewModel(programService, engine, dialogs, shell, canChange, gate);
         var janitor = new AblageJanitor(store);
         var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate);
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
         var settingsVm = new SettingsViewModel(settings, env, update, shell);
 
         return new AppServices(env, settings, janitor, gate,
-            new ShellViewModel(optimize, protect, privacy, history, settingsVm, update, env.IsElevated));
+            new ShellViewModel(optimize, protect, privacy, programs, history, settingsVm, update, env.IsElevated));
     }
 }

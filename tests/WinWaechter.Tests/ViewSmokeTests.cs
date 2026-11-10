@@ -9,8 +9,10 @@ using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Privacy;
+using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Defender;
+using WinWaechter.Core.Sys;
 using WinWaechter.Core.Update;
 using WinWaechter.Tests.Fakes;
 
@@ -35,6 +37,14 @@ public sealed class ViewSmokeTests : IDisposable
     sealed class Shell : ISystemShell
     {
         public void OpenFolder(string path) { }
+        public void OpenLink(string uri) { }
+    }
+
+    sealed class YesDialogs : IDialogService
+    {
+        public bool Confirm(string title, string message, string confirmText, IReadOnlyList<string>? items = null, bool final = false) => true;
+        public bool Ask(string title, string message, string yesText, string noText) => true;
+        public void Inform(string title, string message, IReadOnlyList<string>? items = null) { }
     }
 
     sealed class Updates : IUpdateService
@@ -114,7 +124,8 @@ public sealed class ViewSmokeTests : IDisposable
         var env = new AppEnvironment(false, _root, new SemVer(0, 1, 0));
         var update = new UpdateViewModel(new Updates(), dialogs, canInstall: false, () => { }, gate);
         var settings = new SettingsViewModel(new AppSettings(), env, update, new Shell());
-        var shell = new ShellViewModel(optimize, protect, privacy, history, settings, update, isElevated: false);
+        var programs = Programs(engine, gate);
+        var shell = new ShellViewModel(optimize, protect, privacy, programs, history, settings, update, isElevated: false);
 
         // fill the view models (no sync context here, so the commands finish inline or on the pool)
         optimize.ScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
@@ -140,12 +151,48 @@ public sealed class ViewSmokeTests : IDisposable
             Layout(new OptimizeView { DataContext = optimize });
             Layout(new ProtectView { DataContext = protect });
             Layout(new PrivacyView { DataContext = privacy });
+            Layout(new ProgramsView { DataContext = programs });
+            Layout(new MessageDialog("Deinstallation", "Ist die Deinstallation abgeschlossen?", null, "Ja", false, "Noch nicht").Content
+                as FrameworkElement);
             Layout(new HistoryView { DataContext = history });
             Layout(new SettingsView { DataContext = settings });
             var dialog = new MessageDialog("Titel", "Text", ["Eins", "Zwei"], "Anwenden", final: true);
             Layout(dialog.Content as FrameworkElement);
         }
         app.Shutdown();
+    }
+
+    // two rows, a pending banner (settings route for „Spiel-Tool“) and a leftover panel (launched and removed „Foo“)
+    static ProgramsViewModel Programs(OptimizerEngine engine, ChangeGate gate)
+    {
+        const string root = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+        static InstalledProgram P(string name, ProgramFlag flag, long? size) =>
+            new(Hive.LocalMachine, root, name, name, "Foo GmbH", "2.1.0", new DateTime(2024, 3, 1), size,
+                @"C:\Program Files\Foo\unins000.exe", @"C:\Program Files\" + name, null, false, flag);
+        var foo = P("Foo", ProgramFlag.Pua, 52_428_800);
+        var tool = P("Spiel-Tool", ProgramFlag.None, null);
+        var lexware = P("Lexware buchhalter", ProgramFlag.Protected, 1_048_576);
+        var actions = new FakeProgramActions
+        {
+            Programs = [foo, tool, lexware],
+            PlanFor = p => p == foo
+                ? new UninstallPlan(UninstallRoute.Launch, new UninstallCommand(@"C:\Program Files\Foo\unins000.exe", ""), "", false)
+                : new UninstallPlan(UninstallRoute.OpenSettings, null, UninstallPlanner.MissingReason, true),
+            Leftovers =
+            [
+                new("l1", FindingArea.Speicher, "Foo", @"C:\Program Files\Foo", ["Programmordner nach der Deinstallation"], Rating.Info, false,
+                    new NoChange("Foo"), SizeBytes: 4096),
+                new("l2", FindingArea.Aufgabe, "Foo Updater", @"\Foo Updater", ["Ziel fehlt"], Rating.Entbehrlich, true, new NoChange("Updater")),
+            ],
+        };
+        var vm = new ProgramsViewModel(actions, engine, new YesDialogs(), new Shell(), canChange: true, gate);
+        vm.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        actions.Programs = [tool, lexware];   // the launched uninstaller removed „Foo“
+        vm.UninstallCommand.ExecuteAsync(vm.Items.Single(i => i.Name == "Foo")).GetAwaiter().GetResult();
+        vm.UninstallCommand.ExecuteAsync(vm.Items.Single(i => i.Name == "Spiel-Tool")).GetAwaiter().GetResult();
+        Assert.True(vm.Items.Count == 2 && vm.Pending == tool && vm.ShowLeftovers && vm.Leftovers.Count == 2
+            && vm.Items.Single(i => i.Name == "Spiel-Tool").CanForceRemove);
+        return vm;
     }
 
     // "Wird frei" must sit in its own column right of "Offene Vorschläge", not on top of it

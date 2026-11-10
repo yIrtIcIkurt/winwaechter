@@ -1,0 +1,176 @@
+<UserControl x:Class="WinWaechter.App.Views.ProgramsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
+    <UserControl.Resources>
+        <!-- leftover row: same as the Optimize page (checkbox, title, location, change, reasons, rating, size) -->
+        <DataTemplate x:Key="LeftoverRow" DataType="{x:Type vm:FindingItemViewModel}">
+            <Border Style="{StaticResource RowDivider}" Padding="16,12,16,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <CheckBox VerticalAlignment="Top" Margin="0,1,14,0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                              IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding Title}" />
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Path}" Text="{Binding Location}" />
+                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding ChangeText}"
+                                   Visibility="{Binding ChangeText, Converter={StaticResource Vis}}" />
+                        <Expander Margin="0,6,0,0" Style="{StaticResource Reasons}" Header="{Binding ReasonSummary}">
+                            <ItemsControl ItemsSource="{Binding Reasons}" ItemTemplate="{StaticResource ReasonLine}" Focusable="False" />
+                        </Expander>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Margin="16,0,0,0" HorizontalAlignment="Right">
+                        <ContentControl Style="{StaticResource Chip}" Tag="{Binding RatingTone}" Content="{Binding RatingText}"
+                                        HorizontalAlignment="Right" />
+                        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" HorizontalAlignment="Right"
+                                   Typography.NumeralAlignment="Tabular" Text="{Binding SizeText}"
+                                   Visibility="{Binding SizeText, Converter={StaticResource Vis}}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <DockPanel>
+        <!-- Header -->
+        <StackPanel DockPanel.Dock="Top" Margin="{StaticResource PagePadding}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" VerticalAlignment="Center" Style="{StaticResource Button.Quiet}" Content="Neu laden"
+                        Command="{Binding RefreshCommand}" />
+                <TextBlock Style="{StaticResource Text.PageTitle}" Text="Programme" />
+            </DockPanel>
+            <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
+                       Text="Installierte Programme mit Herausgeber, Version, Datum und Größe. „Deinstallieren“ startet das Deinstallationsprogramm des Herstellers; das lässt sich in WinWächter nicht rückgängig machen. „Erzwungen entfernen“ erscheint nur, wenn die offizielle Deinstallation nicht möglich war, und lässt sich im Verlauf rückgängig machen." />
+
+            <!-- search and sort -->
+            <DockPanel Margin="0,16,0,0">
+                <TextBlock DockPanel.Dock="Right" Margin="16,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Small}"
+                           Typography.NumeralAlignment="Tabular" Text="{Binding CountText}" AutomationProperties.LiveSetting="Polite" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center" Margin="0,0,8,0" Style="{StaticResource Text.Small}" Text="Suchen" />
+                    <TextBox Width="260" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Programme suchen (Name oder Herausgeber)" />
+                    <TextBlock VerticalAlignment="Center" Margin="20,0,8,0" Style="{StaticResource Text.Small}" Text="Sortieren nach" />
+                    <ComboBox MinWidth="170" ItemsSource="{Binding SortOptions}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                              SelectedValue="{Binding Sort, Mode=TwoWay}" AutomationProperties.Name="Sortieren nach" />
+                </StackPanel>
+            </DockPanel>
+
+            <StackPanel Margin="0,18,0,0" Visibility="{Binding IsBusy, Converter={StaticResource Vis}}">
+                <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding ProgressText}" TextWrapping="Wrap"
+                           MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+
+            <!-- uninstalled outside WinWächter: offer the leftover search -->
+            <Border Margin="0,16,0,0" Style="{StaticResource Notice}" Visibility="{Binding ShowPending, Converter={StaticResource Vis}}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Ink}"
+                               TextWrapping="Wrap" MaxWidth="{StaticResource ProseWidth}" Text="{Binding PendingText}" />
+                    <Button Margin="14,0,0,0" Content="Reste suchen" Command="{Binding FindLeftoversCommand}" />
+                </StackPanel>
+            </Border>
+
+            <!-- leftovers of the program just uninstalled -->
+            <StackPanel Margin="0,18,0,0" Visibility="{Binding ShowLeftovers, Converter={StaticResource Vis}}">
+                <DockPanel Margin="2,0,0,8">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
+                        <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,0" Content="Schließen" Command="{Binding CloseLeftoversCommand}" />
+                        <Button Style="{StaticResource Button.Primary}" Content="Ausgewählte verschieben" Command="{Binding ApplyLeftoversCommand}" />
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Text.Section}" Text="{Binding LeftoversTitle}" />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap" MaxWidth="{StaticResource ProseWidth}"
+                                   HorizontalAlignment="Left"
+                                   Text="Ordner sind nicht vorausgewählt, verwaiste Einträge schon. Ordner kommen in die Ablage; alles lässt sich im Verlauf rückgängig machen." />
+                    </StackPanel>
+                </DockPanel>
+                <Border Style="{StaticResource SurfaceBox}">
+                    <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto" Focusable="False">
+                        <ItemsControl ItemsSource="{Binding Leftovers}" ItemTemplate="{StaticResource LeftoverRow}" Focusable="False" Margin="0,0,0,-1" />
+                    </ScrollViewer>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Footer -->
+        <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Line}" Background="{DynamicResource Canvas}"
+                Padding="32,12,32,14">
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding AdminNotice}"
+                           Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}" />
+                <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding GateHint}"
+                           Visibility="{Binding GateHint, Converter={StaticResource Vis}}" />
+                <TextBlock Style="{StaticResource Text.Small}" TextWrapping="Wrap" Text="{Binding LastSummary}"
+                           Visibility="{Binding LastSummary, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+        </Border>
+
+        <!-- Program list (virtualized) -->
+        <Grid Margin="32,0,32,20">
+            <TextBlock Style="{StaticResource Text.Muted}" Margin="0,8,0,0" Visibility="{Binding IsEmpty, Converter={StaticResource Vis}}"
+                       Text="Keine Programme gefunden." />
+            <Border Style="{StaticResource SurfaceBox}" Visibility="{Binding Items.Count, Converter={StaticResource Vis}}">
+                <ListBox x:Name="List" ItemsSource="{Binding Items}" Background="Transparent" BorderThickness="0" Padding="0"
+                         Focusable="False" KeyboardNavigation.TabNavigation="Continue"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                         VirtualizingPanel.ScrollUnit="Pixel" ScrollViewer.CanContentScroll="True"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Installierte Programme">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Focusable" Value="False" />
+                            <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter />
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:ProgramItemViewModel}">
+                            <Border Style="{StaticResource RowDivider}" Padding="16,11,16,11">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" TextTrimming="CharacterEllipsis"
+                                                   Typography.NumeralAlignment="Tabular" Text="{Binding Details}" />
+                                    </StackPanel>
+                                    <ContentControl Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" Style="{StaticResource Chip}"
+                                                    Tag="{Binding FlagTone}" Content="{Binding FlagText}"
+                                                    Visibility="{Binding FlagText, Converter={StaticResource Vis}}" />
+                                    <StackPanel Grid.Column="2" Margin="16,0,0,0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Margin="0,0,8,0" Content="Erzwungen entfernen"
+                                                Visibility="{Binding CanForceRemove, Converter={StaticResource Vis}}"
+                                                Command="{Binding DataContext.ForceRemoveCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                                CommandParameter="{Binding}"
+                                                AutomationProperties.Name="{Binding Name, StringFormat={}{0} erzwungen entfernen}" />
+                                        <Button Style="{StaticResource Button.Final}" Content="Deinstallieren"
+                                                Visibility="{Binding CanUninstall, Converter={StaticResource Vis}}"
+                                                Command="{Binding DataContext.UninstallCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                                CommandParameter="{Binding}"
+                                                AutomationProperties.Name="{Binding Name, StringFormat={}{0} deinstallieren}" />
+                                        <TextBlock Width="250" Style="{StaticResource Text.Small}" TextWrapping="Wrap" Text="{Binding ProtectedHint}"
+                                                   Visibility="{Binding ProtectedHint, Converter={StaticResource Vis}}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

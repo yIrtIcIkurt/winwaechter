@@ -63,6 +63,6 @@ Hell/Dunkel folgt `AppsUseLightTheme` und wechselt live. Die Titelleiste bleibt 
 ## Umsetzung (WPF)
 
 - Tokens: `src/WinWaechter.App/Theme/Tokens.xaml` (Schrift, Größen, Radien), Paletten `Light.xaml`/`Dark.xaml` (gleiche Schlüssel, inkl. Skalen-Pinsel), Stile `Controls.xaml` (nur `DynamicResource` für Farben).
-- Navigation: Glyphen Übersicht `E80F`, Optimieren `E90F`, Schutz `EA18`, Verlauf `E81C`, Einstellungen `E713`.
+- Navigation: Glyphen Übersicht `E80F`, Optimieren `E90F`, Schutz `EA18`, Datenschutz `E72E`, Programme `E71D`, Verlauf `E81C`, Einstellungen `E713`.
 - Anrede in Texten: „Sie“, sonst unpersönlich.
 - Endgültige Aktionen (Bereinigen, Prozess beenden, Ablage leeren) nutzen den Stil `Button.Final` (Ochsenblut-Rahmen); im Dialog liegt der Fokus dann auf „Abbrechen“.

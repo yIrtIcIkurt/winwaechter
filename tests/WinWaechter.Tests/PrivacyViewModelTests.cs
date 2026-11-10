@@ -5,11 +5,9 @@ using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
-using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Sys;
-using WinWaechter.Core.Update;
 using WinWaechter.Tests.Fakes;
 
 namespace WinWaechter.Tests;
@@ -170,42 +168,5 @@ public sealed class PrivacyViewModelTests : IDisposable
         Assert.True(vm.SelectedCount > 0);
         Assert.False(vm.ApplyCommand.CanExecute(null));
         Assert.True(vm.ShowAdminNotice);
-    }
-
-    sealed class NoUpdates : IUpdateService
-    {
-        public Task<UpdateCheckResult> CheckAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<VerifiedUpdate> DownloadAndVerifyAsync(UpdateInfo info, IProgress<double>? progress, CancellationToken ct) =>
-            throw new NotSupportedException();
-        public void Launch(VerifiedUpdate update) { }
-    }
-
-    sealed class NoShell : ISystemShell
-    {
-        public void OpenFolder(string path) { }
-    }
-
-    [Fact]
-    public async Task Shell_nav_has_datenschutz_between_schutz_and_verlauf()
-    {
-        var optimize = new OptimizeViewModel(_engine, _dialogs, canChange: false, _gate);
-        var protect = new ProtectViewModel(new FakeDefender(), (_, _) => Task.FromResult<IReadOnlyList<Finding>>([]),
-            _engine, _ => 0, _dialogs, canChange: false, _gate);
-        var privacy = Vm(canChange: false);
-        var history = new HistoryViewModel(_store, _engine, new AblageJanitor(_store), _dialogs, canChange: false, _gate);
-        var update = new UpdateViewModel(new NoUpdates(), _dialogs, canInstall: false, () => { }, _gate);
-        var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new SemVer(0, 2, 0)), update, new NoShell());
-        var shell = new ShellViewModel(optimize, protect, privacy, history, settings, update, isElevated: false);
-
-        Assert.Equal(new[] { "Übersicht", "Optimieren", "Schutz", "Datenschutz", "Verlauf" }, shell.PrimaryNav.Select(n => n.Title));
-        var nav = shell.PrimaryNav[3];
-        Assert.Equal("", nav.Glyph);
-        Assert.Same(privacy, nav.Page);
-
-        // first visit reads the settings
-        nav.IsSelected = true;
-        Assert.Same(privacy, shell.CurrentPage);
-        if (privacy.RefreshCommand.ExecutionTask is { } t) await t;
-        Assert.NotEmpty(privacy.Rows);
     }
 }

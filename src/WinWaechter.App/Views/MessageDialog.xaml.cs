@@ -3,13 +3,15 @@ using WinWaechter.App.Services;
 
 namespace WinWaechter.App.Views;
 
-/// <summary>Themed confirmation / message dialog. confirmText null = message only.</summary>
+/// <summary>Themed confirmation / message dialog. confirmText null = message only; cancelText null = „Abbrechen“.</summary>
 public partial class MessageDialog
 {
-    public MessageDialog(string title, string message, IReadOnlyList<string>? items, string? confirmText, bool final)
+    public MessageDialog(string title, string message, IReadOnlyList<string>? items, string? confirmText, bool final,
+        string? cancelText = null)
     {
         InitializeComponent();
         TitleBar.Attach(this);
+        if (cancelText is not null) CancelButton.Content = cancelText;
         Title = title;
         Heading.Text = title;
         Message.Text = message;
