@@ -65,6 +65,8 @@ public sealed partial class ProgramsViewModel : ObservableObject
     public const string RestartText = "Ein Neustart ist nötig, um die Deinstallation abzuschließen.";
     public const string ForcedText = "Alles wird gesichert und lässt sich im Verlauf rückgängig machen.";
     public const string ReadingText = "Programme werden gelesen …";
+    public const string DoneQuestion = "Ist die Deinstallation abgeschlossen?";
+    public const string ChildrenText = "Das Deinstallationsprogramm hat weitere Programme geöffnet (z. B. Browser).";
 
     readonly IProgramActions _actions;
     readonly OptimizerEngine _engine;
@@ -265,7 +267,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
 
             ProgressText = RunningText;
             // CreateProcess and the job setup never run on the UI thread
-            var outcome = UninstallExit.Interpret(await Task.Run(() => _actions.RunUninstallerAsync(plan)));
+            var outcome = await Task.Run(() => _actions.RunUninstallerAsync(plan));
             ProgressText = "";
             if (outcome.Cancelled)
             {
@@ -277,7 +279,8 @@ public sealed partial class ProgramsViewModel : ObservableObject
                 : $"Das Deinstallationsprogramm ist beendet (Rückgabewert {outcome.ExitCode}).";
             LastSummary = outcome.RestartRequired ? $"{summary} {RestartText}" : summary;
 
-            if (!_dialogs.Ask("Deinstallation", "Ist die Deinstallation abgeschlossen?", "Ja", "Noch nicht"))
+            var doneQuestion = outcome.ChildrenStillRunning ? $"{ChildrenText} {DoneQuestion}" : DoneQuestion;
+            if (!_dialogs.Ask("Deinstallation", doneQuestion, "Ja", "Noch nicht"))
             {
                 Pending = p;
                 return;

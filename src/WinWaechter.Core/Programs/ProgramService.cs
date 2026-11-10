@@ -12,7 +12,7 @@ public interface IProgramActions
     bool IsStillListed(InstalledProgram p);
     UninstallPlan PlanUninstall(InstalledProgram p);
     SignatureInfo? UninstallerSignature(UninstallPlan plan);     // null when no command; never throws
-    Task<int> RunUninstallerAsync(UninstallPlan plan);           // InvalidOperationException unless Route == Launch
+    Task<UninstallOutcome> RunUninstallerAsync(UninstallPlan plan);   // InvalidOperationException unless Route == Launch
     IReadOnlyList<Finding> FindLeftovers(InstalledProgram removed);   // reads remaining entries itself
     ForcedRemovalPlan PlanForcedRemoval(InstalledProgram p);          // reads all entries itself
 }
@@ -53,7 +53,7 @@ public sealed class ProgramService : IProgramActions
         }
     }
 
-    public Task<int> RunUninstallerAsync(UninstallPlan plan)
+    public Task<UninstallOutcome> RunUninstallerAsync(UninstallPlan plan)
     {
         if (plan.Route != UninstallRoute.Launch || plan.Command is not { } cmd)
             throw new InvalidOperationException("Dieses Deinstallationsprogramm startet WinWächter nicht selbst.");

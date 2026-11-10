@@ -346,10 +346,54 @@ public sealed class UninstallTests : IDisposable
     {
         var sys32 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32");
         var sw = Stopwatch.StartNew();
-        var code = await new JobUninstallLauncher().RunAsync(new UninstallCommand(Path.Combine(sys32, "cmd.exe"),
+        var outcome = await new JobUninstallLauncher().RunAsync(new UninstallCommand(Path.Combine(sys32, "cmd.exe"),
             "/c start \"\" /b \"%SystemRoot%\\System32\\ping.exe\" -n 3 127.0.0.1 >nul & exit 7"));
         sw.Stop();
-        Assert.Equal(7, code);
+        Assert.Equal(7, outcome.ExitCode);
+        Assert.False(outcome.ChildrenStillRunning);
         Assert.True(sw.Elapsed >= TimeSpan.FromSeconds(1.5), $"returned after {sw.Elapsed}");
+    }
+
+    [Fact]
+    public async Task Launcher_stops_waiting_for_children_after_the_grace_period()
+    {
+        // ping runs about 5 s after cmd (the root) has ended; with a 1 s grace the launcher returns early
+        var sys32 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32");
+        var sw = Stopwatch.StartNew();
+        var outcome = await new JobUninstallLauncher(TimeSpan.FromSeconds(1)).RunAsync(new UninstallCommand(
+            Path.Combine(sys32, "cmd.exe"), "/c start \"\" /b \"%SystemRoot%\\System32\\ping.exe\" -n 6 127.0.0.1 >nul & exit 3010"));
+        sw.Stop();
+        Assert.Equal(3010, outcome.ExitCode);
+        Assert.True(outcome.RestartRequired);
+        Assert.True(outcome.ChildrenStillRunning);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(4), $"returned after {sw.Elapsed}");
+    }
+
+    [Fact]
+    public async Task Job_wait_gives_leftover_children_a_grace_period_only_after_the_root_ended()
+    {
+        var poll = TimeSpan.FromMilliseconds(10);
+        var grace = TimeSpan.FromMilliseconds(300);
+
+        // root ended, a child keeps running forever: back after the grace period, flag set
+        var sw = Stopwatch.StartNew();
+        Assert.True(await JobUninstallLauncher.WaitForJobAsync(() => true, () => 1, grace, poll));
+        Assert.True(sw.Elapsed >= grace && sw.Elapsed < TimeSpan.FromSeconds(5), $"returned after {sw.Elapsed}");
+
+        // root still running past the grace period, then everything ends: waited for all, no flag
+        var polls = 0;
+        Assert.False(await JobUninstallLauncher.WaitForJobAsync(() => false, () => ++polls < 60 ? 2u : 0u, grace, poll));
+        Assert.Equal(60, polls);
+
+        // root ended, child ends within the grace period: no flag
+        var left = 5;
+        Assert.False(await JobUninstallLauncher.WaitForJobAsync(() => true, () => (uint)Math.Max(0, left--), grace, poll));
+    }
+
+    [Fact]
+    public void Exit_interpretation_keeps_the_children_flag()
+    {
+        Assert.True(UninstallExit.Interpret(0, childrenStillRunning: true).ChildrenStillRunning);
+        Assert.False(UninstallExit.Interpret(0).ChildrenStillRunning);
     }
 }

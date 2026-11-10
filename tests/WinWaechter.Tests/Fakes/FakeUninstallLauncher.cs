@@ -7,10 +7,11 @@ public sealed class FakeUninstallLauncher : IUninstallLauncher
 {
     public List<UninstallCommand> Calls { get; } = [];
     public int ExitCode { get; set; }
+    public bool ChildrenStillRunning { get; set; }
 
-    public Task<int> RunAsync(UninstallCommand cmd)
+    public Task<UninstallOutcome> RunAsync(UninstallCommand cmd)
     {
         lock (Calls) Calls.Add(cmd);
-        return Task.FromResult(ExitCode);
+        return Task.FromResult(UninstallExit.Interpret(ExitCode, ChildrenStillRunning));
     }
 }

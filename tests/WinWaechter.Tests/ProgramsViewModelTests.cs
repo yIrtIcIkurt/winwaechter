@@ -368,6 +368,24 @@ public sealed class ProgramsViewModelTests : IDisposable
         Assert.True(vm.FindLeftoversCommand.CanExecute(null));
     }
 
+    [Fact]
+    public async Task Children_still_running_adds_a_note_to_the_done_question()
+    {
+        var p = P("Foo");
+        _actions.PlanFor = _ => LaunchPlan;
+        _actions.ChildrenStillRunning = true;
+        _dialogs.AskResult = false;
+        var vm = await Loaded(p);
+        await vm.UninstallCommand.ExecuteAsync(Row(vm, "Foo"));
+
+        var ask = Assert.Single(_dialogs.Asks);
+        Assert.Equal(("Deinstallation",
+            "Das Deinstallationsprogramm hat weitere Programme geöffnet (z. B. Browser). Ist die Deinstallation abgeschlossen?",
+            "Ja", "Noch nicht"), ask);
+        Assert.Same(p, vm.Pending);
+        Assert.False(vm.IsBusy);
+    }
+
     Finding FolderLeftover() => new("leftover|folder", FindingArea.Speicher, "Foo", @"C:\Program Files\Foo",
         ["Programmordner nach der Deinstallation"], Rating.Info, false,
         new OkChange("folder", @"C:\Program Files\Foo", "Ordner „C:\\Program Files\\Foo“ in die Ablage"));

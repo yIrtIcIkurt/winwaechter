@@ -12,6 +12,7 @@ public sealed class FakeProgramActions : IProgramActions
         _ => new UninstallPlan(UninstallRoute.OpenSettings, null, UninstallPlanner.UnsafeReason, false);
     public SignatureInfo? Signature { get; set; } = new(SignatureState.Valid, "Foo GmbH", false);
     public int ExitCode { get; set; }
+    public bool ChildrenStillRunning { get; set; }
     public Func<InstalledProgram, bool> StillListed { get; set; } = _ => false;
     public List<Finding> Leftovers { get; set; } = [];
     public Func<InstalledProgram, ForcedRemovalPlan> ForcedFor { get; set; } = p => new(p, [], null, []);
@@ -40,12 +41,12 @@ public sealed class FakeProgramActions : IProgramActions
 
     public SignatureInfo? UninstallerSignature(UninstallPlan plan) => plan.Command is null ? null : Signature;
 
-    public Task<int> RunUninstallerAsync(UninstallPlan plan)
+    public Task<UninstallOutcome> RunUninstallerAsync(UninstallPlan plan)
     {
         if (plan.Route != UninstallRoute.Launch) throw new InvalidOperationException("not a launch plan");
         Runs.Add(plan);
         RunThreadId = Environment.CurrentManagedThreadId;
-        return Task.FromResult(ExitCode);
+        return Task.FromResult(UninstallExit.Interpret(ExitCode, ChildrenStillRunning));
     }
 
     public IReadOnlyList<Finding> FindLeftovers(InstalledProgram removed)

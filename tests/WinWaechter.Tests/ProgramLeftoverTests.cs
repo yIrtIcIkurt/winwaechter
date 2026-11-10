@@ -182,7 +182,9 @@ public sealed class ProgramLeftoverTests : IDisposable
 
         var cmd = new UninstallCommand(_pf + @"\Foo\unins.exe", "/x");
         var launch = new UninstallPlan(UninstallRoute.Launch, cmd, "", false);
-        Assert.Equal(3010, await svc.RunUninstallerAsync(launch));
+        var outcome = await svc.RunUninstallerAsync(launch);
+        Assert.Equal(3010, outcome.ExitCode);
+        Assert.True(outcome.RestartRequired);
         Assert.Equal([cmd], launcher.Calls);
     }
 
