@@ -19,8 +19,19 @@ internal static class PowerNative
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetSystemPowerStatus(out SystemPowerStatus status);
 
+    // The power mode the user chose for mains and battery operation (Windows 10 1709+). Missing on older
+    // Windows: the calls throw EntryPointNotFoundException.
     [DllImport("powrprof.dll", ExactSpelling = true)]
-    public static extern uint PowerSetActiveOverlayScheme(Guid overlayScheme);
+    public static extern uint PowerGetUserConfiguredACPowerMode(out Guid powerModeGuid);
+
+    [DllImport("powrprof.dll", ExactSpelling = true)]
+    public static extern uint PowerGetUserConfiguredDCPowerMode(out Guid powerModeGuid);
+
+    [DllImport("powrprof.dll", ExactSpelling = true)]
+    public static extern uint PowerSetUserConfiguredACPowerMode(ref Guid powerModeGuid);
+
+    [DllImport("powrprof.dll", ExactSpelling = true)]
+    public static extern uint PowerSetUserConfiguredDCPowerMode(ref Guid powerModeGuid);
 
     /// <summary>The active power plan; the returned pointer must be freed with <see cref="LocalFree"/>.</summary>
     [DllImport("powrprof.dll", ExactSpelling = true)]

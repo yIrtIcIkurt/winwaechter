@@ -1,9 +1,7 @@
 using System.Runtime.InteropServices;
-using Microsoft.Win32;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
-using WinWaechter.Core.Sys;
 using WinWaechter.Core.Sys.Native;
 
 namespace WinWaechter.Core.Performance;
@@ -31,29 +29,58 @@ public static class PowerModeIds
 
 public interface IPowerModes
 {
+    /// <summary>False when this Windows version lacks the power mode API; the modes can then not be read or set.</summary>
+    bool Supported { get; }
+
     bool HasBattery { get; }
     PowerSource Current { get; }
 
     /// <summary>The active power plan; null when it cannot be read.</summary>
     Guid? ActivePlan { get; }
 
-    /// <summary>The active mode for this source; null when the stored value cannot be read as a GUID.</summary>
+    /// <summary>The mode chosen for this source; null when it cannot be read.</summary>
     Guid? Get(PowerSource s);
 
     void Set(PowerSource s, Guid mode);
 }
 
-/// <param name="setOverlay">Sets the active overlay scheme and returns the Win32 result (0 = success);
-/// defaults to <c>PowerSetActiveOverlayScheme</c>. Tests inject a fake.</param>
-public sealed class WinPowerModes(IRegistry reg, Func<Guid, uint>? setOverlay = null) : IPowerModes
+/// <summary>The powrprof calls behind the power mode: Get returns the Win32 result (0 = success) and the mode,
+/// Set the Win32 result. A missing function throws <see cref="EntryPointNotFoundException"/>.</summary>
+public sealed record PowerModeApi(Func<PowerSource, (uint Code, Guid Mode)> Get, Func<PowerSource, Guid, uint> Set)
 {
-    const string Key = @"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes";
-    const uint ErrorModNotFound = 126, ErrorProcNotFound = 127;
+    public static PowerModeApi Native { get; } = new(
+        s =>
+        {
+            Guid g;
+            var code = s == PowerSource.Ac
+                ? PowerNative.PowerGetUserConfiguredACPowerMode(out g)
+                : PowerNative.PowerGetUserConfiguredDCPowerMode(out g);
+            return (code, g);
+        },
+        (s, mode) => s == PowerSource.Ac
+            ? PowerNative.PowerSetUserConfiguredACPowerMode(ref mode)
+            : PowerNative.PowerSetUserConfiguredDCPowerMode(ref mode));
+}
 
-    readonly Func<Guid, uint> _setOverlay = setOverlay ?? PowerNative.PowerSetActiveOverlayScheme;
+/// <summary>Reads and sets the power mode through the Windows power mode API (never the registry: its key is
+/// protected even for administrators). Each source is set directly; Windows applies the inactive one at the next
+/// power-source change.</summary>
+/// <param name="api">Defaults to <see cref="PowerModeApi.Native"/>. Tests inject fakes.</param>
+public sealed class WinPowerModes(PowerModeApi? api = null) : IPowerModes
+{
+    const int Unknown = 0, Yes = 1, No = 2;
 
-    static string ValueName(PowerSource s) =>
-        s == PowerSource.Ac ? "ActiveOverlayAcPowerScheme" : "ActiveOverlayDcPowerScheme";
+    readonly PowerModeApi _api = api ?? PowerModeApi.Native;
+    volatile int _supported = Unknown;
+
+    public bool Supported
+    {
+        get
+        {
+            if (_supported == Unknown) _ = Get(PowerSource.Ac); // the probe marks a missing API
+            return _supported != No;
+        }
+    }
 
     public bool HasBattery => !(Status() is { } st && (st.BatteryFlag is 128 or 255));
 
@@ -69,43 +96,45 @@ public sealed class WinPowerModes(IRegistry reg, Func<Guid, uint>? setOverlay = 
                 try { return Marshal.PtrToStructure<Guid>(ptr); }
                 finally { PowerNative.LocalFree(ptr); }
             }
-            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+            catch (Exception ex) when (IsMissing(ex))
             {
                 return null;
             }
         }
     }
 
-    public Guid? Get(PowerSource s) => reg.Get(Hive.LocalMachine, Key, ValueName(s)) switch
+    public Guid? Get(PowerSource s)
     {
-        null => PowerModeIds.Balanced,
-        string text when Guid.TryParse(text, out var g) => g,
-        _ => null,
-    };
+        if (_supported == No) return null;
+        try
+        {
+            var (code, mode) = _api.Get(s);
+            if (_supported == Unknown) _supported = Yes;
+            return code == 0 ? mode : null;
+        }
+        catch (Exception ex) when (IsMissing(ex))
+        {
+            _supported = No;
+            return null;
+        }
+    }
 
-    /// <summary>Writes the mode; for the active power source it also applies it at once. When that fails the old
-    /// registry value is restored and the call throws, so nothing is journalled as applied without effect.</summary>
     public void Set(PowerSource s, Guid mode)
     {
-        var name = ValueName(s);
-        var oldKind = reg.GetKind(Hive.LocalMachine, Key, name);
-        var old = oldKind is null ? null : reg.Get(Hive.LocalMachine, Key, name);
-        reg.Set(Hive.LocalMachine, Key, name, mode.ToString("D"), RegistryValueKind.String);
-        if (s != Current) return; // applies at the next power-source change
-
         uint code;
         try
         {
-            code = _setOverlay(mode);
+            code = _api.Set(s, mode);
         }
-        catch (DllNotFoundException) { code = ErrorModNotFound; }
-        catch (EntryPointNotFoundException) { code = ErrorProcNotFound; }
-        if (code == 0) return;
-
-        if (oldKind is { } k && old is not null) reg.Set(Hive.LocalMachine, Key, name, old, k);
-        else reg.Delete(Hive.LocalMachine, Key, name);
-        throw new InvalidOperationException($"Der Energiemodus ließ sich nicht setzen (Fehler {code}).");
+        catch (Exception ex) when (IsMissing(ex))
+        {
+            _supported = No;
+            throw new InvalidOperationException("Der Energiemodus ist auf dieser Windows-Version nicht änderbar.", ex);
+        }
+        if (code != 0) throw new InvalidOperationException($"Der Energiemodus ließ sich nicht setzen (Fehler {code}).");
     }
+
+    static bool IsMissing(Exception ex) => ex is DllNotFoundException or EntryPointNotFoundException;
 
     static PowerNative.SystemPowerStatus? Status()
     {

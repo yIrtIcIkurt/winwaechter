@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Sys.Native;
 
@@ -23,6 +24,27 @@ public static class CpuMath
         if (total <= 0) return null;
         var busy = total - (now.Idle - prev.Idle);
         return Math.Clamp(busy * 100.0 / total, 0, 100);
+    }
+}
+
+public static class DiskMath
+{
+    /// <summary>Busy percent of one drive from two DISK_PERFORMANCE readings: 100 × (1 − Δidle / Δquery);
+    /// null when the query time did not advance.</summary>
+    public static double? Busy(long prevIdle, long prevQuery, long nowIdle, long nowQuery)
+    {
+        var dq = nowQuery - prevQuery;
+        if (dq <= 0) return null;
+        return Math.Clamp(100.0 * (1 - (double)(nowIdle - prevIdle) / dq), 0, 100);
+    }
+
+    /// <summary>The busiest drive; null when no drive gave a value.</summary>
+    public static double? Max(IEnumerable<double?> perDrive)
+    {
+        double? max = null;
+        foreach (var v in perDrive)
+            if (v is { } d && (max is null || d > max)) max = d;
+        return max;
     }
 }
 
@@ -69,12 +91,21 @@ public interface ISystemSources
     int Cores { get; }
 }
 
-/// <summary>Real Windows sources. Every method catches and returns null/empty; the PDH query stays open until Dispose.</summary>
+/// <summary>Real Windows sources. Every method catches and returns null/empty. The disk readout uses the PDH
+/// counter, or – when that counter is not registered – IOCTL_DISK_PERFORMANCE on the physical drives; the query
+/// or drive handles stay open until Dispose.</summary>
 public sealed class WinSystemSources : ISystemSources, IDisposable
 {
+    const int MaxDrives = 16;
+
+    enum DiskMode { Untried, Pdh, Ioctl, None }
+
     readonly object _pdhLock = new();
     IntPtr _query, _counter;
-    bool _pdhTried, _pdhHasSample;
+    bool _pdhHasSample;
+    DiskMode _diskMode = DiskMode.Untried;
+    readonly List<SafeFileHandle> _drives = [];
+    readonly Dictionary<int, (long Idle, long Query)> _prevDrive = [];
 
     public int Cores => Math.Max(Environment.ProcessorCount, 1);
 
@@ -106,25 +137,75 @@ public sealed class WinSystemSources : ISystemSources, IDisposable
         {
             lock (_pdhLock)
             {
-                if (!_pdhTried)
+                if (_diskMode == DiskMode.Untried) _diskMode = OpenPdh() ? DiskMode.Pdh : OpenDrives() ? DiskMode.Ioctl : DiskMode.None;
+                return _diskMode switch
                 {
-                    _pdhTried = true;
-                    if (PerfNative.PdhOpenQueryW(null, IntPtr.Zero, out _query) != 0
-                        || PerfNative.PdhAddEnglishCounterW(_query, @"\PhysicalDisk(_Total)\% Idle Time", IntPtr.Zero, out _counter) != 0)
-                    {
-                        CloseQuery();
-                        return null;
-                    }
-                }
-                if (_query == IntPtr.Zero) return null;
-                if (PerfNative.PdhCollectQueryData(_query) != 0) return null;
-                if (!_pdhHasSample) { _pdhHasSample = true; return null; }
-                if (PerfNative.PdhGetFormattedCounterValue(_counter, PerfNative.PdhFmtDouble, IntPtr.Zero, out var v) != 0) return null;
-                if (v.CStatus is not (0 or 1)) return null;
-                return Math.Clamp(100 - v.DoubleValue, 0, 100);
+                    DiskMode.Pdh => PdhBusy(),
+                    DiskMode.Ioctl => IoctlBusy(),
+                    _ => null,
+                };
             }
         }
         catch { return null; }
+    }
+
+    bool OpenPdh()
+    {
+        try
+        {
+            if (PerfNative.PdhOpenQueryW(null, IntPtr.Zero, out _query) == 0
+                && PerfNative.PdhAddEnglishCounterW(_query, @"\PhysicalDisk(_Total)\% Idle Time", IntPtr.Zero, out _counter) == 0)
+                return true;
+        }
+        catch { /* pdh.dll unavailable */ }
+        CloseQuery();
+        return false;
+    }
+
+    double? PdhBusy()
+    {
+        if (PerfNative.PdhCollectQueryData(_query) != 0) return null;
+        if (!_pdhHasSample) { _pdhHasSample = true; return null; }
+        if (PerfNative.PdhGetFormattedCounterValue(_counter, PerfNative.PdhFmtDouble, IntPtr.Zero, out var v) != 0) return null;
+        if (v.CStatus is not (0 or 1)) return null;
+        return Math.Clamp(100 - v.DoubleValue, 0, 100);
+    }
+
+    // Fallback when the PhysicalDisk performance object is not registered. Access 0 is enough for the
+    // query; drives that cannot be opened are skipped.
+    bool OpenDrives()
+    {
+        for (var i = 0; i < MaxDrives; i++)
+        {
+            try
+            {
+                var h = PerfNative.CreateFileW($@"\\.\PhysicalDrive{i}", 0, PerfNative.FileShareRead | PerfNative.FileShareWrite,
+                    IntPtr.Zero, PerfNative.OpenExisting, 0, IntPtr.Zero);
+                if (h.IsInvalid) { h.Dispose(); continue; }
+                _drives.Add(h);
+            }
+            catch { /* skip this drive */ }
+        }
+        return _drives.Count > 0;
+    }
+
+    double? IoctlBusy()
+    {
+        var perDrive = new List<double?>(_drives.Count);
+        var size = (uint)Marshal.SizeOf<PerfNative.DiskPerformance>();
+        for (var i = 0; i < _drives.Count; i++)
+        {
+            if (!PerfNative.DeviceIoControl(_drives[i], PerfNative.IoctlDiskPerformance, IntPtr.Zero, 0,
+                    out var p, size, out _, IntPtr.Zero))
+            {
+                _prevDrive.Remove(i);
+                continue;
+            }
+            if (_prevDrive.TryGetValue(i, out var prev))
+                perDrive.Add(DiskMath.Busy(prev.Idle, prev.Query, p.IdleTime, p.QueryTime));
+            _prevDrive[i] = (p.IdleTime, p.QueryTime);
+        }
+        return DiskMath.Max(perDrive);
     }
 
     public IReadOnlyList<ProcTime> Processes()
@@ -158,7 +239,14 @@ public sealed class WinSystemSources : ISystemSources, IDisposable
 
     public void Dispose()
     {
-        lock (_pdhLock) { try { CloseQuery(); } catch { } }
+        lock (_pdhLock)
+        {
+            try { CloseQuery(); } catch { }
+            foreach (var h in _drives) h.Dispose();
+            _drives.Clear();
+            _prevDrive.Clear();
+            _diskMode = DiskMode.None;
+        }
     }
 }
 

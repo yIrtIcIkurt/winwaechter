@@ -51,8 +51,8 @@ public sealed class PerformanceScannerTests : IDisposable
 
         var hib = Row(rows, "hibernate");
         Assert.Equal(1, hib.Current);
-        Assert.StartsWith("Gibt 13", hib.Explanation);
-        Assert.EndsWith(" GB frei. Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer. Rückgängig legt die Datei wieder an.",
+        Assert.StartsWith("Ausschalten gibt 13", hib.Explanation);
+        Assert.EndsWith(" GB Speicherplatz auf Laufwerk C: frei. Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer. Rückgängig legt die Datei wieder an.",
             hib.Explanation);
         Assert.Equal("Bei leerem Akku sichert Windows Ihre Arbeit sonst über den Ruhezustand.", hib.Hint);
 
@@ -298,6 +298,21 @@ public sealed class PerformanceScannerTests : IDisposable
     }
 
     [Fact]
+    public void Unsupported_power_api_greys_both_power_rows()
+    {
+        _power.Supported = false;
+        _power.Seed(PowerSource.Ac, null).Seed(PowerSource.Dc, null);
+        var rows = Scanner().Scan();
+        foreach (var id in new[] { "power-ac", "power-dc" })
+        {
+            var r = Row(rows, id);
+            Assert.False(r.Available);
+            Assert.Equal("Auf dieser Windows-Version nicht änderbar", r.UnavailableText);
+            Assert.Empty(Scanner().ChangesFor(r, 2));
+        }
+    }
+
+    [Fact]
     public void Battery_row_uses_the_journal_label()
     {
         Assert.Equal("Energiemodus (Akku)", Row(Scanner().Scan(), "power-dc").Title);
@@ -307,6 +322,7 @@ public sealed class PerformanceScannerTests : IDisposable
 
     sealed class ThrowingPower : IPowerModes
     {
+        public bool Supported => true;
         public Guid? ActivePlan => null;
         public bool HasBattery => throw new InvalidOperationException("x");
         public PowerSource Current => PowerSource.Ac;

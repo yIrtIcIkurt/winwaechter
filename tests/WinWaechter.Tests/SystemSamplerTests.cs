@@ -107,6 +107,26 @@ public class SystemSamplerTests
     }
 
     [Fact]
+    public void Disk_busy_from_idle_and_query_time()
+    {
+        Assert.Equal(50, DiskMath.Busy(1000, 2000, 1050, 2100));
+        Assert.Equal(0, DiskMath.Busy(0, 0, 100, 100));
+        Assert.Equal(100, DiskMath.Busy(10, 0, 10, 100));
+        Assert.Equal(0, DiskMath.Busy(0, 0, 150, 100));   // idle beyond the interval: clamped
+        Assert.Equal(100, DiskMath.Busy(50, 0, 10, 100)); // idle counter went back: clamped
+        Assert.Null(DiskMath.Busy(0, 100, 50, 100));      // zero query delta
+        Assert.Null(DiskMath.Busy(0, 200, 50, 100));      // negative query delta
+    }
+
+    [Fact]
+    public void Disk_busy_reports_the_busiest_drive()
+    {
+        Assert.Null(DiskMath.Max([]));
+        Assert.Null(DiskMath.Max([null, null]));
+        Assert.Equal(70, DiskMath.Max([10, null, 70, 30]));
+    }
+
+    [Fact]
     public void Real_sources_smoke()
     {
         using var src = new WinSystemSources();

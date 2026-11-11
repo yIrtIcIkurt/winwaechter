@@ -43,7 +43,7 @@ public sealed class AnimationHibernateTests : IDisposable
         var c = new HibernateChange(h, false);
         Assert.Equal("hibernate", c.Kind);
         Assert.Equal("Ruhezustand", c.Target);
-        Assert.Equal("Ruhezustand ausschalten (gibt 13,5 GB frei)", c.Description);
+        Assert.Equal("Ruhezustand ausschalten (gibt 13,5 GB auf C: frei)", c.Description);
         var rec = c.Apply(Ctx());
         Assert.False(h.IsEnabled);
         Assert.Equal("true", rec.Before["on"]);
@@ -56,6 +56,8 @@ public sealed class AnimationHibernateTests : IDisposable
         c.Undo(rec, Ctx());
         Assert.True(h.IsEnabled);
         Assert.Equal("Ruhezustand einschalten", new HibernateChange(h, true).Description);
+        h.Drive = "D:";
+        Assert.Equal("Ruhezustand ausschalten (gibt 13,5 GB auf D: frei)", new HibernateChange(h, false).Description);
     }
 
     [Fact]
@@ -117,6 +119,13 @@ public sealed class AnimationHibernateTests : IDisposable
         Assert.Equal(0, h.FileBytes);
         File.WriteAllBytes(Path.Combine(_root, "hiberfil.sys"), new byte[1234]);
         Assert.Equal(1234, h.FileBytes);
+    }
+
+    [Fact]
+    public void Hibernation_drive_is_the_system_drive_without_backslash()
+    {
+        Assert.Equal("C:", new WinHibernation(new FakeRegistry(), new FakeProcessRunner(), @"C:\Win", @"C:\").Drive);
+        Assert.Equal("D:", new WinHibernation(new FakeRegistry(), new FakeProcessRunner(), @"D:\Win", "D:").Drive);
     }
 
     [Fact]

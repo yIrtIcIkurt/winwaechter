@@ -79,7 +79,7 @@ public sealed class AppServices : IDisposable
         var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo, rules);
         FirewallChange.Register(factory, firewall);
         DefenderRegistration.Register(factory, defender);
-        var power = new WinPowerModes(reg);
+        var power = new WinPowerModes();
         var animation = new WinAnimationSetting();
         var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows) is { Length: > 0 } w ? w : @"C:\Windows";
         var hibernation = new WinHibernation(reg, new ProcessRunner(), windowsDir, Path.GetPathRoot(windowsDir) ?? @"C:\");

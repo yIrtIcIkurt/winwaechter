@@ -11,6 +11,10 @@ public interface IHibernation
 {
     bool IsEnabled { get; }
     long FileBytes { get; }
+
+    /// <summary>The drive holding hiberfil.sys, e.g. „C:“.</summary>
+    string Drive { get; }
+
     void Set(bool on);
 }
 
@@ -24,13 +28,15 @@ public sealed class WinHibernation(IRegistry reg, IProcessRunner runner, string 
         (reg.Get(Hive.LocalMachine, Key, "HibernateEnabled") ?? reg.Get(Hive.LocalMachine, Key, "HibernateEnabledDefault"))
             is int i && i == 1;
 
+    public string Drive => systemDrive.TrimEnd('\\', '/');
+
     public long FileBytes
     {
         get
         {
             try
             {
-                var file = Path.Combine(systemDrive.TrimEnd('\\', '/') + "\\", "hiberfil.sys");
+                var file = Path.Combine(Drive + "\\", "hiberfil.sys");
                 var info = new FileInfo(file);
                 return info.Exists ? info.Length : 0;
             }
@@ -68,7 +74,7 @@ public sealed class HibernateChange(IHibernation hibernation, bool target) : ICh
 
     string Describe(long bytes) => target
         ? "Ruhezustand einschalten"
-        : $"Ruhezustand ausschalten (gibt {SizeText.Format(bytes)} frei)";
+        : $"Ruhezustand ausschalten (gibt {SizeText.Format(bytes)} auf {hibernation.Drive} frei)";
 
     public static HibernateChange FromRecord(ChangeRecord r, IHibernation hibernation) =>
         r.After.GetValueOrDefault("on") switch

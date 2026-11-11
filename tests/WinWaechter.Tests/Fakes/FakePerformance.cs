@@ -16,6 +16,7 @@ public sealed class FakePowerModes : IPowerModes
         [PowerSource.Dc] = PowerModeIds.Balanced,
     };
 
+    public bool Supported { get; set; } = true;
     public bool HasBattery { get; set; } = true;
     public Guid? ActivePlan { get; set; } = PowerModeIds.BalancedPlan;
     public PowerSource Current { get; set; } = PowerSource.Ac;
@@ -40,6 +41,7 @@ public sealed class FakeHibernation : IHibernation
 {
     public bool IsEnabled { get; set; } = true;
     public long FileBytes { get; set; } = 13L * 1024 * 1024 * 1024;
+    public string Drive { get; set; } = "C:";
     public List<bool> SetCalls { get; } = [];
     public void Set(bool on) { IsEnabled = on; SetCalls.Add(on); }
 }

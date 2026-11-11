@@ -39,7 +39,7 @@ Ohne Adminrechte (Debug/eingeschränkt): Monitor und Start-Bericht laufen; Einst
 
 ### 4.1 Live-Monitor (nur lesen)
 - Aktualisierung alle 2 s, **nur solange die Seite sichtbar und das Fenster nicht minimiert ist**; beim Verlassen stoppen.
-- CPU gesamt: `GetSystemTimes`-Differenzen. RAM: `GlobalMemoryStatusEx`. Datenträger: PDH mit englischem Zählernamen (`PdhAddEnglishCounterW` `\PhysicalDisk(_Total)\% Idle Time`, Anzeige 100 − Leerlauf, begrenzt 0–100) – keine lokalisierten Zählernamen.
+- CPU gesamt: `GetSystemTimes`-Differenzen. RAM: `GlobalMemoryStatusEx`. Datenträger: PDH mit englischem Zählernamen (`PdhAddEnglishCounterW` `\PhysicalDisk(_Total)\% Idle Time`, Anzeige 100 − Leerlauf, begrenzt 0–100) – keine lokalisierten Zählernamen. Fehlt das Leistungsobjekt (Gerätetest: `PdhAddEnglishCounterW` 0xC0000BB8), dauerhaft Ersatzweg `IOCTL_DISK_PERFORMANCE` auf `\\.\PhysicalDrive0`…`15` (Zugriff 0): je Laufwerk 100 × (1 − ΔIdleTime / ΔQueryTime), Anzeige das Maximum; Zähler werden nicht repariert.
 - Verbraucher: `Process.GetProcesses()`, CPU aus `TotalProcessorTime`-Differenz je PID / (Intervall × Kerne), RAM = `WorkingSet64`; Prozesse ohne Zugriff: CPU unbekannt, nur RAM. Gruppieren nach Prozessname, sortiert nach CPU, bei Gleichstand RAM. Leerlaufprozess ausblenden.
 - Fehler einer Quelle → nur diese Anzeige „–“ (wie Sicherheits-Guards), Log-Eintrag einmal, nicht alle 2 s.
 
@@ -53,9 +53,9 @@ Ohne Adminrechte (Debug/eingeschränkt): Monitor und Start-Bericht laufen; Einst
 ### 4.3 Energiemodus (Netzbetrieb / Akku) – Kind `powermode`
 - Zwei Zeilen, Akku-Zeile nur wenn ein Akku vorhanden ist (`GetSystemPowerStatus.BatteryFlag` ≠ 128/255).
 - Auswahl: „Beste Energieeffizienz“ `961cc777-2547-4f9d-8174-7d86181b8a7a`, „Ausgewogen“ `00000000-0000-0000-0000-000000000000`, „Beste Leistung“ `ded574b5-45a0-4f42-8737-46345c09c238`. Andere GUIDs: Anzeige „Benutzerdefiniert“, nicht auswählbar, aber änderbar auf eine der drei.
-- Lesen/Schreiben: `HKLM\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes` `ActiveOverlayAcPowerScheme` / `ActiveOverlayDcPowerScheme` (REG_SZ GUID). Nach dem Schreiben für die gerade aktive Stromquelle zusätzlich `PowerSetActiveOverlayScheme(guid)` (powrprof), damit es sofort gilt.
+- Lesen/Schreiben (Gerätetest 0.4.0, 2026-11-11): nur über die Windows-API (powrprof) `PowerGetUserConfiguredACPowerMode` / `PowerGetUserConfiguredDCPowerMode` / `PowerSetUserConfiguredACPowerMode` / `PowerSetUserConfiguredDCPowerMode` – nicht über die Registry (`HKLM\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes` ist auch für Administratoren gesperrt). Set ≠ 0 → Fehler mit Code; Get-Fehler → „Nicht lesbar“. Fehlen die Funktionen (ältere Windows-Version), zeigen beide Zeilen „Auf dieser Windows-Version nicht änderbar“.
 - **Pflicht für den Umsetzer:** auf dem Rechner prüfen, dass Windows-Einstellungen → System → Strom und Akku nach dem Schreiben denselben Modus zeigt und nach Neustart behält. Klappt der Registry-Weg nicht, Feature-Zeile weglassen statt raten.
-- Undo: alten GUID zurückschreiben (+ API, wenn aktive Quelle). Drift: aktueller Wert ≠ gesetzter Wert → überspringen. FromRecord: nur die drei GUIDs und die alten Werte aus dem Journal, die Form einer GUID haben.
+- Undo: alten GUID über dieselbe API zurücksetzen. Drift: aktueller Wert ≠ gesetzter Wert → überspringen. FromRecord: nur die drei GUIDs und die alten Werte aus dem Journal, die Form einer GUID haben.
 - **[Entscheidung Claude]** Empfehlung: keine. Hinweistext Akku-Zeile: „Beste Leistung im Akkubetrieb leert den Akku spürbar schneller.“ (beim Nutzer aktuell so eingestellt).
 
 ### 4.4 Visuelle Effekte
@@ -74,7 +74,7 @@ Ohne Adminrechte (Debug/eingeschränkt): Monitor und Start-Bericht laufen; Einst
 ### 4.7 Ruhezustand-Datei – Kind `hibernate`
 - Zustand: `HKLM\SYSTEM\CurrentControlSet\Control\Power` `HibernateEnabled` (DWORD) und Größe von `%SystemDrive%\hiberfil.sys` (Dateiattribute lesen, `FileInfo.Length`; nicht vorhanden → 0).
 - Apply „Ausschalten“: `%SystemRoot%\System32\powercfg.exe /hibernate off` über `IProcessRunner`, Exit 0 und danach `HibernateEnabled` = 0 prüfen. Undo: `/hibernate on`. Feste Argumente, keine anderen powercfg-Aufrufe.
-- Erklärung: „Gibt x GB frei. Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer.“ Auf Geräten mit Akku zusätzlich Watch-Hinweis: „Bei leerem Akku sichert Windows Ihre Arbeit sonst über den Ruhezustand.“ **[Entscheidung Claude]** nie empfohlen.
+- Erklärung: „Ausschalten gibt x GB Speicherplatz auf Laufwerk C: frei. Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer. Rückgängig legt die Datei wieder an.“ (Laufwerk = Systemlaufwerk; ohne Datei entfällt der erste Satz.) Auf Geräten mit Akku zusätzlich Watch-Hinweis: „Bei leerem Akku sichert Windows Ihre Arbeit sonst über den Ruhezustand.“ **[Entscheidung Claude]** nie empfohlen.
 - Hinweis: Undo legt die Datei neu an (wieder x GB).
 
 ### 4.8 Speicheroptimierung – Kind `perfvalue`

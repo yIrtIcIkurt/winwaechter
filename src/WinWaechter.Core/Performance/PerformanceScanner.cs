@@ -20,6 +20,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     const string Unreadable = "Nicht lesbar";
     const string CustomLabel = "Benutzerdefiniert";
     const string PlanLocked = "Nur mit dem Energiesparplan „Ausgewogen“ änderbar";
+    const string PowerUnsupported = "Auf dieser Windows-Version nicht änderbar";
     const string BackgroundPrefix = "bg:";
     public const string BackgroundUnavailableId = "bg-unavailable";
 
@@ -102,6 +103,13 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
 
     IEnumerable<PerfSetting> ScanPower()
     {
+        if (!power.Supported)
+        {
+            // older Windows without the power mode API: shown, but neither read nor changed
+            yield return Unsupported("power-ac", "Energiemodus (Netzbetrieb)");
+            if (power.HasBattery) yield return Unsupported("power-dc", "Energiemodus (Akku)");
+            yield break;
+        }
         // Windows offers the power mode only under the plan "Ausgewogen"; under another plan a write has no effect.
         var locked = power.ActivePlan is { } plan && plan != PowerModeIds.BalancedPlan;
         yield return PowerRow(PowerSource.Ac, "power-ac", "Energiemodus (Netzbetrieb)",
@@ -111,6 +119,9 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
                 "Legt fest, wie Windows im Akkubetrieb zwischen Leistung und Laufzeit abwägt.",
                 "Beste Leistung im Akkubetrieb leert den Akku spürbar schneller.", locked);
     }
+
+    static PerfSetting Unsupported(string id, string title) =>
+        new(id, "power", title, "", PowerBase, 0, false, PowerUnsupported, null, null, false, SystemLinks.PowerSleep);
 
     PerfSetting PowerRow(PowerSource s, string id, string title, string explanation, string? hint, bool locked)
     {
@@ -159,7 +170,8 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         var enabled = hib.IsEnabled;
         var bytes = hib.FileBytes;
         if (!enabled && bytes <= 0) yield break;
-        var frees = bytes > 0 ? $"Gibt {SizeText.Format(bytes)} frei. " : "";
+        // hiberfil.sys lives on the system drive: say so, it is disk space, not memory
+        var frees = bytes > 0 ? $"Ausschalten gibt {SizeText.Format(bytes)} Speicherplatz auf Laufwerk {hib.Drive} frei. " : "";
         yield return new("hibernate", "storage", "Ruhezustand-Datei",
             frees + "Dann fehlen der Ruhezustand und der Schnellstart; der Rechner startet nach dem Herunterfahren etwas langsamer. "
                 + "Rückgängig legt die Datei wieder an.",
