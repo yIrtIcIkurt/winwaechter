@@ -24,6 +24,12 @@ public sealed class SecurityItemViewModel
             Light.Red => (Tone.Alarm, "Handlungsbedarf"),
             _ => (Tone.Neutral, "Nicht prüfbar"),
         };
+        // a row may name its state itself („Ansehen“, „Deaktiviert“); grey with a name is a known, calm state
+        if (!string.IsNullOrWhiteSpace(item.Chip))
+        {
+            LightText = item.Chip;
+            if (item.Light == Light.Grey) LightTone = Tone.Calm;
+        }
         Children = (item.Children ?? []).Select(c => new SecurityItemViewModel(c)).ToList();
     }
 
@@ -51,10 +57,13 @@ public sealed partial class SecurityViewModel : ObservableObject
     readonly ISystemShell _shell;
     readonly ChangeGate _gate;
     readonly Func<bool> _defenderBusy;
+    readonly IExtensionPages? _extensionPages;
 
     public SecurityViewModel(Func<CancellationToken, Task<IReadOnlyList<SecurityItem>>> check, OptimizerEngine engine,
-        IDefender defender, IDialogService dialogs, ISystemShell shell, bool canChange, ChangeGate gate, Func<bool>? defenderBusy = null)
+        IDefender defender, IDialogService dialogs, ISystemShell shell, bool canChange, ChangeGate gate, Func<bool>? defenderBusy = null,
+        IExtensionPages? extensionPages = null)
     {
+        _extensionPages = extensionPages;
         _defenderBusy = defenderBusy ?? (() => false);
         _check = check;
         _engine = engine;
@@ -174,6 +183,9 @@ public sealed partial class SecurityViewModel : ObservableObject
             case SecurityActionKind.DefenderScan:
                 await ScanAsync(item);
                 break;
+            case SecurityActionKind.ExtensionPage:
+                await OpenExtensionPageAsync(item.Extension!);
+                break;
         }
     }
 
@@ -183,8 +195,29 @@ public sealed partial class SecurityViewModel : ObservableObject
         SecurityActionKind.Change => row.Item.Change is not null && CanChange && !IsBusy && !_gate.IsBusy,
         // like the Schutz page: needs admin rights and no other Defender operation
         SecurityActionKind.DefenderScan => !string.IsNullOrWhiteSpace(row.Item.ScanPath) && CanChange && !IsBusy && !_defenderBusy(),
+        // opening the browser's page changes nothing itself; the user removes the extension there
+        SecurityActionKind.ExtensionPage => row.Item.Extension is not null && _extensionPages is not null && !IsBusy,
         _ => false,
     };
+
+    public static string OpenedText(string browser) =>
+        $"{browser} wurde geöffnet. Klicken Sie dort auf „Entfernen“. Danach „Erneut prüfen“.";
+
+    async Task OpenExtensionPageAsync(ExtensionTarget target)
+    {
+        try
+        {
+            // the opener validates browser, exe and id again; the row is only a hint
+            await Task.Run(() => _extensionPages!.Open(target.Browser, target.Id));
+            LastSummary = OpenedText(target.Browser);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Warn($"Erweiterungsseite nicht geöffnet: {target.Browser}", ex);
+            _dialogs.Inform($"{target.Browser} ließ sich nicht öffnen",
+                ex is ExtensionPageException ? ex.Message : $"{target.Browser} ließ sich nicht starten.");
+        }
+    }
 
     async Task ApplyChangeAsync(SecurityItem item)
     {

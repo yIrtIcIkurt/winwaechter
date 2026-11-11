@@ -48,6 +48,21 @@ internal static class UserProcess
         }
     }
 
+    /// <summary>Starts exe with arguments with the user's normal rights (same rules as above), lets it run and closes
+    /// the handles; nothing waits for it. Throws on failure; never falls back to elevated rights.</summary>
+    public static void StartAsUser(string exe, string arguments, string? userSid)
+    {
+        var (process, thread) = StartSuspended(new UninstallCommand(exe, arguments), userSid);
+        using (process)
+        using (thread)
+        {
+            if (ResumeThread(thread) != uint.MaxValue) return;
+            var err = Marshal.GetLastWin32Error();
+            TerminateProcess(process, 1);   // still suspended, nothing ran
+            throw NoLaunch(err);
+        }
+    }
+
     internal static UserLaunchException NoLaunch(int err) => new(UninstallPlanner.NoUserLaunchReason, err);
 
     // Fails closed: unknown elevation counts as elevated; an enabled Administrators group (UAC off) as well.

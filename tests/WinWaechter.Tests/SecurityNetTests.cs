@@ -295,7 +295,7 @@ public sealed class SecurityNetTests : IDisposable
         Assert.Equal("Alpha", exts.Single(e => e.Id == "A").Name);
         Assert.Equal(ExtensionOrigin.Policy, exts.Single(e => e.Id == "C").Origin);
         var d = exts.Single(e => e.Id == IdD);
-        Assert.Equal(ExtensionOrigin.External, d.Origin);
+        Assert.Equal(ExtensionOrigin.Unpacked, d.Origin);
         Assert.Equal("Dings", d.Name);
     }
 
@@ -303,7 +303,7 @@ public sealed class SecurityNetTests : IDisposable
     [InlineData(1, ExtensionOrigin.Store)]
     [InlineData(2, ExtensionOrigin.External)]
     [InlineData(3, ExtensionOrigin.External)]
-    [InlineData(4, ExtensionOrigin.External)]
+    [InlineData(4, ExtensionOrigin.Unpacked)]
     [InlineData(6, ExtensionOrigin.External)]
     [InlineData(8, ExtensionOrigin.External)]
     [InlineData(7, ExtensionOrigin.Policy)]
@@ -421,8 +421,8 @@ public sealed class SecurityNetTests : IDisposable
         var traversal = @"..\..\evil";
         static string J(string v) => System.Text.Json.JsonSerializer.Serialize(v);
         var json = "{\"extensions\":{\"settings\":{" +
-                   $"{J(traversal)}:{{\"location\":1}}," +
-                   $"{J(outside)}:{{\"location\":1}}," +
+                   $"{J(traversal)}:{{\"location\":1,\"manifest\":{{}}}}," +
+                   $"{J(outside)}:{{\"location\":1,\"manifest\":{{}},\"path\":{J(Path.Combine(outside, "1.0_0"))}}}," +
                    $"{J(IdD)}:{{\"location\":1,\"manifest\":{{\"name\":\"__MSG_n__\",\"default_locale\":{J(@"..\..\x")}}}}}" +
                    "}}}";
         Write(Path.Combine(profile, "Preferences"), json);
@@ -498,17 +498,18 @@ public sealed class SecurityNetTests : IDisposable
         Assert.Equal(SecurityIds.Extensions, item.Id);
         Assert.Equal("Browser-Erweiterungen", item.Title);
         Assert.Equal(Light.Yellow, item.Light);
-        Assert.Equal("4 Erweiterungen", item.Finding);
+        Assert.Equal("3 Erweiterungen ansehen", item.Finding);
         Assert.Contains("im Browser unter Erweiterungen entfernen", item.Explanation);
         Assert.Equal(SecurityActionKind.None, item.Action);
         var k = item.Children!;
         Assert.Equal("Edge (Default): Alpha", k[0].Title);
         Assert.Equal((Light.Green, "Aus dem Store"), (k[0].Light, k[0].Finding));
-        Assert.Equal((Light.Yellow, "Per Richtlinie erzwungen"), (k[1].Light, k[1].Finding));
-        Assert.Equal((Light.Yellow, "Von außen installiert"), (k[2].Light, k[2].Finding));
+        Assert.Equal((Light.Yellow, "Von Ihrer Organisation oder einem Programm per Richtlinie installiert"), (k[1].Light, k[1].Finding));
+        Assert.Equal((Light.Yellow, "Von einem Programm installiert"), (k[2].Light, k[2].Finding));
         Assert.Equal((Light.Yellow, "Herkunft unbekannt"), (k[3].Light, k[3].Finding));
 
         var green = SecurityChecks.Extensions([new("Edge", "Default", "a", "Alpha", ExtensionOrigin.Store)]);
-        Assert.Equal(Light.Green, green.Light);
+        Assert.Equal((Light.Green, "Alle in Ordnung"), (green.Light, green.Finding));
+        Assert.Equal("Keine Erweiterungen gefunden", SecurityChecks.Extensions([]).Finding);
     }
 }

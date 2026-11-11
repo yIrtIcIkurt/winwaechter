@@ -113,10 +113,12 @@ public sealed class AppServices : IDisposable
         var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),
             engine, ProcessTools.KillByPath, dialogs, canChange, gate);
         // every source runs on the thread pool with its own timeout; the whole check stays off the UI thread
+        // the browser's own extensions page opens with the signed-in user's normal rights, never elevated
+        var extensionPages = new ExtensionPageOpener(reg, paths, new UserTokenLauncher(user.Sid));
         var securitySources = new SecuritySources(firewall, new WmiSecurityCenter(), defender, reg, new WmiVolumeEncryption(),
-            new WuaUpdateSearch(), new TcpTableConnections(), procs, sig, new BrowserExtensionScanner(paths, reg));
+            new WuaUpdateSearch(), new TcpTableConnections(), procs, sig, new BrowserExtensionScanner(paths, reg), extensionPages);
         var security = new SecurityViewModel(ct => Task.Run(() => new SecurityCheck(securitySources).RunAsync(ct), ct),
-            engine, defender, dialogs, shell, canChange, gate, () => protect.IsDefenderBusy);
+            engine, defender, dialogs, shell, canChange, gate, () => protect.IsDefenderBusy, extensionPages);
         // the DISM probe and the registry reads stay off the UI thread
         var privacy = new PrivacyViewModel(ct => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
         {

@@ -181,29 +181,65 @@ public static class SecurityChecks
         return new(id, title, Light.Green, finding, $"Signiert: {info.Publisher}");
     }
 
-    public static SecurityItem Extensions(IReadOnlyList<BrowserExtension> exts)
+    public const string RemoveAdvice = "Entfernen empfohlen, wenn Sie diese Erweiterung nicht selbst installiert haben.";
+    public const string PolicyFinding = "Von Ihrer Organisation oder einem Programm per Richtlinie installiert";
+    public const string PolicyHint = "Entfernen nur über die Richtlinie möglich.";
+
+    public static string OriginText(ExtensionOrigin o) => o switch
     {
-        var children = exts.Select(e =>
-        {
-            var title = $"{e.Browser} ({e.Profile}): {e.Name}";
-            return e.Origin switch
-            {
-                ExtensionOrigin.Policy => new SecurityItem(SecurityIds.Extensions, title, Light.Yellow, "Per Richtlinie erzwungen",
-                    "Eine Richtlinie installiert diese Erweiterung. Das ist in Firmen üblich, auf privaten Rechnern aber oft ein Zeichen für Werbe- oder Schadsoftware."),
-                ExtensionOrigin.External => new SecurityItem(SecurityIds.Extensions, title, Light.Yellow, "Von außen installiert",
-                    "Diese Erweiterung stammt nicht aus dem Store, sondern wurde von einem Programm oder von Hand eingespielt."),
-                ExtensionOrigin.Store => new SecurityItem(SecurityIds.Extensions, title, Light.Green, "Aus dem Store",
-                    "Diese Erweiterung wurde aus dem offiziellen Store installiert."),
-                _ => new SecurityItem(SecurityIds.Extensions, title, Light.Yellow, "Herkunft unbekannt",
-                    "Woher diese Erweiterung stammt, ist nicht vermerkt. Prüfen Sie, ob Sie sie selbst installiert haben."),
-            };
-        }).ToList();
-        var yellow = children.Any(c => c.Light == Light.Yellow);
-        var n = children.Count;
-        return new(SecurityIds.Extensions, SecurityTitles.Extensions, yellow ? Light.Yellow : Light.Green,
-            n == 0 ? "Keine Erweiterungen gefunden" : n == 1 ? "1 Erweiterung" : $"{n} Erweiterungen",
+        ExtensionOrigin.Store => "Aus dem Store",
+        ExtensionOrigin.Policy => "Von einer Richtlinie installiert",
+        ExtensionOrigin.External => "Von einem Programm installiert",
+        ExtensionOrigin.Unpacked => "Von Hand geladen (Entwicklermodus)",
+        _ => "Herkunft unbekannt",
+    };
+
+    /// <summary>
+    /// One child row per installed extension. Store: green, rights listed. Policy: yellow, removable only via the policy.
+    /// Any other origin: yellow with the advice to remove, plus „In {Browser} entfernen“ when canOpen accepts the browser.
+    /// Switched off: grey „Deaktiviert“.
+    /// </summary>
+    /// <param name="canOpen">Whether the browser's own extensions page can be opened (trusted exe found).</param>
+    public static SecurityItem Extensions(IReadOnlyList<BrowserExtension> exts, Func<string, bool>? canOpen = null)
+    {
+        var children = exts.Select(e => ExtensionRow(e, canOpen)).ToList();
+        var yellow = children.Count(c => c.Light == Light.Yellow);
+        var finding = children.Count == 0 ? "Keine Erweiterungen gefunden"
+            : yellow == 0 ? "Alle in Ordnung"
+            : yellow == 1 ? "1 Erweiterung ansehen" : $"{yellow} Erweiterungen ansehen";
+        return new(SecurityIds.Extensions, SecurityTitles.Extensions, yellow > 0 ? Light.Yellow : Light.Green, finding,
             "Erweiterungen sehen mit, was Sie im Browser tun. Unbekannte oder nicht mehr benötigte Erweiterungen können Sie im Browser unter Erweiterungen entfernen.",
             Children: children);
+    }
+
+    static SecurityItem ExtensionRow(BrowserExtension e, Func<string, bool>? canOpen)
+    {
+        var title = $"{e.Browser} ({e.Profile}): {e.Name}";
+        var lines = new List<string>();
+        var facts = new List<string>();
+        if (e.Version is { } v) facts.Add($"Version {v}");
+        if (e.InstalledUtc is { } t) facts.Add($"Installiert am {t.ToLocalTime().ToString("dd.MM.yyyy", System.Globalization.CultureInfo.InvariantCulture)}");
+        if (facts.Count > 0) lines.Add(string.Join(" · ", facts));
+        if (e.Permissions is not null || e.Hosts is not null)
+        {
+            var rights = ExtensionRights.Describe(e.Permissions ?? [], e.Hosts ?? []);
+            lines.Add(rights is [ExtensionRights.None] ? ExtensionRights.None : "Rechte: " + string.Join(" · ", rights));
+        }
+        string Text(params string[] more) => string.Join("\n", lines.Concat(more));
+
+        if (e.Disabled)
+            return new(SecurityIds.Extensions, title, Light.Grey, OriginText(e.Origin),
+                Text("Die Erweiterung ist im Browser ausgeschaltet."), Chip: "Deaktiviert");
+        if (e.Origin == ExtensionOrigin.Store)
+            return new(SecurityIds.Extensions, title, Light.Green, OriginText(e.Origin),
+                lines.Count > 0 ? Text() : "Diese Erweiterung wurde aus dem offiziellen Store installiert.");
+        if (e.Origin == ExtensionOrigin.Policy)
+            return new(SecurityIds.Extensions, title, Light.Yellow, PolicyFinding, Text(PolicyHint), Chip: "Ansehen");
+
+        var button = canOpen is not null && BrowserExtensionScanner.IsChromiumId(e.Id) && canOpen(e.Browser);
+        return new(SecurityIds.Extensions, title, Light.Yellow, OriginText(e.Origin), Text(RemoveAdvice),
+            button ? SecurityActionKind.ExtensionPage : SecurityActionKind.None, button ? $"In {e.Browser} entfernen" : null,
+            Chip: "Ansehen", Extension: button ? new ExtensionTarget(e.Browser, e.Id) : null);
     }
 
     public static SecurityItem Unavailable(string id, string title, string? detail = null) =>

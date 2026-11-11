@@ -47,7 +47,8 @@ public sealed class SecurityViewModelTests : IDisposable
             Confirms.Add((title, message, confirmText, items ?? []));
             return Answer;
         }
-        public void Inform(string title, string message, IReadOnlyList<string>? items = null) { }
+        public List<(string Title, string Message)> Informs { get; } = [];
+        public void Inform(string title, string message, IReadOnlyList<string>? items = null) => Informs.Add((title, message));
     }
 
     sealed class RecordingShell : ISystemShell
@@ -135,6 +136,54 @@ public sealed class SecurityViewModelTests : IDisposable
         Assert.Single(parent.Children);
         Assert.Equal("Nicht prüfbar", parent.Children[0].LightText);
         Assert.Equal("Erklärung", parent.Children[0].Explanation);
+    }
+
+    sealed class FakePages : IExtensionPages
+    {
+        public List<(string Browser, string Id)> Calls { get; } = [];
+        public Exception? Throw { get; set; }
+        public void Open(string browser, string id)
+        {
+            if (Throw is not null) throw Throw;
+            Calls.Add((browser, id));
+        }
+    }
+
+    [Fact]
+    public async Task Remove_action_opens_the_browser_page_and_says_what_to_do()
+    {
+        var id = new string('a', 32);
+        var ext = new BrowserExtension("Edge", "Default", id, "Fremd", ExtensionOrigin.Unknown) { Permissions = [], Hosts = [] };
+        var off = new BrowserExtension("Edge", "Default", new string('b', 32), "Aus", ExtensionOrigin.Store) { Disabled = true };
+        var item = SecurityChecks.Extensions([ext, off], _ => true);
+        var pages = new FakePages();
+        var vm = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<SecurityItem>>([item]), _engine, _defender, _dialogs, _shell,
+            false, _gate, null, pages);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var row = vm.Items[0].Children[0];
+        Assert.Equal(("Ansehen", Tone.Watch, "In Edge entfernen"), (row.LightText, row.LightTone, row.ActionLabel));
+        Assert.Equal(("Deaktiviert", Tone.Calm), (vm.Items[0].Children[1].LightText, vm.Items[0].Children[1].LightTone));
+        Assert.Equal("Prüfen", vm.Items[0].LightText);
+        // opening a page changes nothing on the system, so it needs no admin rights
+        Assert.True(vm.RunActionCommand.CanExecute(row));
+
+        await vm.RunActionCommand.ExecuteAsync(row);
+
+        Assert.Equal([("Edge", id)], pages.Calls);
+        Assert.Equal("Edge wurde geöffnet. Klicken Sie dort auf „Entfernen“. Danach „Erneut prüfen“.", vm.LastSummary);
+        Assert.Empty(_shell.Links);
+        Assert.Empty(_dialogs.Informs);
+
+        pages.Throw = new ExtensionPageException("Edge ließ sich nicht mit Ihren normalen Benutzerrechten starten.");
+        await vm.RunActionCommand.ExecuteAsync(row);
+        var info = Assert.Single(_dialogs.Informs);
+        Assert.Equal(("Edge ließ sich nicht öffnen", "Edge ließ sich nicht mit Ihren normalen Benutzerrechten starten."), info);
+
+        // without an opener the action is not offered
+        var none = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<SecurityItem>>([item]), _engine, _defender, _dialogs, _shell,
+            true, _gate);
+        await none.RefreshCommand.ExecuteAsync(null);
+        Assert.False(none.RunActionCommand.CanExecute(none.Items[0].Children[0]));
     }
 
     [Fact]

@@ -71,6 +71,7 @@ Hell/Dunkel folgt `AppsUseLightTheme` und wechselt live. Die Titelleiste bleibt 
 
 - Kein neuer Farbwert: Grün = `Good`, Gelb = `Watch`, Rot = `Alarm`, Grau = `InkMuted`. Der Chip daneben nutzt die Töne `Good`/`Watch`/`Alarm`/neutral; die Farbe ist nie das einzige Signal, der Chip nennt den Zustand („In Ordnung“, „Prüfen“, „Handlungsbedarf“, „Nicht prüfbar“).
 - Zeile: gefüllter Punkt (10 px, `Ellipse`), Titel + Chip, Befund, Erklärung (`Text.Small`, `InkMuted`, max. 620), Aktionsknopf rechts im Standardstil (nie `Button.Final`). Unterzeilen sind 24 px eingerückt.
+- Eine Zeile darf ihren Zustand selbst benennen (`SecurityItem.Chip`): Erweiterungen zeigen „In Ordnung“, „Ansehen“ (Ton `Watch`) oder „Deaktiviert“ (Grau mit Ton `Calm`). Details stehen zeilenweise in der Erklärung (Version · Datum, Rechte, Empfehlung).
 - Übersicht: Ablesewert „Sicherheit“ in der Messleiste, Zustandsmarke + „n rot · n gelb“ bzw. „Alles in Ordnung“.
 
 ## Leistung

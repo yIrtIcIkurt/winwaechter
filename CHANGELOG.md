@@ -5,6 +5,7 @@
   - „Jetzt“: Prozessor, Arbeitsspeicher und Datenträger live sowie die größten Verbraucher. Gemessen wird nur, solange die Seite offen ist.
   - „Start“: Dauer der letzten vollständigen Starts und was den Start gebremst hat, mit Sprung zu den Autostart-Programmen.
   - „Einstellungen“: Energiemodus für Netzbetrieb und Akku, Transparenz- und Animationseffekte, Spielmodus, GPU-Planung, Ruhezustand-Datei, Speicheroptimierung und Hintergrund-Apps. Jede Einstellung einzeln, nichts vorausgewählt, alles im Verlauf rückgängig zu machen.
+- Sicherheit, Browser-Erweiterungen: eigene Einschätzung statt „Prüfen“. Je Erweiterung Version, Installationsdatum, Herkunft und Rechte in Klartext; Gelb mit Empfehlung, wenn sie nicht aus dem Store stammt, und Knopf „In {Browser} entfernen“, der die Seite der Erweiterung im Browser öffnet (mit Ihren normalen Benutzerrechten). Sync-Platzhalter ohne installierte Erweiterung erscheinen nicht mehr; ausgeschaltete Erweiterungen stehen als „Deaktiviert“ da.
 - Bewusst ohne „Tuning-Tricks“ wie RAM-Booster oder das massenhafte Abschalten von Diensten.
 
 ## 0.3.2

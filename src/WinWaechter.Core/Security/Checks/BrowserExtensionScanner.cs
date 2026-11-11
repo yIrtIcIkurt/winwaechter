@@ -6,19 +6,32 @@ using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Security.Checks;
 
-public enum ExtensionOrigin { Store, Policy, External, Builtin, Unknown }
+/// <summary>Unpacked: loaded by hand from a folder (developer mode, Chromium location 4).</summary>
+public enum ExtensionOrigin { Store, Policy, External, Builtin, Unknown, Unpacked }
 
-public sealed record BrowserExtension(string Browser, string Profile, string Id, string Name, ExtensionOrigin Origin);
+public sealed record BrowserExtension(string Browser, string Profile, string Id, string Name, ExtensionOrigin Origin)
+{
+    public string? Version { get; init; }
+    public DateTime? InstalledUtc { get; init; }
+    /// <summary>Installed but switched off in the browser.</summary>
+    public bool Disabled { get; init; }
+    /// <summary>API permissions and host patterns; null when not known (an entry only a policy names).</summary>
+    public IReadOnlyList<string>? Permissions { get; init; }
+    public IReadOnlyList<string>? Hosts { get; init; }
+}
 
 /// <summary>
 /// Reads installed extensions of Edge, Chrome, Opera and Firefox for the interactive user.
-/// Read only; unreadable, locked, oversized or broken files are skipped. Built-in extensions are left out.
+/// Read only; unreadable, locked, oversized or broken files are skipped. Built-in extensions are left out, and so are
+/// Chromium entries that are not installed (sync placeholders: neither a manifest nor an existing install path).
 /// </summary>
 public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistry reg)
 {
     public const long MaxFileBytes = 20 * 1024 * 1024;
     public const int MaxNameLength = 100;
     public const string PolicyProfile = "Richtlinie";
+    /// <summary>Upper bound for permission and host entries read per list.</summary>
+    public const int MaxEntries = 500;
 
     static readonly (string Browser, string Key)[] ForceLists =
     [
@@ -35,18 +48,19 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
         Safe("Firefox", () => Firefox(all));
         Safe("Richtlinien", () => ApplyPolicies(all));
         return all.Where(e => e.Origin != ExtensionOrigin.Builtin)
-            .Select(e => e with { Name = CleanName(e.Name, e.Id) })
+            .Select(e => e with { Name = CleanName(e.Name, e.Id), Version = CleanVersion(e.Version) })
             .ToList();
     }
 
-    /// <summary>Chromium <c>location</c> values (ruling R8): 1 store; 5/10 built-in; 7/9 policy; 2/3/4/6/8 from outside;
-    /// missing or any other value is unknown.</summary>
+    /// <summary>Chromium <c>location</c> values (ruling R8): 1 store; 5/10 built-in; 7/9 policy; 4 unpacked (by hand);
+    /// 2/3/6/8 from outside; missing or any other value is unknown.</summary>
     public static ExtensionOrigin ChromiumOrigin(int? location) => location switch
     {
         1 => ExtensionOrigin.Store,
         5 or 10 => ExtensionOrigin.Builtin,
         7 or 9 => ExtensionOrigin.Policy,
-        2 or 3 or 4 or 6 or 8 => ExtensionOrigin.External,
+        4 => ExtensionOrigin.Unpacked,
+        2 or 3 or 6 or 8 => ExtensionOrigin.External,
         _ => ExtensionOrigin.Unknown,
     };
 
@@ -69,6 +83,10 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
         if (n.Length == 0) n = Clean(id);
         return n.Length == 0 ? "(ohne Namen)" : n;
     }
+
+    // Versions are shown too: digits, letters and . - + only, at most 40 characters; anything else is dropped.
+    internal static string? CleanVersion(string? v) =>
+        v is { Length: > 0 and <= 40 } && v.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+') ? v : null;
 
     static void Safe(string what, Action a)
     {
@@ -105,40 +123,132 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
             if (!TryPath(doc.RootElement, out var settings, "extensions", "settings") || settings.ValueKind != JsonValueKind.Object) continue;
             foreach (var ext in settings.EnumerateObject())
             {
-                if (ext.Value.ValueKind != JsonValueKind.Object || !seen.Add(ext.Name)) continue;
-                int? location = ext.Value.TryGetProperty("location", out var l) && l.TryGetInt32(out var li) ? li : null;
-                var origin = ChromiumOrigin(location);
-                var name = origin == ExtensionOrigin.Builtin ? ext.Name : ChromiumName(dir, ext.Name, ext.Value);
-                into.Add(new BrowserExtension(browser, profile, ext.Name, name, origin));
+                if (ext.Value.ValueKind != JsonValueKind.Object || seen.Contains(ext.Name)) continue;
+                var origin = ChromiumOrigin(Int(ext.Value, "location"));
+                var entry = origin == ExtensionOrigin.Builtin
+                    ? new BrowserExtension(browser, profile, ext.Name, ext.Name, origin)
+                    : ChromiumEntry(browser, profile, dir, ext.Name, ext.Value, origin);
+                if (entry is null) continue;   // not installed (sync placeholder); the other file may know it
+                seen.Add(ext.Name);
+                into.Add(entry);
             }
         }
     }
 
-    // settings.manifest first, then the highest installed version's manifest.json; __MSG_x__ via _locales.
-    static string ChromiumName(string profileDir, string id, JsonElement settings)
+    // Installed when there is a manifest (in the settings or a readable manifest.json in the highest version folder)
+    // or the install path exists. Name: settings.manifest first, then manifest.json; __MSG_x__ via _locales.
+    static BrowserExtension? ChromiumEntry(string browser, string profile, string profileDir, string id, JsonElement settings,
+        ExtensionOrigin origin)
     {
         // Disk lookups only for well-formed ids, and only inside <profile>\Extensions.
         var extRoot = Path.GetFullPath(Path.Combine(profileDir, "Extensions")) + Path.DirectorySeparatorChar;
         var versionDir = IsChromiumId(id) ? HighestVersionDir(extRoot, Path.Combine(extRoot, id)) : null;
-        string? name = null, locale = null;
-        if (settings.TryGetProperty("manifest", out var m) && m.ValueKind == JsonValueKind.Object)
+        JsonElement? prefsManifest = settings.TryGetProperty("manifest", out var m) && m.ValueKind == JsonValueKind.Object ? m : null;
+        JsonDocument? fileDoc = null;
+        var fileRead = false;
+        JsonElement? FileManifest()
         {
-            name = Str(m, "name");
-            locale = Str(m, "default_locale");
+            if (!fileRead && versionDir is not null)
+                fileDoc = ReadJson(InsideFile(extRoot, Path.Combine(versionDir, "manifest.json")));
+            fileRead = true;
+            return fileDoc?.RootElement.ValueKind == JsonValueKind.Object ? fileDoc.RootElement : null;
         }
-        if (string.IsNullOrWhiteSpace(name) && versionDir is not null)
+        try
         {
-            using var manifest = ReadJson(InsideFile(extRoot, Path.Combine(versionDir, "manifest.json")));
-            if (manifest?.RootElement.ValueKind == JsonValueKind.Object)
+            var manifest = prefsManifest ?? FileManifest();
+            if (manifest is null && !InstallPathExists(extRoot, Str(settings, "path"))) return null;
+
+            string? name = null, locale = null;
+            if (prefsManifest is { } pm)
             {
-                name = Str(manifest.RootElement, "name");
-                locale ??= Str(manifest.RootElement, "default_locale");
+                name = Str(pm, "name");
+                locale = Str(pm, "default_locale");
             }
+            if (string.IsNullOrWhiteSpace(name) && FileManifest() is { } fm)
+            {
+                name = Str(fm, "name");
+                locale ??= Str(fm, "default_locale");
+            }
+            if (name is not null && name.StartsWith("__MSG_", StringComparison.Ordinal) && name.EndsWith("__", StringComparison.Ordinal))
+                name = versionDir is not null && locale is not null ? LocalizedMessage(extRoot, versionDir, locale, name[6..^2]) : null;
+
+            var version = (manifest is { } vm ? Str(vm, "version") : null) ?? (FileManifest() is { } fv ? Str(fv, "version") : null);
+            var perms = new List<string>();
+            var hosts = new List<string>();
+            if (settings.TryGetProperty("active_permissions", out var ap) && ap.ValueKind == JsonValueKind.Object)
+                foreach (var list in new[] { "api", "manifest_permissions", "explicit_host", "scriptable_host" })
+                    Collect(ap, list, perms, hosts);
+            if (manifest is { } mf)
+            {
+                Collect(mf, "permissions", perms, hosts);
+                Collect(mf, "host_permissions", perms, hosts);
+                if (mf.TryGetProperty("content_scripts", out var cs) && cs.ValueKind == JsonValueKind.Array)
+                    foreach (var script in cs.EnumerateArray().Take(MaxEntries))
+                        if (script.ValueKind == JsonValueKind.Object) Collect(script, "matches", perms, hosts);
+            }
+            return new BrowserExtension(browser, profile, id, string.IsNullOrWhiteSpace(name) ? id : name, origin)
+            {
+                Version = version,
+                InstalledUtc = ChromiumTime(Str(settings, "first_install_time")) ?? ChromiumTime(Str(settings, "install_time")),
+                Disabled = ChromiumDisabled(settings),
+                Permissions = perms.Distinct(StringComparer.Ordinal).ToList(),
+                Hosts = hosts.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            };
         }
-        if (name is not null && name.StartsWith("__MSG_", StringComparison.Ordinal) && name.EndsWith("__", StringComparison.Ordinal))
-            name = versionDir is not null && locale is not null ? LocalizedMessage(extRoot, versionDir, locale, name[6..^2]) : null;
-        return string.IsNullOrWhiteSpace(name) ? id : name;
+        finally
+        {
+            fileDoc?.Dispose();
+        }
     }
+
+    // state 0 (older browsers) or any disable reason means switched off.
+    static bool ChromiumDisabled(JsonElement settings) =>
+        Int(settings, "state") == 0
+        || (settings.TryGetProperty("disable_reasons", out var dr)
+            && (dr.ValueKind == JsonValueKind.Array ? dr.GetArrayLength() > 0 : Int(settings, "disable_reasons") is { } d && d != 0));
+
+    // A relative path lies inside <profile>\Extensions; an absolute one (unpacked) must be on a local drive.
+    // Only its existence is checked, nothing is read from there.
+    static bool InstallPathExists(string extRoot, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        string? full;
+        if (Path.IsPathRooted(path))
+        {
+            if (path.Length < 3 || !char.IsAsciiLetter(path[0]) || path[1] != ':' || path[2] is not ('\\' or '/')) return false;
+            full = path;
+        }
+        else
+        {
+            full = Inside(extRoot, Path.Combine(extRoot, path));
+        }
+        return full is not null && Directory.Exists(full);
+    }
+
+    /// <summary>Chromium time (microseconds since 1601-01-01 UTC, as a string) in UTC; null when missing or implausible.</summary>
+    public static DateTime? ChromiumTime(string? microseconds)
+    {
+        if (!long.TryParse(microseconds, NumberStyles.None, CultureInfo.InvariantCulture, out var us) || us <= 0) return null;
+        var epoch = new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        if (us > (DateTime.MaxValue.Ticks - epoch.Ticks) / 10) return null;
+        return epoch.AddTicks(us * 10);
+    }
+
+    // Strings are sorted into API permissions and host patterns; objects ({"socket": [...]}) count by their names.
+    static void Collect(JsonElement parent, string name, List<string> perms, List<string> hosts)
+    {
+        if (!parent.TryGetProperty(name, out var arr) || arr.ValueKind != JsonValueKind.Array) return;
+        foreach (var v in arr.EnumerateArray().Take(MaxEntries))
+        {
+            if (v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 and <= 2048 } t)
+                (ExtensionRights.IsHostPattern(t) ? hosts : perms).Add(t);
+            else if (v.ValueKind == JsonValueKind.Object)
+                perms.AddRange(v.EnumerateObject().Take(MaxEntries).Select(p => p.Name));
+        }
+    }
+
+    static int? Int(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : null;
 
     static string? LocalizedMessage(string extRoot, string versionDir, string locale, string key)
     {
@@ -202,7 +312,23 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
                 var origin = FirefoxOrigin(Str(a, "location"), Str(a, "sourceURI"));
                 if (origin == ExtensionOrigin.Builtin) continue;
                 var name = a.TryGetProperty("defaultLocale", out var dl) && dl.ValueKind == JsonValueKind.Object ? Str(dl, "name") : null;
-                into.Add(new BrowserExtension("Firefox", profile, id, string.IsNullOrWhiteSpace(name) ? id : name, origin));
+                var perms = new List<string>();
+                var hosts = new List<string>();
+                if (a.TryGetProperty("userPermissions", out var up) && up.ValueKind == JsonValueKind.Object)
+                {
+                    Collect(up, "permissions", perms, hosts);
+                    Collect(up, "origins", perms, hosts);
+                }
+                into.Add(new BrowserExtension("Firefox", profile, id, string.IsNullOrWhiteSpace(name) ? id : name, origin)
+                {
+                    Version = Str(a, "version"),
+                    InstalledUtc = a.TryGetProperty("installDate", out var d) && d.ValueKind == JsonValueKind.Number
+                                   && d.TryGetInt64(out var ms) && ms is > 0 and <= MaxUnixMs
+                        ? DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime : null,
+                    Disabled = Bool(a, "active") == false || Bool(a, "userDisabled") == true,
+                    Permissions = perms.Distinct(StringComparer.Ordinal).ToList(),
+                    Hosts = hosts.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                });
             }
         }
     }
@@ -283,6 +409,11 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
             if (found.ValueKind != JsonValueKind.Object || !found.TryGetProperty(n, out found)) return false;
         return true;
     }
+
+    const long MaxUnixMs = 253402300799999;   // 9999-12-31
+
+    static bool? Bool(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
 
     static string? Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
