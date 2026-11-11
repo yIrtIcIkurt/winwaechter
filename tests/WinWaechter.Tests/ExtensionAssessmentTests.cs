@@ -80,7 +80,8 @@ public sealed class ExtensionAssessmentTests : IDisposable
         Assert.Equal(3, item.Children!.Count);
         var off = item.Children.Single(c => c.Title.EndsWith(": Aus", StringComparison.Ordinal));
         Assert.Equal((Light.Grey, "Deaktiviert"), (off.Light, off.Chip));
-        Assert.Equal(SecurityActionKind.None, off.Action);
+        // a switched-off extension the user no longer needs can be removed too
+        Assert.Equal((SecurityActionKind.ExtensionPage, "In Edge entfernen"), (off.Action, off.ActionLabel));
         Assert.DoesNotContain("Entfernen empfohlen", off.Explanation);
     }
 
@@ -185,7 +186,11 @@ public sealed class ExtensionAssessmentTests : IDisposable
         Assert.Contains("Darf Webanfragen mitlesen oder umleiten", c.Explanation);
         Assert.Contains("Version 3.1", c.Explanation);
         Assert.DoesNotContain("Entfernen empfohlen", c.Explanation);
-        Assert.Equal(SecurityActionKind.None, c.Action);
+        // fine, but the user may still remove it: button without a recommendation
+        Assert.Equal((SecurityActionKind.ExtensionPage, "In Chrome entfernen"), (c.Action, c.ActionLabel));
+        Assert.Equal(new ExtensionTarget("Chrome", IdA), c.Extension);
+        Assert.Null(c.Chip);
+        Assert.Equal(SecurityActionKind.None, SecurityChecks.Extensions([e], _ => false).Children![0].Action);
     }
 
     [Fact]

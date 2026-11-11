@@ -196,8 +196,8 @@ public static class SecurityChecks
 
     /// <summary>
     /// One child row per installed extension. Store: green, rights listed. Policy: yellow, removable only via the policy.
-    /// Any other origin: yellow with the advice to remove, plus „In {Browser} entfernen“ when canOpen accepts the browser.
-    /// Switched off: grey „Deaktiviert“.
+    /// Any other origin: yellow with the advice to remove. Switched off: grey „Deaktiviert“. Every row except a policy one
+    /// gets „In {Browser} entfernen“ when canOpen accepts the browser.
     /// </summary>
     /// <param name="canOpen">Whether the browser's own extensions page can be opened (trusted exe found).</param>
     public static SecurityItem Extensions(IReadOnlyList<BrowserExtension> exts, Func<string, bool>? canOpen = null)
@@ -227,19 +227,20 @@ public static class SecurityChecks
         }
         string Text(params string[] more) => string.Join("\n", lines.Concat(more));
 
-        if (e.Disabled)
-            return new(SecurityIds.Extensions, title, Light.Grey, OriginText(e.Origin),
-                Text("Die Erweiterung ist im Browser ausgeschaltet."), Chip: "Deaktiviert");
-        if (e.Origin == ExtensionOrigin.Store)
-            return new(SecurityIds.Extensions, title, Light.Green, OriginText(e.Origin),
-                lines.Count > 0 ? Text() : "Diese Erweiterung wurde aus dem offiziellen Store installiert.");
+        // a policy decides about its extensions; every other one the user may remove, also when it is fine or switched off
         if (e.Origin == ExtensionOrigin.Policy)
             return new(SecurityIds.Extensions, title, Light.Yellow, PolicyFinding, Text(PolicyHint), Chip: "Ansehen");
-
         var button = canOpen is not null && BrowserExtensionScanner.IsChromiumId(e.Id) && canOpen(e.Browser);
-        return new(SecurityIds.Extensions, title, Light.Yellow, OriginText(e.Origin), Text(RemoveAdvice),
-            button ? SecurityActionKind.ExtensionPage : SecurityActionKind.None, button ? $"In {e.Browser} entfernen" : null,
-            Chip: "Ansehen", Extension: button ? new ExtensionTarget(e.Browser, e.Id) : null);
+        SecurityItem Row(Light light, string explanation, string? chip = null) =>
+            new(SecurityIds.Extensions, title, light, OriginText(e.Origin), explanation,
+                button ? SecurityActionKind.ExtensionPage : SecurityActionKind.None, button ? $"In {e.Browser} entfernen" : null,
+                Chip: chip, Extension: button ? new ExtensionTarget(e.Browser, e.Id) : null);
+
+        if (e.Disabled)
+            return Row(Light.Grey, Text("Die Erweiterung ist im Browser ausgeschaltet."), "Deaktiviert");
+        if (e.Origin == ExtensionOrigin.Store)
+            return Row(Light.Green, lines.Count > 0 ? Text() : "Diese Erweiterung wurde aus dem offiziellen Store installiert.");
+        return Row(Light.Yellow, Text(RemoveAdvice), "Ansehen");
     }
 
     public static SecurityItem Unavailable(string id, string title, string? detail = null) =>
