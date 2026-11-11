@@ -97,7 +97,8 @@ public sealed partial class BrowserExtensionScanner(CleanerPaths paths, IRegistr
     [GeneratedRegex(@"^Profile \d+$", RegexOptions.IgnoreCase)]
     private static partial Regex ProfileFolder();
 
-    [GeneratedRegex("^[a-p]{32}$")]
+    // \z, not $: "$" would also accept a trailing newline
+    [GeneratedRegex(@"^[a-p]{32}\z")]
     private static partial Regex ChromiumIdPattern();
 
     static void ChromiumUserData(string browser, string userData, List<BrowserExtension> into)

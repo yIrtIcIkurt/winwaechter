@@ -209,7 +209,7 @@ public static class SecurityChecks
             : yellow == 1 ? "1 Erweiterung ansehen" : $"{yellow} Erweiterungen ansehen";
         return new(SecurityIds.Extensions, SecurityTitles.Extensions, yellow > 0 ? Light.Yellow : Light.Green, finding,
             "Erweiterungen sehen mit, was Sie im Browser tun. Unbekannte oder nicht mehr benötigte Erweiterungen können Sie im Browser unter Erweiterungen entfernen.",
-            Children: children);
+            Children: children, Chip: yellow > 0 ? "Ansehen" : "In Ordnung");
     }
 
     static SecurityItem ExtensionRow(BrowserExtension e, Func<string, bool>? canOpen)

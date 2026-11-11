@@ -60,11 +60,13 @@ public sealed class ExtensionPageOpener(IRegistry reg, CleanerPaths paths, IUser
     {
         if (!Browsers.TryGetValue(browser, out var b)) return null;
         string[] roots = [paths.ProgramFiles, paths.ProgramFilesX86, Path.Combine(paths.LocalAppData, "Programs")];
-        foreach (var hive in new[] { Hive.LocalMachine, Hive.CurrentUser })
+        // the user's hive only for Opera, which installs per user and registers itself only there
+        Hive[] hives = browser == "Opera" ? [Hive.LocalMachine, Hive.CurrentUser] : [Hive.LocalMachine];
+        foreach (var hive in hives)
         {
             try
             {
-                if (Trusted(reg.Get(hive, $@"{AppPaths}\{b.Exe}", "") as string, roots) is { } exe) return exe;
+                if (Trusted(reg.Get(hive, $@"{AppPaths}\{b.Exe}", "") as string, roots, b.Exe) is { } exe) return exe;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
@@ -74,8 +76,9 @@ public sealed class ExtensionPageOpener(IRegistry reg, CleanerPaths paths, IUser
         return null;
     }
 
-    // Fully qualified local path (no \\server, no %VAR%), .exe, existing, no link, below one of the roots.
-    internal static string? Trusted(string? value, IReadOnlyList<string> roots)
+    // Fully qualified local path (no \\server, no %VAR%), exactly the expected file name (e.g. msedge.exe), existing,
+    // no link, below one of the roots.
+    internal static string? Trusted(string? value, IReadOnlyList<string> roots, string fileName)
     {
         var raw = value?.Trim();
         if (raw is { Length: > 2 } && raw[0] == '"' && raw[^1] == '"') raw = raw[1..^1];
@@ -84,7 +87,7 @@ public sealed class ExtensionPageOpener(IRegistry reg, CleanerPaths paths, IUser
         try
         {
             var full = Path.GetFullPath(raw);
-            if (!string.Equals(Path.GetExtension(full), ".exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(full)) return null;
+            if (!string.Equals(Path.GetFileName(full), fileName, StringComparison.OrdinalIgnoreCase) || !File.Exists(full)) return null;
             if (File.GetAttributes(full).HasFlag(FileAttributes.ReparsePoint)) return null;
             foreach (var root in roots)
             {

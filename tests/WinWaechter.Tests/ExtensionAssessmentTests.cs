@@ -76,7 +76,7 @@ public sealed class ExtensionAssessmentTests : IDisposable
 
         var item = SecurityChecks.Extensions(exts, _ => true);
         Assert.Equal(Light.Green, item.Light);
-        Assert.Equal("Alle in Ordnung", item.Finding);
+        Assert.Equal(("Alle in Ordnung", "In Ordnung"), (item.Finding, item.Chip));
         Assert.Equal(3, item.Children!.Count);
         var off = item.Children.Single(c => c.Title.EndsWith(": Aus", StringComparison.Ordinal));
         Assert.Equal((Light.Grey, "Deaktiviert"), (off.Light, off.Chip));
@@ -193,7 +193,7 @@ public sealed class ExtensionAssessmentTests : IDisposable
     {
         var item = SecurityChecks.Extensions([Ext("Edge", IdA, "Fremd", ExtensionOrigin.Unknown)], b => b == "Edge");
 
-        Assert.Equal((Light.Yellow, "1 Erweiterung ansehen"), (item.Light, item.Finding));
+        Assert.Equal((Light.Yellow, "1 Erweiterung ansehen", "Ansehen"), (item.Light, item.Finding, item.Chip));
         var c = item.Children!.Single();
         Assert.Equal((Light.Yellow, "Ansehen", "Herkunft unbekannt"), (c.Light, c.Chip, c.Finding));
         Assert.Contains("Entfernen empfohlen, wenn Sie diese Erweiterung nicht selbst installiert haben.", c.Explanation);
@@ -219,6 +219,9 @@ public sealed class ExtensionAssessmentTests : IDisposable
             SecurityChecks.Extensions([Ext("Edge", IdA, "Fremd", ExtensionOrigin.Unknown)], _ => false).Children![0].Action);
         Assert.Equal(SecurityActionKind.None,
             SecurityChecks.Extensions([Ext("Edge", "../x", "Fremd", ExtensionOrigin.Unknown)], _ => true).Children![0].Action);
+        Assert.False(BrowserExtensionScanner.IsChromiumId(IdA + "\n"));
+        Assert.Equal(SecurityActionKind.None,
+            SecurityChecks.Extensions([Ext("Edge", IdA + "\n", "Fremd", ExtensionOrigin.Unknown)], _ => true).Children![0].Action);
         var fx = SecurityChecks.Extensions([Ext("Firefox", "side@x", "Seite", ExtensionOrigin.External)], _ => true).Children![0];
         Assert.Equal(SecurityActionKind.None, fx.Action);
         Assert.Contains("Entfernen empfohlen", fx.Explanation);
@@ -283,7 +286,7 @@ public sealed class ExtensionAssessmentTests : IDisposable
             (edge, $"edge://extensions/?id={IdA}"), (chrome, $"chrome://extensions/?id={IdB}"), (opera, $"opera://extensions/?id={IdC}"),
         ], launcher.Calls);
 
-        foreach (var bad in new[] { "", "../x", IdA.ToUpperInvariant(), IdA + " --load-extension=x", new string('q', 32), IdA[..31] })
+        foreach (var bad in new[] { "", "../x", IdA.ToUpperInvariant(), IdA + " --load-extension=x", IdA + "\n", new string('q', 32), IdA[..31] })
             Assert.Throws<ExtensionPageException>(() => pages.Open("Edge", bad));
         Assert.Throws<ExtensionPageException>(() => pages.Open("Firefox", IdA));
         Assert.Equal(3, launcher.Calls.Count);
@@ -323,6 +326,30 @@ public sealed class ExtensionAssessmentTests : IDisposable
         }
         _reg.Seed(Hive.LocalMachine, key, "", 42, RegistryValueKind.DWord);
         Assert.False(pages.CanOpen("Edge"));
+        Assert.Empty(launcher.Calls);
+    }
+
+    [Fact]
+    public void Only_the_expected_browser_exe_counts_and_the_user_hive_only_for_Opera()
+    {
+        var launcher = new RecordingLauncher();
+        var pages = new ExtensionPageOpener(_reg, _paths, launcher);
+        // a trusted folder but another program
+        var other = Touch(Path.Combine(_paths.ProgramFiles, @"Other\other.exe"));
+        _reg.Seed(Hive.LocalMachine, $@"{AppPaths}\msedge.exe", "", other);
+        Assert.False(pages.CanOpen("Edge"));
+        // Edge (and Chrome) only from HKLM: a user-written entry is ignored even when it points to a real msedge.exe
+        var edge = Touch(Path.Combine(_paths.ProgramFilesX86, @"Microsoft\Edge\Application\msedge.exe"));
+        _reg.Seed(Hive.CurrentUser, $@"{AppPaths}\msedge.exe", "", edge);
+        _reg.Seed(Hive.CurrentUser, $@"{AppPaths}\chrome.exe", "", Touch(Path.Combine(_paths.ProgramFiles, @"Google\chrome.exe")));
+        Assert.False(pages.CanOpen("Edge"));
+        Assert.False(pages.CanOpen("Chrome"));
+        // Opera from the user's hive, but only as opera.exe
+        _reg.Seed(Hive.CurrentUser, $@"{AppPaths}\opera.exe", "", Touch(Path.Combine(_paths.LocalAppData, @"Programs\Opera\launcher.exe")));
+        Assert.False(pages.CanOpen("Opera"));
+        Assert.Equal(SecurityActionKind.None,
+            SecurityChecks.Extensions([Ext("Opera", IdA, "Fremd", ExtensionOrigin.Unknown)], pages.CanOpen).Children![0].Action);
+        Assert.Throws<ExtensionPageException>(() => pages.Open("Edge", IdA));
         Assert.Empty(launcher.Calls);
     }
 

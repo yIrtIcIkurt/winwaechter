@@ -142,8 +142,10 @@ public sealed class SecurityViewModelTests : IDisposable
     {
         public List<(string Browser, string Id)> Calls { get; } = [];
         public Exception? Throw { get; set; }
+        public ManualResetEventSlim? Hold { get; set; }
         public void Open(string browser, string id)
         {
+            Hold?.Wait(TimeSpan.FromSeconds(10));
             if (Throw is not null) throw Throw;
             Calls.Add((browser, id));
         }
@@ -163,7 +165,8 @@ public sealed class SecurityViewModelTests : IDisposable
         var row = vm.Items[0].Children[0];
         Assert.Equal(("Ansehen", Tone.Watch, "In Edge entfernen"), (row.LightText, row.LightTone, row.ActionLabel));
         Assert.Equal(("Deaktiviert", Tone.Calm), (vm.Items[0].Children[1].LightText, vm.Items[0].Children[1].LightTone));
-        Assert.Equal("Prüfen", vm.Items[0].LightText);
+        Assert.Equal(("Ansehen", Tone.Watch), (vm.Items[0].LightText, vm.Items[0].LightTone));
+        Assert.Equal("In Ordnung", new SecurityItemViewModel(SecurityChecks.Extensions([off])).LightText);
         // opening a page changes nothing on the system, so it needs no admin rights
         Assert.True(vm.RunActionCommand.CanExecute(row));
 
@@ -184,6 +187,30 @@ public sealed class SecurityViewModelTests : IDisposable
             true, _gate);
         await none.RefreshCommand.ExecuteAsync(null);
         Assert.False(none.RunActionCommand.CanExecute(none.Items[0].Children[0]));
+    }
+
+    [Fact]
+    public async Task Second_click_while_the_browser_opens_does_nothing()
+    {
+        var ext = new BrowserExtension("Edge", "Default", new string('a', 32), "Fremd", ExtensionOrigin.Unknown);
+        var item = SecurityChecks.Extensions([ext], _ => true);
+        using var hold = new ManualResetEventSlim(false);
+        var pages = new FakePages { Hold = hold };
+        var vm = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<SecurityItem>>([item]), _engine, _defender, _dialogs, _shell,
+            true, _gate, null, pages);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var row = vm.Items[0].Children[0];
+
+        var first = vm.RunActionCommand.ExecuteAsync(row);
+        Assert.True(vm.IsBusy);
+        Assert.False(vm.RunActionCommand.CanExecute(row));
+        await vm.RunActionCommand.ExecuteAsync(row);   // ignored while the first one runs
+        hold.Set();
+        await first;
+
+        Assert.Single(pages.Calls);
+        Assert.False(vm.IsBusy);
+        Assert.True(vm.RunActionCommand.CanExecute(row));
     }
 
     [Fact]

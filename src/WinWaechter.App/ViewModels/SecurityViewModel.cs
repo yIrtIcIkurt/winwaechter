@@ -205,6 +205,10 @@ public sealed partial class SecurityViewModel : ObservableObject
 
     async Task OpenExtensionPageAsync(ExtensionTarget target)
     {
+        // busy while the browser starts: a second click cannot start it twice (CanRunAction checks IsBusy)
+        if (IsBusy) return;
+        IsBusy = true;
+        ProgressText = $"{target.Browser} wird geöffnet …";
         try
         {
             // the opener validates browser, exe and id again; the row is only a hint
@@ -216,6 +220,11 @@ public sealed partial class SecurityViewModel : ObservableObject
             FileLog.Warn($"Erweiterungsseite nicht geöffnet: {target.Browser}", ex);
             _dialogs.Inform($"{target.Browser} ließ sich nicht öffnen",
                 ex is ExtensionPageException ? ex.Message : $"{target.Browser} ließ sich nicht starten.");
+        }
+        finally
+        {
+            ProgressText = "";
+            IsBusy = false;
         }
     }
 
