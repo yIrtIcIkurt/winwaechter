@@ -58,12 +58,14 @@ public sealed partial class SecurityViewModel : ObservableObject
     readonly ChangeGate _gate;
     readonly Func<bool> _defenderBusy;
     readonly IExtensionPages? _extensionPages;
+    readonly Action<string> _copyText;
 
     public SecurityViewModel(Func<CancellationToken, Task<IReadOnlyList<SecurityItem>>> check, OptimizerEngine engine,
         IDefender defender, IDialogService dialogs, ISystemShell shell, bool canChange, ChangeGate gate, Func<bool>? defenderBusy = null,
-        IExtensionPages? extensionPages = null)
+        IExtensionPages? extensionPages = null, Action<string>? copyText = null)
     {
         _extensionPages = extensionPages;
+        _copyText = copyText ?? System.Windows.Clipboard.SetText;
         _defenderBusy = defenderBusy ?? (() => false);
         _check = check;
         _engine = engine;
@@ -200,20 +202,40 @@ public sealed partial class SecurityViewModel : ObservableObject
         _ => false,
     };
 
+    public const string PasteKeys = "Strg+L, Strg+V und Enter";
+
+    public static string HowToText(string browser) =>
+        $"WinWächter kopiert die Adresse der Erweiterung und öffnet {browser}. Drücken Sie dort {PasteKeys} und klicken Sie " +
+        $"bei der Erweiterung auf „Entfernen“. ({browser} lässt andere Programme diese Seite nicht direkt öffnen.)";
+
     public static string OpenedText(string browser) =>
-        $"{browser} wurde geöffnet. Klicken Sie dort auf „Entfernen“. Danach „Erneut prüfen“.";
+        $"{browser} ist geöffnet, die Adresse ist kopiert: {PasteKeys}, dann „Entfernen“. Danach „Erneut prüfen“.";
+
+    public static string OpenedNoCopyText(string browser, string address) =>
+        $"{browser} ist geöffnet. Geben Sie dort in die Adresszeile ein: {address} – dann „Entfernen“. Danach „Erneut prüfen“.";
 
     async Task OpenExtensionPageAsync(ExtensionTarget target)
     {
         // busy while the browser starts: a second click cannot start it twice (CanRunAction checks IsBusy)
         if (IsBusy) return;
         IsBusy = true;
-        ProgressText = $"{target.Browser} wird geöffnet …";
         try
         {
             // the opener validates browser, exe and id again; the row is only a hint
-            await Task.Run(() => _extensionPages!.Open(target.Browser, target.Id));
-            LastSummary = OpenedText(target.Browser);
+            var address = _extensionPages!.Address(target.Browser, target.Id);
+            if (!_dialogs.Confirm($"In {target.Browser} entfernen", HowToText(target.Browser), $"{target.Browser} öffnen", [address]))
+                return;
+            var copied = true;
+            try { _copyText(address); }
+            catch (Exception ex)
+            {
+                // the clipboard can be held by another program; the address is then shown to type in
+                FileLog.Warn("Adresse der Erweiterung nicht kopiert", ex);
+                copied = false;
+            }
+            ProgressText = $"{target.Browser} wird geöffnet …";
+            await Task.Run(() => _extensionPages.Open(target.Browser));
+            LastSummary = copied ? OpenedText(target.Browser) : OpenedNoCopyText(target.Browser, address);
         }
         catch (Exception ex)
         {

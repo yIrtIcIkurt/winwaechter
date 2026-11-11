@@ -278,22 +278,24 @@ public sealed class ExtensionAssessmentTests : IDisposable
         Assert.False(pages.CanOpen("Firefox"));
         Assert.False(pages.CanOpen("Brave"));   // not installed here
 
-        pages.Open("Edge", IdA);
-        pages.Open("Chrome", IdB);
-        pages.Open("Opera", IdC);
+        // browsers ignore internal pages from other programs: the address is only handed out to paste
         Assert.Equal(
-        [
-            (edge, $"edge://extensions/?id={IdA}"), (chrome, $"chrome://extensions/?id={IdB}"), (opera, $"opera://extensions/?id={IdC}"),
-        ], launcher.Calls);
+            [$"edge://extensions/?id={IdA}", $"chrome://extensions/?id={IdB}", $"opera://extensions/?id={IdC}"],
+            [pages.Address("Edge", IdA), pages.Address("Chrome", IdB), pages.Address("Opera", IdC)]);
+        pages.Open("Edge");
+        pages.Open("Chrome");
+        pages.Open("Opera");
+        Assert.Equal([(edge, "--new-window"), (chrome, "--new-window"), (opera, "--new-window")], launcher.Calls);
 
         foreach (var bad in new[] { "", "../x", IdA.ToUpperInvariant(), IdA + " --load-extension=x", IdA + "\n", new string('q', 32), IdA[..31] })
-            Assert.Throws<ExtensionPageException>(() => pages.Open("Edge", bad));
-        Assert.Throws<ExtensionPageException>(() => pages.Open("Firefox", IdA));
+            Assert.Throws<ExtensionPageException>(() => pages.Address("Edge", bad));
+        Assert.Throws<ExtensionPageException>(() => pages.Address("Firefox", IdA));
+        Assert.Throws<ExtensionPageException>(() => pages.Open("Firefox"));
         Assert.Equal(3, launcher.Calls.Count);
 
         // a failed user launch is reported with a reason, never retried with other rights
         launcher.Throw = new UserLaunchException(UninstallPlanner.NoUserLaunchReason, 5);
-        var ex = Assert.Throws<ExtensionPageException>(() => pages.Open("Edge", IdA));
+        var ex = Assert.Throws<ExtensionPageException>(() => pages.Open("Edge"));
         Assert.StartsWith("Edge ließ sich nicht mit Ihren normalen Benutzerrechten starten", ex.Message);
         Assert.Equal(3, launcher.Calls.Count);
     }
@@ -320,7 +322,7 @@ public sealed class ExtensionAssessmentTests : IDisposable
         {
             _reg.Seed(Hive.LocalMachine, key, "", c);
             Assert.False(pages.CanOpen("Edge"), c);
-            Assert.Throws<ExtensionPageException>(() => pages.Open("Edge", IdA));
+            Assert.Throws<ExtensionPageException>(() => pages.Open("Edge"));
             var row = SecurityChecks.Extensions([Ext("Edge", IdA, "Fremd", ExtensionOrigin.Unknown)], pages.CanOpen).Children![0];
             Assert.Equal(SecurityActionKind.None, row.Action);
         }
@@ -349,7 +351,7 @@ public sealed class ExtensionAssessmentTests : IDisposable
         Assert.False(pages.CanOpen("Opera"));
         Assert.Equal(SecurityActionKind.None,
             SecurityChecks.Extensions([Ext("Opera", IdA, "Fremd", ExtensionOrigin.Unknown)], pages.CanOpen).Children![0].Action);
-        Assert.Throws<ExtensionPageException>(() => pages.Open("Edge", IdA));
+        Assert.Throws<ExtensionPageException>(() => pages.Open("Edge"));
         Assert.Empty(launcher.Calls);
     }
 

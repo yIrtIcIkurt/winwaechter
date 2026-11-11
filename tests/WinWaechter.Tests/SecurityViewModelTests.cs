@@ -140,14 +140,15 @@ public sealed class SecurityViewModelTests : IDisposable
 
     sealed class FakePages : IExtensionPages
     {
-        public List<(string Browser, string Id)> Calls { get; } = [];
+        public List<string> Calls { get; } = [];
         public Exception? Throw { get; set; }
         public ManualResetEventSlim? Hold { get; set; }
-        public void Open(string browser, string id)
+        public string Address(string browser, string id) => $"edge://extensions/?id={id}";
+        public void Open(string browser)
         {
             Hold?.Wait(TimeSpan.FromSeconds(10));
             if (Throw is not null) throw Throw;
-            Calls.Add((browser, id));
+            Calls.Add(browser);
         }
     }
 
@@ -159,8 +160,9 @@ public sealed class SecurityViewModelTests : IDisposable
         var off = new BrowserExtension("Edge", "Default", new string('b', 32), "Aus", ExtensionOrigin.Store) { Disabled = true };
         var item = SecurityChecks.Extensions([ext, off], _ => true);
         var pages = new FakePages();
+        var copied = new List<string>();
         var vm = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<SecurityItem>>([item]), _engine, _defender, _dialogs, _shell,
-            false, _gate, null, pages);
+            false, _gate, null, pages, copied.Add);
         await vm.RefreshCommand.ExecuteAsync(null);
         var row = vm.Items[0].Children[0];
         Assert.Equal(("Ansehen", Tone.Watch, "In Edge entfernen"), (row.LightText, row.LightTone, row.ActionLabel));
@@ -170,10 +172,24 @@ public sealed class SecurityViewModelTests : IDisposable
         // opening a page changes nothing on the system, so it needs no admin rights
         Assert.True(vm.RunActionCommand.CanExecute(row));
 
-        await vm.RunActionCommand.ExecuteAsync(row);
+        var address = $"edge://extensions/?id={id}";
 
-        Assert.Equal([("Edge", id)], pages.Calls);
-        Assert.Equal("Edge wurde geöffnet. Klicken Sie dort auf „Entfernen“. Danach „Erneut prüfen“.", vm.LastSummary);
+        // declined: nothing copied, nothing started
+        _dialogs.Answer = false;
+        await vm.RunActionCommand.ExecuteAsync(row);
+        var ask = Assert.Single(_dialogs.Confirms);
+        Assert.Equal(("In Edge entfernen", SecurityViewModel.HowToText("Edge"), "Edge öffnen", address),
+            (ask.Title, ask.Message, ask.ConfirmText, Assert.Single(ask.Items)));
+        Assert.Empty(copied);
+        Assert.Empty(pages.Calls);
+
+        // Edge ignores edge:// pages from other programs: the address is copied and Edge opened in a new window
+        _dialogs.Answer = true;
+        await vm.RunActionCommand.ExecuteAsync(row);
+        Assert.Equal([address], copied);
+        Assert.Equal(["Edge"], pages.Calls);
+        Assert.Equal("Edge ist geöffnet, die Adresse ist kopiert: Strg+L, Strg+V und Enter, dann „Entfernen“. Danach „Erneut prüfen“.",
+            vm.LastSummary);
         Assert.Empty(_shell.Links);
         Assert.Empty(_dialogs.Informs);
 
@@ -181,12 +197,31 @@ public sealed class SecurityViewModelTests : IDisposable
         await vm.RunActionCommand.ExecuteAsync(row);
         var info = Assert.Single(_dialogs.Informs);
         Assert.Equal(("Edge ließ sich nicht öffnen", "Edge ließ sich nicht mit Ihren normalen Benutzerrechten starten."), info);
+        pages.Throw = null;
 
         // without an opener the action is not offered
         var none = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<SecurityItem>>([item]), _engine, _defender, _dialogs, _shell,
             true, _gate);
         await none.RefreshCommand.ExecuteAsync(null);
         Assert.False(none.RunActionCommand.CanExecute(none.Items[0].Children[0]));
+    }
+
+    [Fact]
+    public async Task Busy_clipboard_still_opens_the_browser_and_shows_the_address()
+    {
+        var id = new string('a', 32);
+        var item = SecurityChecks.Extensions([new BrowserExtension("Edge", "Default", id, "Fremd", ExtensionOrigin.Unknown)], _ => true);
+        var pages = new FakePages();
+        var vm = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<SecurityItem>>([item]), _engine, _defender, _dialogs, _shell,
+            true, _gate, null, pages, _ => throw new System.Runtime.InteropServices.COMException("Zwischenablage belegt"));
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        await vm.RunActionCommand.ExecuteAsync(vm.Items[0].Children[0]);
+
+        Assert.Equal(["Edge"], pages.Calls);
+        Assert.Equal(SecurityViewModel.OpenedNoCopyText("Edge", $"edge://extensions/?id={id}"), vm.LastSummary);
+        Assert.Contains($"edge://extensions/?id={id}", vm.LastSummary);
+        Assert.False(vm.IsBusy);
     }
 
     [Fact]
@@ -197,7 +232,7 @@ public sealed class SecurityViewModelTests : IDisposable
         using var hold = new ManualResetEventSlim(false);
         var pages = new FakePages { Hold = hold };
         var vm = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<SecurityItem>>([item]), _engine, _defender, _dialogs, _shell,
-            true, _gate, null, pages);
+            true, _gate, null, pages, _ => { });
         await vm.RefreshCommand.ExecuteAsync(null);
         var row = vm.Items[0].Children[0];
 

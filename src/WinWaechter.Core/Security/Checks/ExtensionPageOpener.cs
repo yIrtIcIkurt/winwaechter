@@ -4,20 +4,27 @@ using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Security.Checks;
 
-/// <summary>Opens a browser's own page for one extension, where the user removes it with one click.</summary>
+/// <summary>
+/// Leads the user to a browser's own page for one extension, where they remove it with one click.
+/// Chromium browsers ignore internal pages (edge://…, chrome://…) handed over by other programs and show a new tab
+/// instead, so the browser is opened in a new window and the user pastes <see cref="Address"/> there.
+/// </summary>
 public interface IExtensionPages
 {
-    /// <summary>Throws ExtensionPageException with a German reason that is safe to show.</summary>
-    void Open(string browser, string id);
+    /// <summary>"&lt;scheme&gt;://extensions/?id=&lt;id&gt;". Throws ExtensionPageException with a German reason that is safe to show.</summary>
+    string Address(string browser, string id);
+
+    /// <summary>Starts the browser in a new window. Throws ExtensionPageException with a German reason that is safe to show.</summary>
+    void Open(string browser);
 }
 
 public sealed class ExtensionPageException(string message) : InvalidOperationException(message);
 
 /// <summary>
-/// Starts the browser itself (never ShellExecute of a browser URL) with exactly "&lt;scheme&gt;://extensions/?id=&lt;id&gt;",
-/// with the signed-in user's normal rights. The browser comes from App Paths (HKLM, then the user's hive) and is used
-/// only when it is an existing .exe under Program Files, Program Files (x86) or the user's %LOCALAPPDATA%\Programs;
-/// the id must be a Chromium id (32 letters a–p).
+/// Starts the browser itself (never ShellExecute of a browser URL) with exactly "--new-window", with the signed-in
+/// user's normal rights. The browser comes from App Paths (HKLM, then the user's hive) and is used only when it is an
+/// existing .exe under Program Files, Program Files (x86) or the user's %LOCALAPPDATA%\Programs; the id in the address
+/// must be a Chromium id (32 letters a–p).
 /// </summary>
 public sealed class ExtensionPageOpener(IRegistry reg, CleanerPaths paths, IUserLauncher launcher) : IExtensionPages
 {
@@ -33,17 +40,22 @@ public sealed class ExtensionPageOpener(IRegistry reg, CleanerPaths paths, IUser
 
     public bool CanOpen(string browser) => BrowserExe(browser) is not null;
 
-    public void Open(string browser, string id)
+    public string Address(string browser, string id)
     {
-        if (!Browsers.TryGetValue(browser, out var b))
-            throw new ExtensionPageException($"Für {browser} kann WinWächter die Seite der Erweiterung nicht öffnen.");
+        var b = Known(browser);
         if (!BrowserExtensionScanner.IsChromiumId(id))
             throw new ExtensionPageException("Die Kennung der Erweiterung ist ungültig.");
+        return $"{b.Scheme}://extensions/?id={id}";
+    }
+
+    public void Open(string browser)
+    {
+        Known(browser);
         var exe = BrowserExe(browser)
             ?? throw new ExtensionPageException($"{browser} wurde nicht in einem Programmordner gefunden.");
         try
         {
-            launcher.StartAsUser(exe, $"{b.Scheme}://extensions/?id={id}");
+            launcher.StartAsUser(exe, "--new-window");
         }
         catch (Exception ex)
         {
@@ -54,6 +66,9 @@ public sealed class ExtensionPageOpener(IRegistry reg, CleanerPaths paths, IUser
                                              "Öffnen Sie im Browser die Seite „Erweiterungen“ und entfernen Sie sie dort.");
         }
     }
+
+    static (string Exe, string Scheme) Known(string browser) => Browsers.TryGetValue(browser, out var b) ? b
+        : throw new ExtensionPageException($"Für {browser} kann WinWächter die Seite der Erweiterung nicht öffnen.");
 
     /// <summary>The browser's exe from App Paths when it is trusted, else null.</summary>
     public string? BrowserExe(string browser)
