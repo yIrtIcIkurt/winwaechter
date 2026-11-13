@@ -53,8 +53,11 @@ public sealed class PowerPlanTests : IDisposable
         var change = new PowerPlanChange(_plans, FakePowerPlans.HighId);
         var record = change.Apply(Ctx());
 
+        // a target that is not installed is never activated (Apply checks the list again)
         var unknown = record with { After = new() { ["plan"] = Guid.NewGuid().ToString("D") } };
-        Assert.Throws<InvalidOperationException>(() => PowerPlanChange.FromRecord(unknown, _plans));
+        _plans.SetCalls.Clear();
+        Assert.Throws<InvalidOperationException>(() => PowerPlanChange.FromRecord(unknown, _plans).Apply(Ctx()));
+        Assert.Empty(_plans.SetCalls);
         var garbage = record with { After = new() { ["plan"] = "not-a-guid" } };
         Assert.Throws<InvalidOperationException>(() => PowerPlanChange.FromRecord(garbage, _plans));
 
@@ -65,6 +68,24 @@ public sealed class PowerPlanTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => rebuilt.Undo(badBefore, Ctx()));
         var goneBefore = record with { Before = new() { ["plan"] = Guid.NewGuid().ToString("D") } };
         Assert.Throws<InvalidOperationException>(() => rebuilt.Undo(goneBefore, Ctx()));
+        Assert.Empty(_plans.SetCalls);
+    }
+
+    [Fact]
+    public void Undo_works_after_the_target_plan_was_deleted()
+    {
+        var change = new PowerPlanChange(_plans, FakePowerPlans.HighId);
+        var record = change.Apply(Ctx());
+        _plans.Plans.RemoveAll(p => p.Id == FakePowerPlans.HighId);   // the user deleted „Höchstleistung“
+
+        var rebuilt = PowerPlanChange.FromRecord(record, _plans);
+        rebuilt.Undo(record, Ctx());
+        Assert.Equal(FakePowerPlans.BalancedId, _plans.ActiveId);
+
+        // a retry needs the target: refused, nothing switched
+        var retry = PowerPlanChange.FromRecord(record with { Before = new() }, _plans);
+        _plans.SetCalls.Clear();
+        Assert.Throws<InvalidOperationException>(() => retry.Apply(Ctx()));
         Assert.Empty(_plans.SetCalls);
     }
 

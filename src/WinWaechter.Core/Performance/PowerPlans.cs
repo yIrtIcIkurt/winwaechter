@@ -88,9 +88,14 @@ public sealed class PowerPlanChange : IChange
     readonly PowerPlan _target;
 
     public PowerPlanChange(IPowerPlans plans, Guid target)
+        : this(plans, plans.List().FirstOrDefault(p => p.Id == target)
+            ?? throw new ArgumentException("Dieser Energiesparplan ist nicht vorhanden.", nameof(target)))
     {
-        _target = plans.List().FirstOrDefault(p => p.Id == target)
-            ?? throw new ArgumentException("Dieser Energiesparplan ist nicht vorhanden.", nameof(target));
+    }
+
+    PowerPlanChange(IPowerPlans plans, PowerPlan target)
+    {
+        _target = target;
         _plans = plans;
     }
 
@@ -98,16 +103,17 @@ public sealed class PowerPlanChange : IChange
     public string Target => "Energiesparplan";
     public string Description => $"Energiesparplan auf „{_target.Name}“ umstellen";
 
-    /// <summary>Only the target has to be an installed plan; the old plan is checked by Undo (a retry record has an empty Before).</summary>
+    /// <summary>
+    /// Only the target's id has to be readable: Undo activates the old plan only when it is installed, Apply (also a
+    /// retry, whose Before is empty) the target only when it is installed – so undo still works after the target was deleted.
+    /// </summary>
     public static PowerPlanChange FromRecord(ChangeRecord r, IPowerPlans plans)
     {
-        if (!Guid.TryParse(r.After.GetValueOrDefault("plan"), out var target))
+        if (!Guid.TryParse(r.After.GetValueOrDefault("plan"), out var target) || target == Guid.Empty)
             throw new InvalidOperationException("Dieser Energiesparplan ist nicht lesbar – Rückgängig abgelehnt.");
-        try { return new PowerPlanChange(plans, target); }
-        catch (ArgumentException ex)
-        {
-            throw new InvalidOperationException("Dieser Energiesparplan gehört nicht zu den vorhandenen Plänen – Rückgängig abgelehnt.", ex);
-        }
+        // the name only for the text; a deleted plan is shown by its id, as Windows does for a plan without a name
+        var plan = plans.List().FirstOrDefault(p => p.Id == target) ?? new PowerPlan(target, target.ToString("D"));
+        return new PowerPlanChange(plans, plan);
     }
 
     public ChangeRecord Apply(SessionContext ctx)
