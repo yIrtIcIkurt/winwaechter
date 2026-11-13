@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using WinWaechter.Core.Changes;
+using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Security.Checks;
@@ -126,6 +127,29 @@ public sealed class SystemProtectionTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => SystemProtectChange.FromRecord(Rec(@"C:\..", "VSS"), _sc, _cfg));
         Assert.Throws<InvalidOperationException>(() => SystemProtectChange.FromRecord(Rec(@"c:\", "VSS"), _sc, _cfg));
         Assert.Throws<InvalidOperationException>(() => SystemProtectChange.FromRecord(Rec(@"C:", "VSS"), _sc, _cfg));
+        Assert.Throws<InvalidOperationException>(() => SystemProtectChange.FromRecord(Rec("C:\\\n", "VSS"), _sc, _cfg));
+    }
+
+    [Fact]
+    public async Task Failed_enable_through_the_engine_is_undoable_and_restores_the_service()
+    {
+        _cfg.EnableError = new InvalidOperationException("Code 5");
+        var factory = new ChangeFactory();
+        SystemProtectChange.Register(factory, _sc, _cfg);
+        var engine = new OptimizerEngine(Array.Empty<Func<IReadOnlyList<Finding>>>(), new SessionStore(_root), factory,
+            _ => new RestorePointResult(true, "ok"));
+        var finding = new Finding("sysprotect", FindingArea.Autostart, "Computerschutz", "loc", new[] { "r" },
+            Rating.Entbehrlich, true, Change("VSS"));
+
+        var res = await engine.ApplyAsync("T", [finding], null, CancellationToken.None);
+        var rec = Assert.Single(res.Session.Records);
+        Assert.Equal(ChangeStatus.Failed, rec.Status);
+        Assert.Equal(StartMode.Manual, _sc.Get("VSS")!.Mode);
+        Assert.True(OptimizerEngine.IsUndoable(rec));
+
+        engine.UndoSession(res.Session);
+        Assert.Equal(StartMode.Disabled, _sc.Get("VSS")!.Mode);
+        Assert.True(_cfg.State == false);   // never touched
     }
 
     [Fact]

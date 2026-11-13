@@ -78,7 +78,7 @@ public static class SystemProtection
 /// </summary>
 public sealed class SystemProtectChange : IChange, IUndoLimit
 {
-    static readonly Regex DriveRule = new(@"^[A-Z]:\\$", RegexOptions.CultureInvariant);
+    static readonly Regex DriveRule = new(@"^[A-Z]:\\\z", RegexOptions.CultureInvariant);
 
     readonly IServiceControl _sc;
     readonly ISystemRestoreConfig _cfg;
@@ -119,7 +119,8 @@ public sealed class SystemProtectChange : IChange, IUndoLimit
     // Journalled before Apply, so a failure midway can still put the services back.
     public ChangeRecord Plan(SessionContext ctx) =>
         new(Guid.NewGuid().ToString("N"), Kind, Target, Description,
-            new() { ["drive"] = _drive, ["services"] = string.Join(',', _services) }, new(), ChangeStatus.Pending, DateTimeOffset.Now);
+            new() { ["drive"] = _drive, ["services"] = string.Join(',', _services) },
+            new() { ["mode"] = nameof(StartMode.Manual), ["protection"] = "true" }, ChangeStatus.Pending, DateTimeOffset.Now);
 
     public ChangeRecord Apply(SessionContext ctx)
     {
