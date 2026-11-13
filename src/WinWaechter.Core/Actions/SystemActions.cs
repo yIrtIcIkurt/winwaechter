@@ -23,12 +23,16 @@ public sealed class WinRestarter(IProcessRunner runner, string systemRoot) : IRe
 
 public static class SystemActions
 {
+    public const string ExplorerNotBack =
+        "Der Explorer ist nicht von selbst zurückgekehrt. Starten Sie ihn mit Strg+Umschalt+Esc → „Neuen Task ausführen“ → explorer.exe.";
+
     /// <summary>
     /// Restarts the Explorer shell so context-menu changes take effect at once. Ends only <c>explorer</c> processes
-    /// whose image is exactly <c>&lt;windowsDir&gt;\explorer.exe</c>; if Windows has not brought one back after
-    /// <paramref name="wait"/> (default 3 s), starts it with the signed-in user's normal rights.
+    /// whose image is exactly the Windows folder's explorer.exe, then waits until Windows has started the shell again
+    /// (polling every <paramref name="poll"/>, default 250 ms, up to <paramref name="timeout"/>, default 15 s).
+    /// It never starts Explorer itself: the elevated app must not launch the user's shell.
     /// </summary>
-    public static SystemAction RestartExplorer(IProcessEnder ender, Action<string> startAsUser, string windowsDir, TimeSpan? wait = null) =>
+    public static SystemAction RestartExplorer(IProcessEnder ender, string windowsDir, TimeSpan? poll = null, TimeSpan? timeout = null) =>
         new("restart-explorer", "Explorer neu starten", "Neu starten", null, false, async (p, ct) =>
         {
             var exe = ProcessGuard.NormalizePath(Path.Combine(windowsDir, "explorer.exe"))
@@ -42,8 +46,14 @@ public static class SystemActions
             if (running.Count > 0 && ender.Kill(running) == 0)
                 return new ActionOutcome(false, "Der Explorer ließ sich nicht beenden.");
 
-            await Task.Delay(wait ?? TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
-            if (Ours().Count == 0) startAsUser(exe);
-            return new ActionOutcome(true, "Der Explorer wurde neu gestartet.");
+            var step = poll ?? TimeSpan.FromMilliseconds(250);
+            var left = timeout ?? TimeSpan.FromSeconds(15);
+            while (true)
+            {
+                await Task.Delay(step, ct).ConfigureAwait(false);
+                if (Ours().Count > 0) return new ActionOutcome(true, "Der Explorer wurde neu gestartet.");
+                left -= step;
+                if (left <= TimeSpan.Zero) return new ActionOutcome(false, ExplorerNotBack);
+            }
         });
 }

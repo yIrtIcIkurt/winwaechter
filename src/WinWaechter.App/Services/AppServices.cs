@@ -125,9 +125,8 @@ public sealed class AppServices : IDisposable
         var gate = new ChangeGate();
         // one runner for every one-off action, on every page
         var actions = new ActionRunner(dialogs, gate);
-        // the Explorer restart starts the shell with the signed-in user's normal rights, never elevated
-        var restartExplorer = SystemActions.RestartExplorer(new WinProcessEnder(procs),
-            p => new UserTokenLauncher(user.Sid).StartAsUser(p, ""), windowsDir);
+        // Windows restarts the shell itself after the kill; the elevated app never launches Explorer
+        var restartExplorer = SystemActions.RestartExplorer(new WinProcessEnder(procs), windowsDir);
         var optimize = new OptimizeViewModel(engine, dialogs, canChange, gate, actions, restartExplorer);
         // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
         var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),

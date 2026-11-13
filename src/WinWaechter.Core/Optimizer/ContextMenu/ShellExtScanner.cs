@@ -117,9 +117,13 @@ public sealed class ShellExtScanner(IRegistry reg, ISignatureVerifier sig, RuleS
         var title = FirstText(shown is not null && !shown.StartsWith('@') ? shown.Replace("&", "") : null, verb);
         if (Judge(exe, title, verb, command) is not { } j) return;
 
-        result.Add(Make($"shellext|{RegDword.HiveName(hive)}|{loc}|{verb}", title, [label], j,
+        result.Add(Make($"shellext|{RegDword.HiveName(hive)}|{loc}|{verb}", title, [VerbPlace(loc, label)], j,
             ShellExtChange.LegacyDisable(reg, hive, verbKey, title)));
     }
+
+    // Directory and Folder both read „Ordner“; a verb is one row per key, so the two rows must look different.
+    static string VerbPlace(string loc, string label) =>
+        loc is "Directory" or "Folder" ? $"{label} ({loc})" : label;
 
     // Null when the entry must not be offered; otherwise the normalized program path and its signature.
     (string Path, SignatureInfo? Sig)? Judge(string program, string title, string? altName, string? commandLine)

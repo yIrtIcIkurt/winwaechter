@@ -78,6 +78,18 @@ public sealed class ShellExtTests : IDisposable
     }
 
     [Fact]
+    public void Same_verb_under_Directory_and_Folder_gets_distinguishable_places()
+    {
+        Verb("Directory", "Tool", "\"C:\\Tools\\t.exe\" \"%1\"");
+        Verb("Folder", "Tool", "\"C:\\Tools\\t.exe\" \"%1\"");
+
+        var found = Scanner().Scan();
+        Assert.Equal(2, found.Count);
+        Assert.Equal(["Ordner (Directory)", "Ordner (Folder)"], found.Select(f => f.Location).Order().ToArray());
+        Assert.Equal(2, found.Select(f => f.Reasons[1]).Distinct().Count());
+    }
+
+    [Fact]
     public void Handler_in_HKCU_is_found_and_merged_with_the_machine_registration()
     {
         Handler("*", "Tool", G1, @"C:\Tools\tool.dll", "Werkzeug");
@@ -307,20 +319,19 @@ public sealed class ShellExtTests : IDisposable
     // --- Explorer restart ---
 
     static string Explorer => Path.Combine(Win, "explorer.exe");
+    static readonly TimeSpan Fast = TimeSpan.FromMilliseconds(1);
 
     [Fact]
-    public async Task Restart_kills_only_the_windows_explorer_and_starts_it_when_none_returns()
+    public async Task Restart_kills_only_the_windows_explorer_and_waits_for_its_return()
     {
-        var ender = new FakeProcessEnder();
         var real = new RunningProcess("explorer.exe", Explorer, 10);
-        var real2 = new RunningProcess("EXPLORER.EXE", @"c:\windows\Explorer.exe", 11);
-        var fake = new RunningProcess("explorer.exe", @"C:\Users\x\Downloads\explorer.exe", 12);
+        var real2 = new RunningProcess("EXPLORER.EXE", "c:/windows/Explorer.exe", 11);
+        var fake = new RunningProcess("explorer.exe", "C:/Users/x/Downloads/explorer.exe", 12);
         var relative = new RunningProcess("explorer.exe", "explorer.exe", 13);
         var unknown = new RunningProcess("explorer.exe", null, 14);
-        ender.Running.AddRange([real, real2, fake, relative, unknown]);
-        var started = new List<string>();
+        var ender = new ScriptedEnder([real, real2, fake, relative, unknown]) { ReturnAfterFinds = 0 };
 
-        var action = SystemActions.RestartExplorer(ender, started.Add, Win, TimeSpan.Zero);
+        var action = SystemActions.RestartExplorer(ender, Win, Fast, TimeSpan.FromSeconds(5));
         Assert.Equal("Explorer neu starten", action.Title);
         Assert.Null(action.ConfirmText);
         Assert.False(action.Final);
@@ -329,49 +340,86 @@ public sealed class ShellExtTests : IDisposable
 
         Assert.True(outcome.Success);
         Assert.Equal([real, real2], ender.Killed);
-        Assert.Equal([fake, relative, unknown], ender.Running);
-        Assert.Equal([Explorer], started);
+        Assert.Contains(fake, ender.Running);
+        Assert.Contains(relative, ender.Running);
+        Assert.Contains(unknown, ender.Running);
     }
 
     [Fact]
-    public async Task Restart_does_not_start_a_second_explorer_when_windows_brought_one_back()
+    public async Task Restart_succeeds_when_the_shell_comes_back_after_a_few_polls()
     {
-        var ender = new ComingBackEnder(new RunningProcess("explorer.exe", Explorer, 10));
-        var started = new List<string>();
+        var ender = new ScriptedEnder([new RunningProcess("explorer.exe", Explorer, 10)]) { ReturnAfterFinds = 4 };
 
-        var outcome = await SystemActions.RestartExplorer(ender, started.Add, Win, TimeSpan.Zero)
+        var outcome = await SystemActions.RestartExplorer(ender, Win, Fast, TimeSpan.FromSeconds(5))
             .RunAsync(null, CancellationToken.None);
 
         Assert.True(outcome.Success);
         Assert.Equal(1, ender.KillCalls);
-        Assert.Empty(started);
+        Assert.True(ender.FindsAfterKill > 4);
     }
 
     [Fact]
-    public async Task Restart_starts_the_shell_even_when_none_was_running()
+    public async Task Restart_reports_when_the_shell_never_comes_back()
     {
-        var started = new List<string>();
-        var outcome = await SystemActions.RestartExplorer(new FakeProcessEnder(), started.Add, Win, TimeSpan.Zero)
+        var ender = new ScriptedEnder([new RunningProcess("explorer.exe", Explorer, 10)]) { ReturnAfterFinds = -1 };
+
+        var outcome = await SystemActions.RestartExplorer(ender, Win, Fast, TimeSpan.FromMilliseconds(20))
             .RunAsync(null, CancellationToken.None);
 
-        Assert.True(outcome.Success);
-        Assert.Equal([Explorer], started);
+        Assert.False(outcome.Success);
+        Assert.Equal(SystemActions.ExplorerNotBack, outcome.Message);
+        Assert.Contains("Strg+Umschalt+Esc", outcome.Message);
     }
 
-    // Kill removes the process, but Windows immediately starts a new explorer.
-    sealed class ComingBackEnder(RunningProcess first) : IProcessEnder
+    [Fact]
+    public async Task Restart_reports_when_nothing_could_be_ended()
     {
-        readonly List<RunningProcess> _running = [first];
-        public int KillCalls { get; private set; }
+        var ender = new ScriptedEnder([new RunningProcess("explorer.exe", Explorer, 10)]) { KillResult = 0, ReturnAfterFinds = -1 };
 
-        public IReadOnlyList<RunningProcess> Find(string processName) => _running.ToList();
+        var outcome = await SystemActions.RestartExplorer(ender, Win, Fast, TimeSpan.FromSeconds(5))
+            .RunAsync(null, CancellationToken.None);
+
+        Assert.False(outcome.Success);
+        Assert.Equal("Der Explorer ließ sich nicht beenden.", outcome.Message);
+        Assert.Equal(0, ender.FindsAfterKill);
+    }
+
+    // Kill removes the processes; after ReturnAfterFinds further Find calls a new Windows explorer appears (-1: never).
+    sealed class ScriptedEnder(IEnumerable<RunningProcess> start) : IProcessEnder
+    {
+        readonly List<RunningProcess> _running = [.. start];
+        bool _killed, _back;
+
+        public int ReturnAfterFinds { get; init; }
+        public int? KillResult { get; init; }
+        public int KillCalls { get; private set; }
+        public int FindsAfterKill { get; private set; }
+        public List<RunningProcess> Killed { get; } = [];
+        public IReadOnlyList<RunningProcess> Running => _running;
+
+        public IReadOnlyList<RunningProcess> Find(string processName)
+        {
+            if (_killed)
+            {
+                FindsAfterKill++;
+                if (ReturnAfterFinds >= 0 && FindsAfterKill > ReturnAfterFinds && !_back)
+                {
+                    _back = true;
+                    _running.Add(new RunningProcess("explorer.exe", Explorer, 99));
+                }
+            }
+            return _running.ToList();
+        }
+
         public int CloseWindows(IReadOnlyList<RunningProcess> p) => 0;
 
         public int Kill(IReadOnlyList<RunningProcess> p)
         {
             KillCalls++;
-            _running.Clear();
-            _running.Add(new RunningProcess("explorer.exe", Explorer, 99));
+            _killed = true;
+            if (KillResult == 0) return 0;
+            Killed.AddRange(p);
+            _running.RemoveAll(p.Contains);
             return p.Count;
         }
 
