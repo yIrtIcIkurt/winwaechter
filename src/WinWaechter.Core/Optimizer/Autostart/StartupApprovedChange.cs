@@ -51,9 +51,6 @@ public sealed class StartupApprovedChange : IChange
             State(before, file), State(Convert.ToHexString(bytes)), ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
-    public (Dictionary<string, string?> Before, Dictionary<string, string?> After)? RetryData() =>
-        (new() { ["hive"] = _hive.ToString(), ["approvedKey"] = _approvedKey, ["valueName"] = _valueName }, new());
-
     public void Undo(ChangeRecord record, SessionContext ctx)
     {
         var before = record.Before.GetValueOrDefault("value");

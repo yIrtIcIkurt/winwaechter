@@ -46,9 +46,6 @@ public sealed class TaskDisableChange : IChange
             ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
-    // Rebuilt from Target alone.
-    public (Dictionary<string, string?> Before, Dictionary<string, string?> After)? RetryData() => (new(), new());
-
     public void Undo(ChangeRecord record, SessionContext ctx)
     {
         if (_store.Get(_path) is null)

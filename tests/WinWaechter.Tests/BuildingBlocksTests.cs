@@ -3,6 +3,9 @@ using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
+using WinWaechter.Core.Optimizer.Autostart;
+using WinWaechter.Core.Optimizer.Services;
+using WinWaechter.Core.Optimizer.Tasks;
 using WinWaechter.Core.Performance;
 using WinWaechter.Core.Sys;
 using WinWaechter.Tests.Fakes;
@@ -213,6 +216,33 @@ public sealed class BuildingBlocksTests : IDisposable
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => engine.RetryAsync(ablage, null, CancellationToken.None));
         Assert.Equal("Für diesen Eintrag ist kein erneuter Versuch möglich.", ex.Message);
         Assert.False(OptimizerEngine.CanRetry(done));
+    }
+
+    [Fact]
+    public async Task Autostart_service_and_task_have_no_retry()
+    {
+        // Their FromRecord has no whitelist (it must keep undo working), so a failure must not be retryable.
+        const string approved = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+        _reg.Seed(Hive.CurrentUser, approved, "Tool", new byte[12], RegistryValueKind.Binary);
+        _reg.ThrowingKeys.Add(approved);
+        IChange[] changes =
+        [
+            new StartupApprovedChange(_reg, Hive.CurrentUser, approved, "Tool"),
+            new ServiceStartModeChange(new FakeServiceControl(), _reg, "MissingSvc"),
+            new TaskDisableChange(new FakeTaskStore(), @"\Missing\Task"),
+        ];
+        foreach (var c in changes) Assert.Null(c.RetryData());
+
+        var res = await Engine().ApplyAsync("T", changes.Select(F).ToList(), null, CancellationToken.None, continueOnError: true);
+        Assert.Equal(3, res.Failed);
+        Assert.Equal(["autostart", "service", "task"], res.Session.Records.Select(r => r.Kind));
+        Assert.All(res.Session.Records, r =>
+        {
+            Assert.Equal(ChangeStatus.Failed, r.Status);
+            Assert.Null(r.RetryBefore);
+            Assert.Null(r.RetryAfter);
+            Assert.False(OptimizerEngine.CanRetry(r));
+        });
     }
 
     sealed class LimitedChange(string? limit) : IChange, IUndoLimit
