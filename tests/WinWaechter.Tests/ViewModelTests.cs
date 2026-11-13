@@ -678,6 +678,76 @@ public sealed class ViewModelTests : IDisposable
         Assert.Equal("Nur teilweise rückgängig: Der Computerschutz bleibt an.", h.Sessions[0].Records[0].Hint);
     }
 
+    // --- Rechtsklick-Menü (4.8) ---
+
+    Finding ShellExtFinding(FakeRegistry reg, Guid clsid) =>
+        new($"shellext|{clsid:B}", FindingArea.Einstellung, "Zip", "Dateien", ["Ort: Dateien"], Rating.Info, false,
+            WinWaechter.Core.Optimizer.ContextMenu.ShellExtChange.Block(reg, clsid, "Zip"), Group: FindingGroups.ContextMenu);
+
+    (OptimizeViewModel Vm, WinWaechter.Tests.Fakes.RecordingDialogs Dialogs, int[] Runs)
+        RestartVm(IReadOnlyList<Finding> findings, bool ask)
+    {
+        var dialogs = new WinWaechter.Tests.Fakes.RecordingDialogs { AskAnswer = ask };
+        var engine = new OptimizerEngine([() => findings], new SessionStore(_root), new ChangeFactory(),
+            _ => new RestorePointResult(true, "ok"));
+        var runs = new int[1];
+        var restart = new WinWaechter.Core.Actions.SystemAction("restart-explorer", "Explorer neu starten", "Neu starten", null, false,
+            (_, _) =>
+            {
+                runs[0]++;
+                return Task.FromResult(new WinWaechter.Core.Actions.ActionOutcome(true, "ok"));
+            });
+        var vm = new OptimizeViewModel(engine, dialogs, canChange: true, _gate,
+            new ActionRunner(dialogs, _gate), restart);
+        return (vm, dialogs, runs);
+    }
+
+    [Fact]
+    public async Task Explorer_restart_offered_after_apply()
+    {
+        var reg = new FakeRegistry();
+        var g = Guid.NewGuid();
+        var (vm, dialogs, runs) = RestartVm([ShellExtFinding(reg, g)], ask: true);
+        await vm.ScanCommand.ExecuteAsync(null);
+        Assert.Equal(FindingGroups.ContextMenu, vm.Groups.Single().Title);
+        Assert.Equal(OptimizeViewModel.ContextMenuHint, vm.Groups.Single().Hint);
+        Assert.False(vm.AllItems.Single().IsSelected);
+
+        vm.AllItems.Single().IsSelected = true;
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        var ask = Assert.Single(dialogs.Asks);
+        Assert.Equal("Explorer neu starten", ask.Title);
+        Assert.Equal("Damit die Änderung sofort wirkt, startet WinWächter den Explorer neu. Offene Explorer-Fenster schließen sich.", ask.Message);
+        Assert.Equal("Neu starten", ask.Button);
+        Assert.Equal(1, runs[0]);
+        // the runner takes the gate itself: it ran, so the apply's gate was released first
+        Assert.Equal("", reg.Get(Hive.LocalMachine, WinWaechter.Core.Optimizer.ContextMenu.ShellExtLocations.BlockedKey, g.ToString("B")));
+    }
+
+    [Fact]
+    public async Task Explorer_restart_declined_runs_nothing()
+    {
+        var (vm, dialogs, runs) = RestartVm([ShellExtFinding(new FakeRegistry(), Guid.NewGuid())], ask: false);
+        await vm.ScanCommand.ExecuteAsync(null);
+        vm.AllItems.Single().IsSelected = true;
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.Single(dialogs.Asks);
+        Assert.Equal(0, runs[0]);
+    }
+
+    [Fact]
+    public async Task Explorer_restart_not_offered_for_other_changes()
+    {
+        var (vm, dialogs, runs) = RestartVm([F("a", true)], ask: true);
+        await vm.ScanCommand.ExecuteAsync(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.Empty(dialogs.Asks);
+        Assert.Equal(0, runs[0]);
+    }
+
     sealed class CallbackChange(string target, Action onApply) : IChange
     {
         public string Kind => "fake";

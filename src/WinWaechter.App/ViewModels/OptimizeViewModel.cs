@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
@@ -24,21 +25,30 @@ public sealed partial class OptimizeViewModel : ObservableObject
     static readonly string[] GroupOrder =
     [
         FindingGroups.BrowserCache, FindingGroups.WindowsRemnants, FindingGroups.OldInstallers,
-        FindingGroups.OrphanEntries, FindingGroups.OrphanFolders,
+        FindingGroups.OrphanEntries, FindingGroups.OrphanFolders, FindingGroups.ContextMenu,
     ];
+
+    /// <summary>Explains the Rechtsklick-Menü group: what the list cannot show.</summary>
+    public const string ContextMenuHint =
+        "Windows 11 zeigt viele dieser Einträge erst unter „Weitere Optionen anzeigen“. Einträge aus App-Paketen (neues Menü) lassen sich so nicht abschalten und fehlen hier.";
 
     readonly OptimizerEngine _engine;
     readonly IDialogService _dialogs;
     readonly List<FindingItemViewModel> _all = [];
 
     readonly ChangeGate _gate;
+    readonly ActionRunner? _actions;
+    readonly SystemAction? _restartExplorer;
 
-    public OptimizeViewModel(OptimizerEngine engine, IDialogService dialogs, bool canChange, ChangeGate gate)
+    public OptimizeViewModel(OptimizerEngine engine, IDialogService dialogs, bool canChange, ChangeGate gate,
+        ActionRunner? actions = null, SystemAction? restartExplorer = null)
     {
         _engine = engine;
         _dialogs = dialogs;
         CanChange = canChange;
         _gate = gate;
+        _actions = actions;
+        _restartExplorer = restartExplorer;
         gate.PropertyChanged += (_, _) =>
         {
             ApplyCommand.NotifyCanExecuteChanged();
@@ -134,12 +144,30 @@ public sealed partial class OptimizeViewModel : ObservableObject
             : $"Diese {selected.Count} Änderungen werden angewendet. Vorher legt WinWächter eine Sicherung an; im Verlauf lassen sie sich rückgängig machen.";
         if (!_dialogs.Confirm("Änderungen anwenden", question, "Anwenden", list)) return;
 
-        if (!await _gate.RunAsync(this, () => RunApplyAsync(selected, ct)))
+        var appliedShellExt = 0;
+        if (!await _gate.RunAsync(this, async () => appliedShellExt = await RunApplyAsync(selected, ct)))
+        {
             LastSummary = ChangeGate.BusyHint;
+            return;
+        }
+        // the gate is released now, so the runner can take it for the restart
+        if (appliedShellExt > 0) await OfferExplorerRestartAsync();
     }
 
-    async Task RunApplyAsync(List<FindingItemViewModel> selected, CancellationToken ct)
+    async Task OfferExplorerRestartAsync()
     {
+        if (_actions is null || _restartExplorer is null) return;
+        if (!_dialogs.Ask("Explorer neu starten",
+                "Damit die Änderung sofort wirkt, startet WinWächter den Explorer neu. Offene Explorer-Fenster schließen sich.",
+                "Neu starten", "Später")) return;
+        var outcome = await _actions.RunAsync(this, _restartExplorer, null);
+        if (outcome is { Success: false }) _dialogs.Inform("Explorer neu starten", outcome.Message);
+    }
+
+    /// <summary>Returns how many "shellext" changes were applied.</summary>
+    async Task<int> RunApplyAsync(List<FindingItemViewModel> selected, CancellationToken ct)
+    {
+        var shellExt = 0;
         IsBusy = true;
         ProgressText = "Sicherung wird vorbereitet …";
         try
@@ -148,7 +176,11 @@ public sealed partial class OptimizeViewModel : ObservableObject
             var result = await _engine.ApplyAsync("Optimierung", selected.Select(i => i.Finding).ToList(), progress, ct);
 
             // the engine applies in order and stops at the first failure or on cancel
-            foreach (var done in selected.Take(result.Applied)) RemoveItem(done);
+            foreach (var done in selected.Take(result.Applied))
+            {
+                if (done.Finding.Change?.Kind == "shellext") shellExt++;
+                RemoveItem(done);
+            }
             var notDone = selected.Count - result.Applied - result.Failed;
             var lines = new List<string>
             {
@@ -191,6 +223,7 @@ public sealed partial class OptimizeViewModel : ObservableObject
             ProgressText = "";
             IsBusy = false;
         }
+        return shellExt;
     }
 
     bool CanApply() => CanChange && !IsBusy && !_gate.IsBusy && SelectedCount > 0;
@@ -205,7 +238,12 @@ public sealed partial class OptimizeViewModel : ObservableObject
             AddGroup(title, findings.Where(f => f.Area == area && !InGroup(f)));
         foreach (var group in GroupOrder)
             AddGroup(group, findings.Where(f => f.Group == group),
-                group == FindingGroups.OrphanFolders ? LeftoverFolderScanner.GroupHint : null);
+                group switch
+                {
+                    FindingGroups.OrphanFolders => LeftoverFolderScanner.GroupHint,
+                    FindingGroups.ContextMenu => ContextMenuHint,
+                    _ => null,
+                });
         AfterItemsChanged();
     }
 

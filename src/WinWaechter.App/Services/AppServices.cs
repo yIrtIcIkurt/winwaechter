@@ -9,6 +9,7 @@ using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Autostart;
+using WinWaechter.Core.Optimizer.ContextMenu;
 using WinWaechter.Core.Optimizer.Services;
 using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Optimizer.Tasks;
@@ -97,6 +98,7 @@ public sealed class AppServices : IDisposable
         // one plan source for the undo registration and the scanner's „Energiesparplan“ row
         var plans = new WinPowerPlans();
         PerformanceRegistration.Register(factory, reg, power, animation, hibernation, broadcast, plans);
+        ShellExtChange.Register(factory, reg);
 
         var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);
         var services = new ServiceScanner(sc, sig, rules, reg, fo);
@@ -111,8 +113,9 @@ public sealed class AppServices : IDisposable
         // the Downloads folder is resolved per scan, so a moved folder is picked up without a restart
         IReadOnlyList<Finding> Installers() => new InstallerScanner(fo, sig, DownloadsFolder.Resolve(reg, user)).Scan();
 
+        var shellExt = new ShellExtScanner(reg, sig, rules, windowsDir, AppContext.BaseDirectory);
         var engine = new OptimizerEngine(
-            new Func<IReadOnlyList<Finding>>[] { autostart.Scan, services.Scan, tasks.Scan, temp.Scan, cache.Scan, Installers, leftovers.Scan },
+            new Func<IReadOnlyList<Finding>>[] { autostart.Scan, services.Scan, tasks.Scan, temp.Scan, cache.Scan, Installers, leftovers.Scan, shellExt.Scan },
             store, factory, restore.TryCreate);
 
         var heuristics = new HeuristicScanner(new WmiProcessSource(), new TcpTableConnections(), sig, rules,
@@ -122,7 +125,10 @@ public sealed class AppServices : IDisposable
         var gate = new ChangeGate();
         // one runner for every one-off action, on every page
         var actions = new ActionRunner(dialogs, gate);
-        var optimize = new OptimizeViewModel(engine, dialogs, canChange, gate);
+        // the Explorer restart starts the shell with the signed-in user's normal rights, never elevated
+        var restartExplorer = SystemActions.RestartExplorer(new WinProcessEnder(procs),
+            p => new UserTokenLauncher(user.Sid).StartAsUser(p, ""), windowsDir);
+        var optimize = new OptimizeViewModel(engine, dialogs, canChange, gate, actions, restartExplorer);
         // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
         var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),
             engine, ProcessTools.KillByPath, dialogs, canChange, gate);

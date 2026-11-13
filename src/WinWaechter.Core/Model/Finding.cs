@@ -18,5 +18,5 @@ public sealed record Finding(string Id, FindingArea Area, string Title, string L
 public static class FindingGroups
 {
     public const string BrowserCache = "Browser-Cache", WindowsRemnants = "Windows-Reste", OldInstallers = "Alte Installer",
-        OrphanEntries = "Verwaiste Einträge", OrphanFolders = "Verwaiste Ordner";
+        OrphanEntries = "Verwaiste Einträge", OrphanFolders = "Verwaiste Ordner", ContextMenu = "Rechtsklick-Menü";
 }
