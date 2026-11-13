@@ -91,7 +91,9 @@ public sealed class AppServices : IDisposable
         var animation = new WinAnimationSetting();
         var hibernation = new WinHibernation(reg, new ProcessRunner(), windowsDir, Path.GetPathRoot(windowsDir) ?? @"C:\");
         var broadcast = new WinSettingBroadcast();
-        PerformanceRegistration.Register(factory, reg, power, animation, hibernation, broadcast, new WinPowerPlans());
+        // one plan source for the undo registration and the scanner's „Energiesparplan“ row
+        var plans = new WinPowerPlans();
+        PerformanceRegistration.Register(factory, reg, power, animation, hibernation, broadcast, plans);
 
         var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);
         var services = new ServiceScanner(sc, sig, rules, reg, fo);
@@ -148,16 +150,35 @@ public sealed class AppServices : IDisposable
         // that is the signed-in user. The view model runs the scan, the samples and the boot report on the pool.
         using var identity = WindowsIdentity.GetCurrent();
         var ownAccount = string.Equals(identity.User?.Value, user.Sid, StringComparison.OrdinalIgnoreCase);
-        var perfScanner = new PerformanceScanner(reg, power, animation, hibernation, new WinAppDisplayNames(reg), ownAccount, broadcast);
+        var perfScanner = new PerformanceScanner(reg, power, animation, hibernation, new WinAppDisplayNames(reg), ownAccount, broadcast,
+            plans, () => new JournalPolicyOwnership(store));
+        // „Beenden“ asks the guard at run time: never Windows, services, protected vendors (rules.json) or WinWächter itself.
+        // The guard takes the raw service image paths; a failing protection check counts as protected.
+        ProcessGuardContext PerfGuard()
+        {
+            var images = sc.List().Select(s => s.ImagePath).OfType<string>().Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return new ProcessGuardContext(windowsDir, Environment.ProcessId, Environment.ProcessPath, images,
+                p => rules.Classify(new ItemFacts(p.Name, p.ExePath, p.ExePath is { } exe ? sig.Verify(exe).Publisher : null, null))
+                     == RuleVerdict.Protected);
+        }
+        var perfTools = new PerformanceTools(TraceScan, rules, new WinProcessEnder(procs), PerfGuard, actions,
+            new WinDiskSpace().SystemDrive, HibernationBytes: () => hibernation.FileBytes);
         var systemSources = new WinSystemSources();
         var bootSource = new WinBootEventSource();
         ShellViewModel? shellVm = null;
+        // „Autostart-Programme prüfen“ and „Platz schaffen“: Optimieren with a fresh scan (safe findings preselected)
+        void OpenOptimizeAndScan()
+        {
+            shellVm?.Navigate(optimize);
+            if (optimize.ScanCommand.CanExecute(null)) optimize.ScanCommand.Execute(null);
+        }
         var performance = new PerformanceViewModel(
             _ => Task.FromResult<(IReadOnlyList<PerfSetting>, Func<PerfSetting, int, IReadOnlyList<IChange>>)>(
                 (perfScanner.Scan(), perfScanner.ChangesFor)),
             new SystemSampler(systemSources), () => BootReport.Load(bootSource, DateTime.UtcNow),
-            engine, dialogs, shell, canChange, gate, () => shellVm?.Navigate(optimize), new DispatcherTickSource(),
-            perfScanner.FastStartupActive);
+            engine, dialogs, shell, canChange, gate, OpenOptimizeAndScan, new DispatcherTickSource(),
+            perfScanner.FastStartupActive, perfTools);
         var janitor = new AblageJanitor(store);
         var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate);
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);

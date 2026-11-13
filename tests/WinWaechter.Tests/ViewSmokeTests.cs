@@ -10,6 +10,7 @@ using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Storage;
+using WinWaechter.Core.Performance;
 using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
@@ -146,8 +147,18 @@ public sealed class ViewSmokeTests : IDisposable
         var perfNames = new FakeAppDisplayNames();
         perfNames.Names["Microsoft.WindowsCalculator_8wekyb3d8bbwe"] = "Rechner";
         perfNames.Names["Microsoft.YourPhone_8wekyb3d8bbwe"] = "Smartphone-Link";
+        // 4.3: a slow start with a matching autostart (button), one without (note), a low system drive, an ender
+        var perfBoot = new FakeBootEventSource();
+        perfBoot.Events.Add(new(100, DateTime.UtcNow.AddHours(-1), null, 41_000, null));
+        perfBoot.Events.Add(new(101, DateTime.UtcNow.AddHours(-1), "Visual Studio Code", null, 6_400, "Code.exe"));
+        perfBoot.Events.Add(new(102, DateTime.UtcNow.AddHours(-1), "Treiber.sys", null, 3_100));
+        Finding codeAutostart = new("s", FindingArea.Autostart, "Code", @"HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Code", [],
+            Rating.Info, false, new NoChange("Code"), ExePath: @"C:\Users\x\AppData\Local\Programs\Microsoft VS Code\Code.exe");
+        var perfTools = new PerformanceTools(() => [codeAutostart], RuleSet.Default, new FakeProcessEnder(),
+            () => new ProcessGuardContext(@"C:\Windows", 1, null, new HashSet<string>(), _ => false), new ActionRunner(dialogs, gate),
+            () => new DriveSpace(@"C:\", 8L << 30, 500L << 30), (_, _) => Task.CompletedTask, () => 13L << 30);
         var performance = FakePerformanceVm.Create(engine, dialogs, new Shell(), gate, perfTicks, canChange: true, sources: perfSources,
-            registry: perfReg, names: perfNames);
+            registry: perfReg, names: perfNames, tools: perfTools, boot: perfBoot);
         var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, isElevated: false);
 
         // fill the view models (no sync context here, so the commands finish inline or on the pool)
@@ -172,6 +183,8 @@ public sealed class ViewSmokeTests : IDisposable
         performance.Settings.First(r => r.CanChange).Chosen = performance.Settings.First(r => r.CanChange).Options
             .First(o => o.Value != performance.Settings.First(r => r.CanChange).Setting.Current).Value;
         Assert.True(performance.ShowFastStartupNote);
+        Assert.True(performance.BootSlowest.Count == 2 && performance.BootSlowest.Count(b => b.CanDisable) == 1
+            && performance.Top.Count(c => c.CanStopAutostart) == 1 && performance.LowDiskText is not null);
         Assert.True(performance.Settings.Count > 0 && performance.BackgroundApps.Count > 0 && performance.Top.Count == 2
             && performance.PendingCount == 1 && performance.BackgroundHeader == "Hintergrund-Apps (2 erlaubt)");
         // every link button on the page opens an allowed system link
@@ -204,6 +217,7 @@ public sealed class ViewSmokeTests : IDisposable
             var performanceView = new PerformanceView { DataContext = performance };
             Layout(performanceView);
             AssertComboShowsLabel(performanceView, "PerfOption");
+            AssertPerformanceButtons(performanceView, performance);
             // the shell has a template for the page
             shell.Navigate(performance);
             Layout(shellContent);
@@ -349,6 +363,26 @@ public sealed class ViewSmokeTests : IDisposable
         Assert.True(blockAt.X >= scanAt.X + scan.ActualWidth, $"block at {blockAt.X}, scan at {scanAt.X} (+{scan.ActualWidth})");
         // rows without a second fix show no second button
         Assert.DoesNotContain(FindAll<Button>(view), x => x.Visibility == Visibility.Visible && string.IsNullOrEmpty(x.Content as string));
+    }
+
+    // the slow start and the consumer with an autostart show „Nicht mehr mit Windows starten“, every consumer „Beenden“
+    // in one aligned column, and the low-disk band its text and „Platz schaffen“
+    static void AssertPerformanceButtons(FrameworkElement view, PerformanceViewModel vm)
+    {
+        List<Button> Shown(string label)
+        {
+            var list = FindAll<Button>(view).Where(x => x.Content as string == label && x.Visibility == Visibility.Visible).ToList();
+            Assert.All(list, b => Assert.True(b.ActualWidth > 0, label));
+            return list;
+        }
+        Assert.Equal(2, Shown("Nicht mehr mit Windows starten").Count); // one slow start, one consumer
+        var ends = Shown("Beenden");
+        Assert.Equal(2, ends.Count);
+        Assert.Equal(ends[0].TranslatePoint(new Point(0, 0), view).X, ends[1].TranslatePoint(new Point(0, 0), view).X, 1);
+        Assert.Single(Shown("Platz schaffen"));
+        var band = FindAll<TextBlock>(view).Single(t => t.Text == vm.LowDiskText);
+        Assert.True(band.ActualWidth > 0);
+        Assert.Contains(FindAll<TextBlock>(view), t => t.Text == StartupMatcher.NotChangeable && t.ActualWidth > 0);
     }
 
     // "Wird frei" must sit in its own column right of "Offene Vorschläge", not on top of it

@@ -4,7 +4,9 @@ using WinWaechter.App.ViewModels;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Optimizer;
+using WinWaechter.Core.Optimizer.Autostart;
 using WinWaechter.Core.Performance;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Sys;
@@ -27,6 +29,12 @@ public sealed class PerformanceViewModelTests : IDisposable
     readonly ChangeGate _gate = new();
     readonly RecordingDialogs _dialogs = new();
     readonly RecordingShell _shell = new();
+    readonly FakePowerPlans _plans = new();
+    readonly FakeProcessEnder _ender = new();
+    readonly FakeDiskSpace _disk = new();
+    readonly List<Finding> _startup = [];
+    readonly List<TimeSpan> _delays = [];
+    int _startupScans;
     readonly SessionStore _store;
     readonly OptimizerEngine _engine;
     readonly PerformanceScanner _scanner;
@@ -36,29 +44,14 @@ public sealed class PerformanceViewModelTests : IDisposable
     {
         _store = new SessionStore(_root);
         var factory = ChangeFactory.CreateDefault(_reg, new FakeServiceControl(), new FakeTaskStore(), new FakeFileOps(), RuleSet.Default);
-        PerformanceRegistration.Register(factory, _reg, _power, _anim, _hib, _broadcast, new FakePowerPlans());
+        PerformanceRegistration.Register(factory, _reg, _power, _anim, _hib, _broadcast, _plans);
         _engine = new OptimizerEngine([], _store, factory, _ => new RestorePointResult(true, "Wiederherstellungspunkt erstellt."));
-        _scanner = new PerformanceScanner(_reg, _power, _anim, _hib, _names, true, _broadcast);
+        _scanner = new PerformanceScanner(_reg, _power, _anim, _hib, _names, true, _broadcast, _plans);
     }
 
     public void Dispose()
     {
         try { Directory.Delete(_root, true); } catch { }
-    }
-
-    sealed class RecordingDialogs : IDialogService
-    {
-        public List<IReadOnlyList<string>> ConfirmItems { get; } = [];
-        public List<(string Title, string Message, IReadOnlyList<string> Items)> Informs { get; } = [];
-
-        public bool Confirm(string title, string message, string confirmText, IReadOnlyList<string>? items = null, bool final = false)
-        {
-            ConfirmItems.Add(items ?? []);
-            return true;
-        }
-
-        public void Inform(string title, string message, IReadOnlyList<string>? items = null) =>
-            Informs.Add((title, message, items ?? []));
     }
 
     sealed class RecordingShell : ISystemShell
@@ -81,11 +74,42 @@ public sealed class PerformanceViewModelTests : IDisposable
         Task.FromResult<(IReadOnlyList<PerfSetting>, Func<PerfSetting, int, IReadOnlyList<IChange>>)>(
             (_scanner.Scan(), _scanner.ChangesFor));
 
-    PerformanceViewModel Vm(bool canChange = true, ISystemSources? sources = null, Func<BootReport>? boot = null) => new(
+    PerformanceViewModel Vm(bool canChange = true, ISystemSources? sources = null, Func<BootReport>? boot = null,
+        PerformanceTools? tools = null) => new(
         Scan,
         new SystemSampler(sources ?? _src, (_, _) => { }),
         boot ?? (() => BootReport.Load(_boot, DateTime.UtcNow)),
-        _engine, _dialogs, _shell, canChange, _gate, () => _optimizeOpened++, _ticks, _scanner.FastStartupActive);
+        _engine, _dialogs, _shell, canChange, _gate, () => _optimizeOpened++, _ticks, _scanner.FastStartupActive, tools);
+
+    // Windows lives in C:\Windows, WinWächter is PID 4242; one service runs from C:\Program Files\Svc\svc.exe.
+    static ProcessGuardContext Guard() => new(@"C:\Windows", 4242, @"C:\Program Files\WinWaechter\WinWaechter.App.exe",
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "\"C:\\Program Files\\Svc\\svc.exe\" -k run" }, _ => false);
+
+    PerformanceTools Tools() => new(
+        () => { _startupScans++; return _startup.ToList(); }, RuleSet.Default, _ender, Guard, new ActionRunner(_dialogs, _gate),
+        _disk.SystemDrive, (t, _) => { _delays.Add(t); return Task.CompletedTask; }, () => _hib.FileBytes);
+
+    const string ApprovedRun = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
+    Finding AutostartFinding(string name, string exe) => new($"autostart|{name}", FindingArea.Autostart, name,
+        @"HKCU\Software\Microsoft\Windows\CurrentVersion\Run\" + name, [], Rating.Info, false,
+        new StartupApprovedChange(_reg, Hive.CurrentUser, ApprovedRun, name), ExePath: exe);
+
+    void SlowStart(string name, double seconds, string? fileName = null)
+    {
+        if (!_boot.Events.Any(e => e.Id == 100))
+            _boot.Events.Add(new BootEvent(100, DateTime.UtcNow.AddHours(-1), null, 30_000, null));
+        _boot.Events.Add(new BootEvent(101, DateTime.UtcNow.AddHours(-1), name, null, (long)(seconds * 1000), fileName));
+    }
+
+    async Task<ConsumerViewModel> Consumer(PerformanceViewModel vm, string name)
+    {
+        _src.Procs = [new ProcTime(10, name, null, 500L << 20)];
+        vm.OnShown();
+        await vm.LastSampling!;
+        vm.OnHidden();
+        return vm.Top.Single(c => c.ProcessName == name);
+    }
 
     static PerfSettingViewModel Row(PerformanceViewModel vm, string id) =>
         vm.Settings.Concat(vm.BackgroundApps).Single(r => r.Setting.Id == id);
@@ -126,7 +150,7 @@ public sealed class PerformanceViewModelTests : IDisposable
 
         await vm.ApplyCommand.ExecuteAsync(null);
 
-        Assert.Equal(2, Assert.Single(_dialogs.ConfirmItems).Count);
+        Assert.Equal(2, Assert.Single(_dialogs.Confirms).Items.Count);
         var session = Assert.Single(_store.List());
         Assert.Equal("Leistung", session.Title);
         Assert.Equal(2, session.Records.Count);
@@ -367,7 +391,7 @@ public sealed class PerformanceViewModelTests : IDisposable
         Assert.Equal("42 s", vm.BootText);
         Assert.Equal("Durchschnitt: 45 s", vm.BootAverageText);
         // below 10 s with one decimal, otherwise whole seconds
-        Assert.Equal(["Bar.sys: 13 s", "Foo.exe: 7,6 s"], vm.BootSlowest);
+        Assert.Equal(["Bar.sys: 13 s", "Foo.exe: 7,6 s"], vm.BootSlowest.Select(b => b.Text));
         Assert.Null(vm.BootMessage);
     }
 
@@ -425,7 +449,7 @@ public sealed class PerformanceViewModelTests : IDisposable
         Assert.Equal("Zusammenfassung", summary.Title);
         Assert.Contains("DisabledByUser", summary.Message);
         Assert.Equal(summary.Message, vm.LastSummary);
-        Assert.Empty(_dialogs.ConfirmItems);
+        Assert.Empty(_dialogs.Confirms);
         Assert.Empty(_store.List());
     }
 
@@ -523,5 +547,301 @@ public sealed class PerformanceViewModelTests : IDisposable
 
         shell.SettingsNav.IsSelected = true;
         Assert.False(_ticks.Running);
+    }
+
+    // ---- 4.3: acting on slow starts, heavy consumers, a locked power mode and low disk space ----
+
+    [Fact]
+    public async Task Slow_start_entry_offers_disable_and_journals()
+    {
+        var raised = false;
+        _startup.Add(AutostartFinding("Foo", @"C:\Program Files\Foo\foo.exe"));
+        SlowStart("Foo Helper", 7.6, "foo.exe");
+        var vm = Vm(tools: Tools());
+        vm.ChangesApplied += (_, _) => raised = true;
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        var row = Assert.Single(vm.BootSlowest);
+        Assert.Equal("Foo Helper: 7,6 s", row.Text);
+        Assert.True(row.CanDisable);
+        Assert.Null(row.Note);
+        Assert.True(row.DisableCommand.CanExecute(null));
+
+        await row.DisableCommand.ExecuteAsync(null);
+
+        var confirm = Assert.Single(_dialogs.Confirms);
+        Assert.Equal(SecurityViewModel.ConfirmNote, confirm.Message);
+        Assert.Equal(["Autostart „Foo“ deaktivieren"], confirm.Items);
+        Assert.False(confirm.Final);
+        var session = Assert.Single(_store.List());
+        Assert.Equal("Leistung", session.Title);
+        var record = Assert.Single(session.Records);
+        Assert.Equal("autostart", record.Kind);
+        Assert.Equal(ChangeStatus.Applied, record.Status);
+        Assert.Equal(0x03, ((byte[])_reg.Get(Hive.CurrentUser, ApprovedRun, "Foo")!)[0]);
+        Assert.True(raised);
+        // the page read the startup entries again afterwards
+        Assert.Equal(2, _startupScans);
+    }
+
+    [Fact]
+    public async Task Protected_slow_start_entry_has_no_button()
+    {
+        _startup.Add(new Finding("autostart|dell", FindingArea.Autostart, "Dell SupportAssist", @"HKLM\...\Run\SupportAssist", [],
+            Rating.Info, false, null, IsProtectedVendor: true, ExePath: @"C:\Program Files\Dell\SupportAssist\SupportAssist.exe"));
+        SlowStart("Dell SupportAssist", 12, "SupportAssist.exe");
+        SlowStart("Treiber.sys", 3);
+        var vm = Vm(tools: Tools());
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        var dell = vm.BootSlowest.Single(b => b.Text.StartsWith("Dell"));
+        Assert.False(dell.CanDisable);
+        Assert.False(dell.DisableCommand.CanExecute(null));
+        Assert.Equal(StartupMatcher.ProtectedNote, dell.Note);
+        var driver = vm.BootSlowest.Single(b => b.Text.StartsWith("Treiber"));
+        Assert.False(driver.CanDisable);
+        Assert.Equal(StartupMatcher.NotChangeable, driver.Note);
+    }
+
+    [Fact]
+    public async Task End_closes_gently_then_asks_to_force()
+    {
+        var vm = Vm(tools: Tools());
+        var heavy = new RunningProcess("Heavy.exe", @"C:\Program Files\Heavy\Heavy.exe", 10);
+        _ender.Running.Add(heavy);
+        var row = await Consumer(vm, "Heavy");
+        Assert.True(row.CanEnd);
+        Assert.True(row.EndCommand.CanExecute(null));
+        _dialogs.AskAnswer = false;
+
+        await row.EndCommand.ExecuteAsync(null);
+
+        var confirm = Assert.Single(_dialogs.Confirms);
+        Assert.Equal("„Heavy“ beenden", confirm.Title);
+        Assert.True(confirm.Final);
+        Assert.StartsWith("Nicht gespeicherte Arbeit geht verloren.", confirm.Message);
+        Assert.Contains(ActionRunner.FinalNote, confirm.Message);
+        Assert.Equal([heavy], _ender.Closed);
+        Assert.Equal([TimeSpan.FromSeconds(5)], _delays);
+        var ask = Assert.Single(_dialogs.Asks);
+        Assert.Equal("Erzwingen?", ask.Title);
+        Assert.Equal("„Heavy“ reagiert nicht. Jetzt erzwingen? Nicht gespeicherte Arbeit geht verloren.", ask.Message);
+        Assert.Equal("Erzwingen", ask.Button);
+        Assert.Empty(_ender.Killed); // „Abbrechen“
+        Assert.Equal("„Heavy“ läuft weiter.", vm.LastSummary);
+
+        _dialogs.AskAnswer = true;
+        await row.EndCommand.ExecuteAsync(null);
+
+        Assert.Equal([heavy], _ender.Killed);
+        Assert.Equal("„Heavy“ ist beendet.", vm.LastSummary);
+    }
+
+    [Fact]
+    public async Task End_without_force_when_the_program_closes()
+    {
+        var vm = Vm(tools: Tools());
+        _ender.Running.Add(new RunningProcess("Heavy.exe", @"C:\Program Files\Heavy\Heavy.exe", 10));
+        _ender.CloseEndsProcess = true;
+        var row = await Consumer(vm, "Heavy");
+
+        await row.EndCommand.ExecuteAsync(null);
+
+        Assert.Empty(_dialogs.Asks);
+        Assert.Empty(_ender.Killed);
+        Assert.Equal("„Heavy“ ist beendet.", vm.LastSummary);
+    }
+
+    [Fact]
+    public async Task End_refused_for_windows_process()
+    {
+        var vm = Vm(tools: Tools());
+        _ender.Running.Add(new RunningProcess("svchost.exe", @"C:\Windows\System32\svchost.exe", 20));
+        _ender.Running.Add(new RunningProcess("svc.exe", @"C:\Program Files\Svc\svc.exe", 21));
+        _ender.Running.Add(new RunningProcess("WinWaechter.App.exe", @"C:\Program Files\WinWaechter\WinWaechter.App.exe", 4242));
+
+        foreach (var name in new[] { "svchost", "svc", "WinWaechter.App" })
+        {
+            var row = await Consumer(vm, name);
+            await row.EndCommand.ExecuteAsync(null);
+            Assert.Equal("Dieses Programm beendet WinWächter nicht (Windows, Dienst oder geschützt).", vm.LastSummary);
+        }
+
+        Assert.Empty(_ender.Closed);
+        Assert.Empty(_ender.Killed);
+        Assert.Empty(_dialogs.Asks);
+    }
+
+    [Fact]
+    public async Task End_refused_for_protected_process()
+    {
+        var tools = Tools() with { Guard = () => Guard() with { IsProtected = _ => throw new InvalidOperationException("boom") } };
+        var vm = Vm(tools: tools);
+        _ender.Running.Add(new RunningProcess("Heavy.exe", @"C:\Program Files\Heavy\Heavy.exe", 10));
+        var row = await Consumer(vm, "Heavy");
+
+        await row.EndCommand.ExecuteAsync(null);
+
+        // an error in the protection check counts as protected
+        Assert.Equal("Dieses Programm beendet WinWächter nicht (Windows, Dienst oder geschützt).", vm.LastSummary);
+        Assert.Empty(_ender.Closed);
+    }
+
+    [Fact]
+    public async Task Consumer_with_autostart_offers_stop()
+    {
+        _startup.Add(AutostartFinding("Heavy", @"C:\Program Files\Heavy\Heavy.exe"));
+        var vm = Vm(tools: Tools());
+        var before = await Consumer(vm, "Heavy");
+        // sampled before the startup entries were read: no autostart known yet
+        Assert.False(before.CanStopAutostart);
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var row = vm.Top.Single(c => c.ProcessName == "Heavy");
+        Assert.Same(before, row);
+        Assert.True(row.CanStopAutostart);
+        Assert.True(row.StopAutostartCommand.CanExecute(null));
+
+        await row.StopAutostartCommand.ExecuteAsync(null);
+
+        Assert.Equal(["Autostart „Heavy“ deaktivieren"], Assert.Single(_dialogs.Confirms).Items);
+        Assert.Equal("autostart", Assert.Single(Assert.Single(_store.List()).Records).Kind);
+
+        var other = await Consumer(vm, "Other");
+        Assert.False(other.CanStopAutostart);
+    }
+
+    [Fact]
+    public async Task Switch_to_balanced_marks_plan_row_pending()
+    {
+        _power.ActivePlan = FakePowerPlans.HighId;
+        _plans.ActiveId = FakePowerPlans.HighId;
+        var vm = Vm(tools: Tools());
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        var ac = Row(vm, "power-ac");
+        Assert.Equal(PerformanceScanner.PlanLocked, ac.UnavailableText);
+        Assert.True(ac.ShowSwitchToBalanced);
+        Assert.False(Row(vm, "transparency").ShowSwitchToBalanced);
+        Assert.Equal(0, vm.PendingCount);
+
+        ac.SwitchToBalancedCommand.Execute(null);
+
+        var plan = Row(vm, "powerplan");
+        Assert.Equal("Ausgewogen", plan.Options.Single(o => o.Value == plan.Chosen).Label);
+        Assert.True(plan.IsPending);
+        Assert.Equal(1, vm.PendingCount);
+
+        await vm.ApplyCommand.ExecuteAsync(null);
+        Assert.Equal([FakePowerPlans.BalancedId], _plans.SetCalls);
+    }
+
+    [Fact]
+    public async Task No_switch_under_balanced()
+    {
+        var vm = Vm(tools: Tools());
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.False(Row(vm, "power-ac").ShowSwitchToBalanced);
+        Assert.False(Row(vm, "power-ac").SwitchToBalancedCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Low_disk_band_lists_hibernation_file()
+    {
+        const long gib = 1L << 30;
+        _disk.Space = new DriveSpace("C:\\", (long)(8.2 * gib), 500 * gib);
+        _hib.FileBytes = 13 * gib;
+        var vm = Vm(tools: Tools());
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal("Auf Laufwerk C: sind nur noch 8,2 GB frei.", vm.LowDiskText);
+        Assert.Equal(
+        [
+            "Zwischenspeicher und temporäre Dateien (Optimieren)",
+            "Ablage im Verlauf leeren",
+            $"Ruhezustand-Datei: {SizeText.Format(13 * gib)} (Einstellungen → Ruhezustand-Datei)",
+        ], vm.LowDiskLines);
+
+        vm.MakeSpaceCommand.Execute(null);
+        Assert.Equal(1, _optimizeOpened);
+
+        _hib.FileBytes = 0;
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.Equal(2, vm.LowDiskLines.Count);
+
+        _disk.Space = new DriveSpace("C:\\", 200 * gib, 500 * gib);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.Null(vm.LowDiskText);
+        Assert.Empty(vm.LowDiskLines);
+    }
+
+    [Fact]
+    public async Task Actions_locked_without_admin()
+    {
+        _startup.Add(AutostartFinding("Heavy", @"C:\Program Files\Heavy\Heavy.exe"));
+        SlowStart("Heavy", 5, "Heavy.exe");
+        _power.ActivePlan = FakePowerPlans.HighId;
+        _plans.ActiveId = FakePowerPlans.HighId;
+        _ender.Running.Add(new RunningProcess("Heavy.exe", @"C:\Program Files\Heavy\Heavy.exe", 10));
+        var vm = Vm(canChange: false, tools: Tools());
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var row = await Consumer(vm, "Heavy");
+
+        // visible, but locked
+        var boot = Assert.Single(vm.BootSlowest);
+        Assert.True(boot.CanDisable);
+        Assert.False(boot.DisableCommand.CanExecute(null));
+        Assert.True(row.CanEnd && row.CanStopAutostart);
+        Assert.False(row.EndCommand.CanExecute(null));
+        Assert.False(row.StopAutostartCommand.CanExecute(null));
+        Assert.True(Row(vm, "power-ac").ShowSwitchToBalanced);
+        Assert.False(Row(vm, "power-ac").SwitchToBalancedCommand.CanExecute(null));
+
+        await boot.DisableCommand.ExecuteAsync(null);
+        await row.EndCommand.ExecuteAsync(null);
+        await row.StopAutostartCommand.ExecuteAsync(null);
+        Row(vm, "power-ac").SwitchToBalancedCommand.Execute(null);
+        Assert.Empty(_dialogs.Confirms);
+        Assert.Empty(_ender.Closed);
+        Assert.Empty(_store.List());
+        Assert.Equal(0, vm.PendingCount);
+    }
+
+    [Fact]
+    public async Task Row_actions_wait_while_another_page_holds_the_gate()
+    {
+        _startup.Add(AutostartFinding("Heavy", @"C:\Program Files\Heavy\Heavy.exe"));
+        SlowStart("Heavy", 5, "Heavy.exe");
+        var vm = Vm(tools: Tools());
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var row = await Consumer(vm, "Heavy");
+        var boot = Assert.Single(vm.BootSlowest);
+        var release = new TaskCompletionSource();
+        var other = _gate.RunAsync(new object(), () => release.Task);
+
+        Assert.False(boot.DisableCommand.CanExecute(null));
+        Assert.False(row.EndCommand.CanExecute(null));
+        Assert.False(row.StopAutostartCommand.CanExecute(null));
+        release.SetResult();
+        await other;
+        Assert.True(boot.DisableCommand.CanExecute(null));
+        Assert.True(row.EndCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Without_tools_the_page_only_shows()
+    {
+        SlowStart("Foo", 5, "foo.exe");
+        var vm = Vm();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var row = await Consumer(vm, "Heavy");
+
+        var boot = Assert.Single(vm.BootSlowest);
+        Assert.False(boot.CanDisable);
+        Assert.Null(boot.Note);
+        Assert.False(row.CanEnd);
+        Assert.False(row.EndCommand.CanExecute(null));
+        Assert.Null(vm.LowDiskText);
     }
 }

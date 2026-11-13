@@ -1,14 +1,17 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Performance;
+using WinWaechter.Core.Rules;
+using WinWaechter.Core.Sys;
 
 namespace WinWaechter.App.ViewModels;
 
@@ -19,22 +22,109 @@ public interface ITickSource
     void Stop();
 }
 
-/// <summary>One top consumer, already formatted for display.</summary>
-public sealed record ConsumerViewModel(string Name, string CpuText, string MemoryText);
+/// <summary>
+/// What the Leistung page needs to act (4.3): startup findings from Optimieren, the rules, ending processes behind
+/// <see cref="ProcessGuard"/>, the shared action runner and the free space of the system drive. Delay replaces the
+/// 5-second wait in tests; HibernationBytes is the size of hiberfil.sys for the low-disk band.
+/// </summary>
+public sealed record PerformanceTools(
+    Func<IReadOnlyList<Finding>> StartupFindings,
+    RuleSet Rules,
+    IProcessEnder Ender,
+    Func<ProcessGuardContext> Guard,
+    ActionRunner Actions,
+    Func<DriveSpace?> Disk,
+    Func<TimeSpan, CancellationToken, Task>? Delay = null,
+    Func<long>? HibernationBytes = null);
+
+/// <summary>One "Bremsten den Start" entry: a matched startup finding offers a button, otherwise a note says why not.</summary>
+public sealed class BootDelayViewModel
+{
+    readonly AsyncRelayCommand _disable;
+
+    internal BootDelayViewModel(string text, string? note, Finding? finding, Func<Finding, Task> disable, Func<bool> mayAct)
+    {
+        Text = text;
+        Note = note;
+        Finding = finding;
+        _disable = new AsyncRelayCommand(() => disable(Finding!), () => CanDisable && mayAct());
+    }
+
+    public string Text { get; }
+    public string? Note { get; }
+    public Finding? Finding { get; }
+
+    /// <summary>The button is shown; whether it may be clicked now is the command's CanExecute.</summary>
+    public bool CanDisable => Finding is not null;
+
+    public IAsyncRelayCommand DisableCommand => _disable;
+
+    internal void NotifyCommands() => _disable.NotifyCanExecuteChanged();
+}
+
+/// <summary>One top consumer, already formatted for display, with „Beenden“ and optionally „Nicht mehr mit Windows starten“.</summary>
+public sealed partial class ConsumerViewModel : ObservableObject
+{
+    readonly AsyncRelayCommand _end;
+    readonly AsyncRelayCommand _stop;
+    readonly bool _canAct;
+
+    internal ConsumerViewModel(string processName, bool canAct, Func<ConsumerViewModel, Task> end,
+        Func<Finding, Task> stopAutostart, Func<bool> mayAct)
+    {
+        ProcessName = processName;
+        _canAct = canAct;
+        _name = processName;
+        _end = new AsyncRelayCommand(() => end(this), () => CanEnd && mayAct());
+        _stop = new AsyncRelayCommand(() => stopAutostart(Autostart!), () => CanStopAutostart && mayAct());
+    }
+
+    /// <summary>The process name without „.exe“, as the sampler grouped it.</summary>
+    public string ProcessName { get; }
+
+    [ObservableProperty] private string _name;
+    [ObservableProperty] private string _cpuText = PerformanceViewModel.Dash;
+    [ObservableProperty] private string _memoryText = PerformanceViewModel.Dash;
+
+    /// <summary>The program's autostart entry with a change, if Optimieren found one.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanStopAutostart))]
+    private Finding? _autostart;
+
+    public bool CanEnd => _canAct;
+    public bool CanStopAutostart => _canAct && Autostart is not null;
+
+    public IAsyncRelayCommand EndCommand => _end;
+    public IAsyncRelayCommand StopAutostartCommand => _stop;
+
+    partial void OnAutostartChanged(Finding? value) => _stop.NotifyCanExecuteChanged();
+
+    internal void NotifyCommands()
+    {
+        _end.NotifyCanExecuteChanged();
+        _stop.NotifyCanExecuteChanged();
+    }
+}
 
 /// <summary>One row of the Leistung page: current state, a choice, and what differs.</summary>
 public sealed partial class PerfSettingViewModel : ObservableObject
 {
     readonly Action? _changed;
+    readonly Action? _switch;
     readonly IRelayCommand _openLink;
+    readonly IRelayCommand _switchToBalanced;
 
-    public PerfSettingViewModel(PerfSetting setting, bool pageCanChange, ISystemShell shell, Action? changed = null)
+    /// <param name="switchToBalanced">Picks „Ausgewogen“ in the plan row; null when there is no such option.</param>
+    public PerfSettingViewModel(PerfSetting setting, bool pageCanChange, ISystemShell shell, Action? changed = null,
+        Action? switchToBalanced = null)
     {
         Setting = setting;
         CanChange = setting.Available && pageCanChange;
         _changed = changed;
+        _switch = switchToBalanced;
         _chosen = setting.Current; // nothing is preselected
         _openLink = new RelayCommand(() => { if (setting.Link is { } l) shell.OpenLink(l); }, () => setting.Link is not null);
+        _switchToBalanced = new RelayCommand(() => _switch?.Invoke(), () => ShowSwitchToBalanced && pageCanChange);
     }
 
     public PerfSetting Setting { get; }
@@ -59,6 +149,12 @@ public sealed partial class PerfSettingViewModel : ObservableObject
 
     public IRelayCommand OpenLinkCommand => _openLink;
 
+    /// <summary>A power mode row locked by another plan offers to pick „Ausgewogen“ in the plan row instead.</summary>
+    public bool ShowSwitchToBalanced => _switch is not null && Setting.Id is "power-ac" or "power-dc"
+                                        && Setting.UnavailableText == PerformanceScanner.PlanLocked;
+
+    public IRelayCommand SwitchToBalancedCommand => _switchToBalanced;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsChanged))]
     private int _chosen;
@@ -76,7 +172,13 @@ public sealed partial class PerformanceViewModel : ObservableObject
 {
     public const string RestartNote = "Einige Änderungen gelten erst nach einem Neustart.";
     public const string Dash = "–";
+    public const string FastStartupNote = "Der Schnellstart ist an: Gemessen wird nur ein vollständiger Start (Neustart), "
+        + "nicht das Hochfahren nach „Herunterfahren“ – siehe „Schnellstart“ unter Einstellungen.";
+    public const string StopStartupText = "Nicht mehr mit Windows starten";
+    public const string EndConfirm = "Nicht gespeicherte Arbeit geht verloren.";
+    public const string EndRefused = "Dieses Programm beendet WinWächter nicht (Windows, Dienst oder geschützt).";
     static readonly TimeSpan TickEvery = TimeSpan.FromSeconds(2);
+    static readonly TimeSpan GentleWait = TimeSpan.FromSeconds(5);
     static readonly CultureInfo De = CultureInfo.GetCultureInfo("de-DE");
 
     readonly Func<CancellationToken, Task<(IReadOnlyList<PerfSetting> Settings, Func<PerfSetting, int, IReadOnlyList<IChange>> ChangesFor)>> _scan;
@@ -89,8 +191,11 @@ public sealed partial class PerformanceViewModel : ObservableObject
     readonly Action _openOptimize;
     readonly ITickSource _ticks;
     readonly Func<bool>? _fastStartup;
+    readonly PerformanceTools? _tools;
 
     Func<PerfSetting, int, IReadOnlyList<IChange>> _changesFor = (_, _) => [];
+    // null while not (or not readably) scanned: then no slow-start entry gets a note or a button
+    IReadOnlyList<Finding>? _startup;
     volatile bool _visible;
     volatile bool _sampling;
     bool _primeNext;
@@ -100,7 +205,8 @@ public sealed partial class PerformanceViewModel : ObservableObject
     public PerformanceViewModel(
         Func<CancellationToken, Task<(IReadOnlyList<PerfSetting> Settings, Func<PerfSetting, int, IReadOnlyList<IChange>> ChangesFor)>> scan,
         SystemSampler sampler, Func<BootReport> boot, OptimizerEngine engine, IDialogService dialogs, ISystemShell shell,
-        bool canChange, ChangeGate gate, Action openOptimize, ITickSource ticks, Func<bool>? fastStartup = null)
+        bool canChange, ChangeGate gate, Action openOptimize, ITickSource ticks, Func<bool>? fastStartup = null,
+        PerformanceTools? tools = null)
     {
         _scan = scan;
         _sampler = sampler;
@@ -113,10 +219,12 @@ public sealed partial class PerformanceViewModel : ObservableObject
         _openOptimize = openOptimize;
         _ticks = ticks;
         _fastStartup = fastStartup;
+        _tools = tools;
         gate.PropertyChanged += (_, _) =>
         {
             ApplyCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(GateHint));
+            NotifyRowCommands();
         };
     }
 
@@ -161,10 +269,18 @@ public sealed partial class PerformanceViewModel : ObservableObject
     [ObservableProperty] private string _bootAverageText = "";
     [ObservableProperty] private string? _bootMessage;
 
-    public ObservableCollection<string> BootSlowest { get; } = [];
+    public ObservableCollection<BootDelayViewModel> BootSlowest { get; } = [];
 
     /// <summary>Only with fast startup the boot measurement misses the usual "Herunterfahren" start.</summary>
     [ObservableProperty] private bool _showFastStartupNote;
+
+    // ---- low disk ----
+
+    /// <summary>„Auf Laufwerk C: sind nur noch 8,2 GB frei.“ while the system drive is nearly full, otherwise null.</summary>
+    [ObservableProperty] private string? _lowDiskText;
+
+    /// <summary>What frees the most space, one line each (shown under <see cref="LowDiskText"/>).</summary>
+    [ObservableProperty] private IReadOnlyList<string> _lowDiskLines = [];
 
     // ---- apply state ----
 
@@ -188,6 +304,8 @@ public sealed partial class PerformanceViewModel : ObservableObject
 
     /// <summary>The sampling run started by the latest tick (null before the first one); lets tests await it.</summary>
     public Task? LastSampling { get; private set; }
+
+    partial void OnIsBusyChanged(bool value) => NotifyRowCommands();
 
     // ---- monitor ----
 
@@ -264,13 +382,44 @@ public sealed partial class PerformanceViewModel : ObservableObject
             MemoryValue = 0;
         }
 
-        Top.Clear();
-        foreach (var c in s.Top)
-            Top.Add(new ConsumerViewModel(
-                c.Count > 1 ? $"{c.Name} ({c.Count})" : c.Name,
-                c.CpuPercent is { } p ? $"{p.ToString("F1", De)} %" : Dash,
-                Labels.Size(c.MemoryBytes)));
+        ShowConsumers(s.Top);
     }
+
+    // Rows are kept and moved instead of rebuilt every tick, so a focused button keeps its focus.
+    void ShowConsumers(IReadOnlyList<Consumer> top)
+    {
+        for (var i = 0; i < top.Count; i++)
+        {
+            var c = top[i];
+            var at = -1;
+            for (var j = i; j < Top.Count; j++)
+            {
+                if (string.Equals(Top[j].ProcessName, c.Name, StringComparison.OrdinalIgnoreCase)) { at = j; break; }
+            }
+            ConsumerViewModel row;
+            if (at < 0)
+            {
+                row = new ConsumerViewModel(c.Name, _tools is not null, EndAsync, DisableStartupAsync, MayAct);
+                Top.Insert(i, row);
+            }
+            else
+            {
+                row = Top[at];
+                if (at != i) Top.Move(at, i);
+            }
+            row.Name = c.Count > 1 ? $"{c.Name} ({c.Count})" : c.Name;
+            row.CpuText = c.CpuPercent is { } p ? $"{p.ToString("F1", De)} %" : Dash;
+            row.MemoryText = Labels.Size(c.MemoryBytes);
+            row.Autostart = AutostartOf(c.Name);
+        }
+        while (Top.Count > top.Count) Top.RemoveAt(Top.Count - 1);
+    }
+
+    // An autostart entry with a change whose program file is this process („Heavy“ ↔ …\Heavy.exe).
+    Finding? AutostartOf(string processName) => _startup?.FirstOrDefault(f =>
+        f is { Area: FindingArea.Autostart, Change: not null, IsProtectedVendor: false }
+        && !string.IsNullOrWhiteSpace(f.ExePath)
+        && string.Equals(Path.GetFileNameWithoutExtension(f.ExePath), processName, StringComparison.OrdinalIgnoreCase));
 
     static string Percent(double? p) =>
         p is { } v ? $"{Math.Round(v, MidpointRounding.AwayFromZero).ToString("F0", De)} %" : Dash;
@@ -297,11 +446,29 @@ public sealed partial class PerformanceViewModel : ObservableObject
         ProgressText = "Einstellungen werden gelesen …";
         try
         {
+            await ReadSettingsAsync(ct);
+            await ReadFastStartupAsync(ct);
+            await ReadStartupAsync(ct);
+            await ReadBootAsync(ct);
+            await ReadDiskAsync(ct);
+        }
+        finally
+        {
+            ProgressText = "";
+            IsBusy = false;
+        }
+    }
+
+    async Task ReadSettingsAsync(CancellationToken ct)
+    {
+        try
+        {
             var scan = await Task.Run(() => _scan(ct), ct);
             _changesFor = scan.ChangesFor;
             Settings.Clear();
             BackgroundApps.Clear();
             BackgroundNote = null;
+            var switchToBalanced = BalancedSwitch(scan.Settings);
             foreach (var s in scan.Settings)
             {
                 if (s.Id == PerformanceScanner.BackgroundUnavailableId)
@@ -309,7 +476,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
                     BackgroundNote = s.UnavailableText ?? "Nicht lesbar";
                     continue;
                 }
-                var row = new PerfSettingViewModel(s, CanChange, _shell, UpdatePending);
+                var row = new PerfSettingViewModel(s, CanChange, _shell, UpdatePending, switchToBalanced);
                 (s.Group == "background" ? BackgroundApps : Settings).Add(row);
             }
             OnPropertyChanged(nameof(BackgroundHeader));
@@ -323,7 +490,21 @@ public sealed partial class PerformanceViewModel : ObservableObject
             FileLog.Error("Leistungs-Einstellungen lesen fehlgeschlagen", ex);
             LastSummary = $"Lesen fehlgeschlagen: {ex.Message}";
         }
+    }
 
+    // Picks the „Ausgewogen“ option in the plan row; null when the plan row has none (then no button is offered).
+    Action? BalancedSwitch(IReadOnlyList<PerfSetting> settings)
+    {
+        var plan = settings.FirstOrDefault(s => s is { Id: "powerplan", Available: true });
+        if (plan?.Options.FirstOrDefault(o => o.PlanId == PowerModeIds.BalancedPlan) is not { } balanced) return null;
+        return () =>
+        {
+            if (Settings.FirstOrDefault(r => r.Setting.Id == "powerplan") is { CanChange: true } row) row.Chosen = balanced.Value;
+        };
+    }
+
+    async Task ReadFastStartupAsync(CancellationToken ct)
+    {
         try
         {
             ShowFastStartupNote = _fastStartup is { } fast && await Task.Run(fast, ct);
@@ -336,7 +517,30 @@ public sealed partial class PerformanceViewModel : ObservableObject
             FileLog.Warn("Leistung: Schnellstart-Zustand nicht lesbar", ex);
             ShowFastStartupNote = false;
         }
+    }
 
+    // The autostarts, services and tasks from Optimieren: matched to the slow-start entries and the consumers.
+    async Task ReadStartupAsync(CancellationToken ct)
+    {
+        if (_tools is not { } tools) return;
+        try
+        {
+            ProgressText = "Autostarts werden gelesen …";
+            _startup = await Task.Run(tools.StartupFindings, ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            FileLog.Warn("Leistung: Autostarts nicht lesbar", ex);
+            _startup = null;
+        }
+        foreach (var row in Top) row.Autostart = AutostartOf(row.ProcessName);
+    }
+
+    async Task ReadBootAsync(CancellationToken ct)
+    {
         // Called once per refresh: BootReport.Load logs each failing call.
         try
         {
@@ -350,11 +554,38 @@ public sealed partial class PerformanceViewModel : ObservableObject
             FileLog.Warn("Leistung: Startzeit nicht lesbar", ex);
             ShowBoot(new BootReport([], null, [], BootReport.Unreadable));
         }
-        finally
+    }
+
+    async Task ReadDiskAsync(CancellationToken ct)
+    {
+        if (_tools is not { } tools) return;
+        try
         {
-            ProgressText = "";
-            IsBusy = false;
+            var (drive, hiberfil) = await Task.Run(() => (tools.Disk(), tools.HibernationBytes?.Invoke() ?? 0), ct);
+            ShowDisk(drive, hiberfil);
         }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            FileLog.Warn("Leistung: freier Speicherplatz nicht lesbar", ex);
+            ShowDisk(null, 0);
+        }
+    }
+
+    void ShowDisk(DriveSpace? d, long hiberfil)
+    {
+        if (d is null || !DiskSpace.IsLow(d))
+        {
+            LowDiskText = null;
+            LowDiskLines = [];
+            return;
+        }
+        LowDiskText = $"Auf Laufwerk {d.Drive.TrimEnd('\\', '/')} sind nur noch {Gb(d.FreeBytes)} GB frei.";
+        var lines = new List<string> { "Zwischenspeicher und temporäre Dateien (Optimieren)", "Ablage im Verlauf leeren" };
+        if (hiberfil > 0) lines.Add($"Ruhezustand-Datei: {Labels.Size(hiberfil)} (Einstellungen → Ruhezustand-Datei)");
+        LowDiskLines = lines;
     }
 
     bool CanRefresh() => !IsBusy;
@@ -365,7 +596,12 @@ public sealed partial class PerformanceViewModel : ObservableObject
         BootAverageText = r.Average is { } a ? $"Durchschnitt: {Seconds(a)}" : "";
         BootMessage = r.Message;
         BootSlowest.Clear();
-        foreach (var d in r.Slowest) BootSlowest.Add($"{d.Name}: {Seconds(d.Delay)}");
+        foreach (var d in r.Slowest)
+        {
+            var match = _tools is { } t && _startup is { } startup ? StartupMatcher.Match(d, startup, t.Rules) : null;
+            BootSlowest.Add(new BootDelayViewModel($"{d.Name}: {Seconds(d.Delay)}", match?.Note, match?.Finding,
+                DisableStartupAsync, MayAct));
+        }
     }
 
     // ---- apply ----
@@ -373,6 +609,15 @@ public sealed partial class PerformanceViewModel : ObservableObject
     IEnumerable<PerfSettingViewModel> AllRows => Settings.Concat(BackgroundApps);
 
     void UpdatePending() => PendingCount = AllRows.Count(r => r.IsPending);
+
+    /// <summary>Row buttons (disable a start, end a program) need admin rights, a free gate and an idle page.</summary>
+    bool MayAct() => CanChange && !IsBusy && !_gate.IsBusy;
+
+    void NotifyRowCommands()
+    {
+        foreach (var b in BootSlowest) b.NotifyCommands();
+        foreach (var c in Top) c.NotifyCommands();
+    }
 
     [RelayCommand]
     private void Reset()
@@ -382,6 +627,10 @@ public sealed partial class PerformanceViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenOptimize() => _openOptimize();
+
+    /// <summary>„Platz schaffen“: Optimieren with a fresh scan (the scan is started by the openOptimize action).</summary>
+    [RelayCommand]
+    private void MakeSpace() => _openOptimize();
 
     [RelayCommand(CanExecute = nameof(CanApply))]
     private async Task ApplyAsync(CancellationToken ct)
@@ -416,24 +665,36 @@ public sealed partial class PerformanceViewModel : ObservableObject
                 changes.Select(c => c.Description).ToList())) return;
 
         var needsRestart = pending.Any(r => r.NeedsRestart);
-        var ran = await _gate.RunAsync(this, () => RunApplyAsync(changes, needsRestart, ct));
+        var findings = changes
+            .Select(c => new Finding($"perf|{c.Target}", FindingArea.Einstellung, c.Description, c.Target, [], Rating.Info, true, c))
+            .ToList();
+        var ran = await _gate.RunAsync(this, () => RunApplyAsync(findings, needsRestart, ct));
         if (!ran) { LastSummary = ChangeGate.BusyHint; return; }
         await RefreshCommand.ExecuteAsync(null);
     }
 
-    async Task RunApplyAsync(List<IChange> changes, bool needsRestart, CancellationToken ct)
+    // „Nicht mehr mit Windows starten“ for a slow-start entry or a consumer's autostart: the finding's own change
+    // (autostart off, task disabled, service to manual), journalled in a „Leistung“ session.
+    async Task DisableStartupAsync(Finding finding)
+    {
+        if (!MayAct() || finding.Change is not { } change) return;
+        if (!_dialogs.Confirm(StopStartupText, SecurityViewModel.ConfirmNote, StopStartupText, [ChangeText.ConfirmLine(change)]))
+            return;
+        var ran = await _gate.RunAsync(this, () => RunApplyAsync([finding], needsRestart: false, CancellationToken.None));
+        if (!ran) { LastSummary = ChangeGate.BusyHint; return; }
+        await RefreshCommand.ExecuteAsync(null);
+    }
+
+    async Task RunApplyAsync(List<Finding> findings, bool needsRestart, CancellationToken ct)
     {
         IsBusy = true;
         ProgressText = "Sicherung wird vorbereitet …";
         try
         {
-            var findings = changes
-                .Select(c => new Finding($"perf|{c.Target}", FindingArea.Einstellung, c.Description, c.Target, [], Rating.Info, true, c))
-                .ToList();
             var progress = new Progress<string>(s => ProgressText = s);
             var result = await _engine.ApplyAsync("Leistung", findings, progress, ct);
 
-            var notDone = changes.Count - result.Applied - result.Failed;
+            var notDone = findings.Count - result.Applied - result.Failed;
             var lines = new List<string>
             {
                 $"Angewendet: {result.Applied}",
@@ -479,4 +740,54 @@ public sealed partial class PerformanceViewModel : ObservableObject
     }
 
     bool CanApply() => CanChange && !IsBusy && !_gate.IsBusy && PendingCount > 0;
+
+    // ---- end a program (Aktion, endgültig) ----
+
+    // The runner confirms („endgültig“), takes the gate and logs. The guard decides again at run time which of the
+    // processes with this name may be ended: never Windows, services, protected vendors or WinWächter itself.
+    async Task EndAsync(ConsumerViewModel row)
+    {
+        if (_tools is not { } tools || !MayAct()) return;
+        var name = row.ProcessName;
+        var action = new SystemAction("end-process", $"„{name}“ beenden", "Beenden", EndConfirm, true, (_, ct) =>
+        {
+            IsBusy = true;
+            ProgressText = $"„{name}“ wird beendet …";
+            return RunEndAsync(tools, name, ct);
+        });
+        try
+        {
+            var outcome = await tools.Actions.RunAsync(this, action, null);
+            if (outcome is not null) LastSummary = outcome.Message;
+        }
+        finally
+        {
+            ProgressText = "";
+            IsBusy = false;
+        }
+    }
+
+    async Task<ActionOutcome> RunEndAsync(PerformanceTools tools, string name, CancellationToken ct)
+    {
+        var allowed = await Task.Run(() =>
+        {
+            var guard = tools.Guard();
+            return tools.Ender.Find(name).Where(p => ProcessGuard.MayEnd(p, guard)).ToList();
+        }, ct);
+        if (allowed.Count == 0) return new ActionOutcome(false, EndRefused);
+
+        // gently first: ask the windows to close, then give the program 5 s
+        await Task.Run(() => tools.Ender.CloseWindows(allowed), ct);
+        var delay = tools.Delay ?? ((t, c) => Task.Delay(t, c));
+        await delay(GentleWait, ct);
+        if (!await Task.Run(() => tools.Ender.AnyRunning(allowed), ct)) return new ActionOutcome(true, $"„{name}“ ist beendet.");
+
+        if (!_dialogs.Ask("Erzwingen?", $"„{name}“ reagiert nicht. Jetzt erzwingen? Nicht gespeicherte Arbeit geht verloren.",
+                "Erzwingen", "Abbrechen"))
+            return new ActionOutcome(false, $"„{name}“ läuft weiter.");
+        await Task.Run(() => tools.Ender.Kill(allowed), ct);
+        return await Task.Run(() => tools.Ender.AnyRunning(allowed), ct)
+            ? new ActionOutcome(false, $"„{name}“ ließ sich nicht beenden.")
+            : new ActionOutcome(true, $"„{name}“ ist beendet.");
+    }
 }

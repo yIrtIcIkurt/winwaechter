@@ -114,7 +114,8 @@ public static class FakePerformanceVm
         WinWaechter.Core.Optimizer.OptimizerEngine engine, WinWaechter.App.Services.IDialogService dialogs,
         WinWaechter.App.Services.ISystemShell shell, WinWaechter.App.Services.ChangeGate gate,
         WinWaechter.App.ViewModels.ITickSource? ticks = null, bool canChange = false, FakeSystemSources? sources = null,
-        Action? openOptimize = null, FakeRegistry? registry = null, FakeAppDisplayNames? names = null)
+        Action? openOptimize = null, FakeRegistry? registry = null, FakeAppDisplayNames? names = null,
+        WinWaechter.App.ViewModels.PerformanceTools? tools = null, FakeBootEventSource? boot = null)
     {
         var reg = registry ?? new FakeRegistry();
         var broadcast = new FakeBroadcast();
@@ -124,8 +125,8 @@ public static class FakePerformanceVm
             _ => Task.FromResult<(IReadOnlyList<PerfSetting>, Func<PerfSetting, int, IReadOnlyList<WinWaechter.Core.Changes.IChange>>)>(
                 (scanner.Scan(), scanner.ChangesFor)),
             new SystemSampler(sources ?? new FakeSystemSources(), (_, _) => { }),
-            () => BootReport.Load(new FakeBootEventSource(), DateTime.UtcNow),
+            () => BootReport.Load(boot ?? new FakeBootEventSource(), DateTime.UtcNow),
             engine, dialogs, shell, canChange, gate, openOptimize ?? (() => { }), ticks ?? new FakeTicks(),
-            scanner.FastStartupActive);
+            scanner.FastStartupActive, tools);
     }
 }

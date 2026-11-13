@@ -7,7 +7,8 @@ using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Performance;
 
-public sealed record PerfOption(int Value, string Label);
+/// <summary>One choice of a row. PlanId: the power plan behind a „Energiesparplan“ option (null elsewhere).</summary>
+public sealed record PerfOption(int Value, string Label, Guid? PlanId = null);
 
 public sealed record PerfSetting(string Id, string Group, string Title, string Explanation,
     IReadOnlyList<PerfOption> Options, int Current, bool Available, string? UnavailableText,
@@ -157,7 +158,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
                 null, null, false, SystemLinks.PowerSleep);
             yield break;
         }
-        var options = list.Select((p, i) => new PerfOption(i, p.Name)).ToList();
+        var options = list.Select((p, i) => new PerfOption(i, p.Name, p.Id)).ToList();
         var index = list.ToList().FindIndex(p => p.Id == active.Value);
         if (index < 0) options.Insert(0, new PerfOption(-1, CustomLabel));
         yield return new("powerplan", "power", "Energiesparplan", explanation, options, index, true, null,

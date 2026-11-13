@@ -30,6 +30,11 @@
                         <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}"
                                    MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding Hint}"
                                    Visibility="{Binding Hint, Converter={StaticResource Vis}}" />
+                        <!-- a power mode locked by another plan: pick „Ausgewogen“ in the plan row (applied with the footer button) -->
+                        <Button Margin="-8,4,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}"
+                                Content="Auf „Ausgewogen“ umstellen" Command="{Binding SwitchToBalancedCommand}"
+                                AutomationProperties.Name="{Binding Title, StringFormat={}{0}: Energiesparplan auf „Ausgewogen“ umstellen}"
+                                Visibility="{Binding ShowSwitchToBalanced, Converter={StaticResource Vis}}" />
                         <Button Margin="-8,4,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}"
                                 Content="In den Windows-Einstellungen öffnen" Command="{Binding OpenLinkCommand}"
                                 AutomationProperties.Name="{Binding Title, StringFormat={}{0}: in den Windows-Einstellungen öffnen}"
@@ -116,6 +121,19 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
             <StackPanel Margin="32,8,32,24">
 
+                <!-- system drive nearly full: what frees the most, and the way to Optimieren -->
+                <Border Margin="0,0,0,24" Style="{StaticResource Notice}" Visibility="{Binding LowDiskText, Converter={StaticResource Vis}}">
+                    <StackPanel>
+                        <TextBlock Foreground="{DynamicResource Ink}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                   MaxWidth="{StaticResource ProseWidth}" Text="{Binding LowDiskText}" />
+                        <TextBlock Margin="0,4,0,2" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Ink}"
+                                   Text="Am meisten Platz bringen:" />
+                        <ItemsControl ItemsSource="{Binding LowDiskLines}" ItemTemplate="{StaticResource ReasonLine}" Focusable="False"
+                                      Typography.NumeralAlignment="Tabular" />
+                        <Button Margin="0,10,0,0" HorizontalAlignment="Left" Content="Platz schaffen" Command="{Binding MakeSpaceCommand}" />
+                    </StackPanel>
+                </Border>
+
                 <!-- Jetzt: three live readouts on a tick scale -->
                 <TextBlock Style="{StaticResource Text.Section}" Text="Jetzt" />
                 <Rectangle Margin="0,12,0,0" Style="{StaticResource ScaleRule}" />
@@ -157,13 +175,15 @@
                 <TextBlock Style="{StaticResource Text.Small}" Text="Die erste Messung folgt in wenigen Sekunden."
                            Visibility="{Binding Top.Count, Converter={StaticResource Vis}, ConverterParameter=not}" />
                 <Border Style="{StaticResource SurfaceBox}" Visibility="{Binding Top.Count, Converter={StaticResource Vis}}">
-                    <StackPanel>
+                    <!-- the action column is as wide as the widest row's buttons, so the figures stay aligned -->
+                    <StackPanel Grid.IsSharedSizeScope="True">
                         <Border Style="{StaticResource RowDivider}" Padding="16,8,16,8">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="110" />
                                     <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="ConsumerActions" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Style="{StaticResource Text.Label}" Text="Programm" />
                                 <TextBlock Grid.Column="1" Style="{StaticResource Text.Label}" Text="Prozessor" HorizontalAlignment="Right" />
@@ -179,13 +199,25 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="110" />
                                                 <ColumnDefinition Width="150" />
+                                                <ColumnDefinition Width="Auto" SharedSizeGroup="ConsumerActions" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                                        ToolTip="{Binding Name}" />
-                                            <TextBlock Grid.Column="1" Text="{Binding CpuText}" HorizontalAlignment="Right"
+                                            <TextBlock Grid.Column="1" Text="{Binding CpuText}" HorizontalAlignment="Right" VerticalAlignment="Center"
                                                        Typography.NumeralAlignment="Tabular" />
-                                            <TextBlock Grid.Column="2" Text="{Binding MemoryText}" HorizontalAlignment="Right"
+                                            <TextBlock Grid.Column="2" Text="{Binding MemoryText}" HorizontalAlignment="Right" VerticalAlignment="Center"
                                                        Typography.NumeralAlignment="Tabular" />
+                                            <StackPanel Grid.Column="3" Margin="16,0,0,0" Orientation="Horizontal" HorizontalAlignment="Right"
+                                                        VerticalAlignment="Center">
+                                                <Button Margin="0,0,8,0" Style="{StaticResource Button.Quiet}" Content="Nicht mehr mit Windows starten"
+                                                        Command="{Binding StopAutostartCommand}"
+                                                        AutomationProperties.Name="{Binding ProcessName, StringFormat={}{0}: nicht mehr mit Windows starten}"
+                                                        Visibility="{Binding CanStopAutostart, Converter={StaticResource Vis}}" />
+                                                <!-- ending a program cannot be undone -->
+                                                <Button Style="{StaticResource Button.Final}" Content="Beenden" Command="{Binding EndCommand}"
+                                                        AutomationProperties.Name="{Binding ProcessName, StringFormat='{}{0} beenden, nicht umkehrbar'}"
+                                                        Visibility="{Binding CanEnd, Converter={StaticResource Vis}}" />
+                                            </StackPanel>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -209,12 +241,33 @@
                 <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Small}" Text="{Binding BootMessage}"
                            Visibility="{Binding BootMessage, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
                 <StackPanel Margin="0,14,0,0" Visibility="{Binding BootSlowest.Count, Converter={StaticResource Vis}}">
-                    <TextBlock Style="{StaticResource Text.Label}" Text="Bremsten den Start (letzte 30 Tage)" />
-                    <ItemsControl Margin="0,6,0,0" ItemsSource="{Binding BootSlowest}" ItemTemplate="{StaticResource ReasonLine}"
-                                  Focusable="False" Typography.NumeralAlignment="Tabular" />
+                    <TextBlock Margin="0,0,0,8" Style="{StaticResource Text.Label}" Text="Bremsten den Start (letzte 30 Tage)" />
+                    <!-- each entry: what and how long; a matched startup entry gets the button, otherwise a note says why not -->
+                    <Border Style="{StaticResource SurfaceBox}">
+                        <ItemsControl ItemsSource="{Binding BootSlowest}" Focusable="False" Margin="0,0,0,-1">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:BootDelayViewModel}">
+                                    <Border Style="{StaticResource RowDivider}" Padding="16,8,16,8">
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Margin="16,0,0,0" VerticalAlignment="Center"
+                                                    Content="Nicht mehr mit Windows starten" Command="{Binding DisableCommand}"
+                                                    AutomationProperties.Name="{Binding Text, StringFormat={}{0} – nicht mehr mit Windows starten}"
+                                                    Visibility="{Binding CanDisable, Converter={StaticResource Vis}}" />
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text}"
+                                                           Typography.NumeralAlignment="Tabular" />
+                                                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding Note}"
+                                                           Visibility="{Binding Note, Converter={StaticResource Vis}}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
                 </StackPanel>
                 <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left"
-                           Text="Gemessen wird nur ein vollständiger Start (Neustart), nicht das Hochfahren nach „Herunterfahren“ mit Schnellstart."
+                           Text="{x:Static vm:PerformanceViewModel.FastStartupNote}"
                            Visibility="{Binding ShowFastStartupNote, Converter={StaticResource Vis}}" />
 
                 <!-- Einstellungen -->
