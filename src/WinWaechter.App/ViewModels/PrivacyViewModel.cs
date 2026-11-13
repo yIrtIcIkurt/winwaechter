@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
@@ -6,6 +6,7 @@ using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Privacy;
+using WinWaechter.Core.Rules;
 
 namespace WinWaechter.App.ViewModels;
 
@@ -48,6 +49,9 @@ public sealed partial class PrivacyRowViewModel : ObservableObject
     }
 }
 
+/// <summary>One heading with its rows on the Privacy page.</summary>
+public sealed record PrivacyGroupViewModel(string Title, IReadOnlyList<PrivacyRowViewModel> Rows);
+
 /// <summary>"Datenschutz": Windows privacy settings with state; selected ones are switched off via the engine.</summary>
 public sealed partial class PrivacyViewModel : ObservableObject
 {
@@ -86,6 +90,9 @@ public sealed partial class PrivacyViewModel : ObservableObject
 
     public ObservableCollection<PrivacyRowViewModel> Rows { get; } = [];
 
+    /// <summary>The same rows by heading (general privacy first, then ads and suggestions); Rows stays the flat list.</summary>
+    public ObservableCollection<PrivacyGroupViewModel> Groups { get; } = [];
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
@@ -114,6 +121,7 @@ public sealed partial class PrivacyViewModel : ObservableObject
             var rows = await _scan(ct);
             Rows.Clear();
             foreach (var r in rows) Rows.Add(new PrivacyRowViewModel(r, UpdateSelection));
+            RebuildGroups();
             UpdateSelection();
         }
         catch (OperationCanceledException)
@@ -128,6 +136,16 @@ public sealed partial class PrivacyViewModel : ObservableObject
         {
             ProgressText = "";
             IsBusy = false;
+        }
+    }
+
+    void RebuildGroups()
+    {
+        Groups.Clear();
+        foreach (var (title, group) in new[] { ("Datenschutz", (string?)null), ("Werbung & Vorschläge", PrivacyGroups.Ads) })
+        {
+            var rows = Rows.Where(r => r.Row.Setting.Group == group).ToList();
+            if (rows.Count > 0) Groups.Add(new PrivacyGroupViewModel(title, rows));
         }
     }
 

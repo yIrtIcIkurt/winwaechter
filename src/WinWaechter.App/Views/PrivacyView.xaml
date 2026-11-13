@@ -1,4 +1,4 @@
-<UserControl x:Class="WinWaechter.App.Views.PrivacyView"
+﻿<UserControl x:Class="WinWaechter.App.Views.PrivacyView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
@@ -43,37 +43,46 @@
         <!-- Settings -->
         <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
             <StackPanel Margin="32,8,32,24">
-                <Border Style="{StaticResource SurfaceBox}" Visibility="{Binding Rows.Count, Converter={StaticResource Vis}}">
-                    <ItemsControl ItemsSource="{Binding Rows}" Focusable="False" Margin="0,0,0,-1">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Style="{StaticResource RowDivider}" Padding="16,12,16,12">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <CheckBox VerticalAlignment="Top" Margin="0,1,14,0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                  IsEnabled="{Binding CanSelect}" ToolTip="ausschalten"
-                                                  AutomationProperties.Name="{Binding Title, StringFormat={}{0} ausschalten}" />
-                                        <StackPanel Grid.Column="1">
-                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                            <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap"
-                                                       MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding Explanation}" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="2" Margin="16,0,0,0" HorizontalAlignment="Right">
-                                            <ContentControl Style="{StaticResource Chip}" Tag="{Binding StateTone}" Content="{Binding StateText}"
-                                                            HorizontalAlignment="Right" />
-                                            <ContentControl Margin="0,6,0,0" Style="{StaticResource Chip}" Tag="{x:Static vm:Tone.Calm}" Content="empfohlen"
-                                                            HorizontalAlignment="Right" Visibility="{Binding IsRecommended, Converter={StaticResource Vis}}" />
-                                        </StackPanel>
-                                    </Grid>
+                <ItemsControl ItemsSource="{Binding Groups}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,8,0,18">
+                                <TextBlock Margin="2,0,0,8" Style="{StaticResource Text.Section}" Text="{Binding Title}" />
+                                <Border Style="{StaticResource SurfaceBox}">
+                                <ItemsControl ItemsSource="{Binding Rows}" Focusable="False" Margin="0,0,0,-1">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource RowDivider}" Padding="16,12,16,12">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <CheckBox VerticalAlignment="Top" Margin="0,1,14,0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                              IsEnabled="{Binding CanSelect}" ToolTip="ausschalten"
+                                                              AutomationProperties.Name="{Binding Title, StringFormat={}{0} ausschalten}" />
+                                                    <StackPanel Grid.Column="1">
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap"
+                                                                   MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding Explanation}" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="2" Margin="16,0,0,0" HorizontalAlignment="Right">
+                                                        <ContentControl Style="{StaticResource Chip}" Tag="{Binding StateTone}" Content="{Binding StateText}"
+                                                                        HorizontalAlignment="Right" />
+                                                        <ContentControl Margin="0,6,0,0" Style="{StaticResource Chip}" Tag="{x:Static vm:Tone.Calm}" Content="empfohlen"
+                                                                        HorizontalAlignment="Right" Visibility="{Binding IsRecommended, Converter={StaticResource Vis}}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                                 </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </StackPanel>
         </ScrollViewer>
     </DockPanel>

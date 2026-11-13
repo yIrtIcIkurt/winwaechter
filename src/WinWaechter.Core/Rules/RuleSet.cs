@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using BloatNever = WinWaechter.Core.Programs.BloatApps;
 using WinWaechter.Core.Sys;
 
@@ -74,6 +74,7 @@ public sealed class RuleSet
         public bool Recommended { get; set; }
         public string? Requires { get; set; }
         public PrivacyEffectiveDto? Effective { get; set; }
+        public string? Group { get; set; }
         public List<PrivacyValueDto>? Values { get; set; }
     }
 
@@ -129,6 +130,7 @@ public sealed class RuleSet
         PoolPorts = new HashSet<int>(d.PoolPorts ?? []);
         LeftoverIgnore = (d.LeftoverIgnore ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
         Privacy = (d.Privacy ?? []).Select(ToSetting).ToArray();
+        RejectDuplicatePrivacyValues(Privacy);
         BloatApps = (d.BloatApps ?? []).Select(ToBloatRule).ToArray();
     }
 
@@ -184,7 +186,18 @@ public sealed class RuleSet
                 throw new InvalidDataException($"rules.json: \"effective\" ohne Schlüssel/Name in \"{p.Id}\".");
             eff = new PrivacyEffective(ToHive(e.Hive), e.Key.Trim('\\'), e.Name, e.AtMost);
         }
-        return new PrivacySetting(p.Id, p.Title, p.Explanation ?? "", p.Recommended, p.Requires, values, eff);
+        return new PrivacySetting(p.Id, p.Title, p.Explanation ?? "", p.Recommended, p.Requires, values, eff,
+            string.IsNullOrWhiteSpace(p.Group) ? null : p.Group.Trim());
+    }
+
+    // One (hive, key, name) may be listed once only: FindPrivacyValue takes the first match.
+    static void RejectDuplicatePrivacyValues(IReadOnlyList<PrivacySetting> privacy)
+    {
+        var seen = new HashSet<(Hive, string, string)>();
+        foreach (var s in privacy)
+            foreach (var v in s.Values)
+                if (!seen.Add((v.Hive, v.Key.ToUpperInvariant(), v.Name.ToUpperInvariant())))
+                    throw new InvalidDataException($"rules.json: Wert \"{v.Name}\" kommt in \"privacy\" mehrfach vor (\"{s.Id}\").");
     }
 
     // The fixed list of preinstalled apps that may be offered for removal ("*" only at the end).

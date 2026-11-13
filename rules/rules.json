@@ -1,4 +1,4 @@
-{
+﻿{
   "rulesVersion": 3,
   "minAppVersion": "0.3.0",
   "protected": [
@@ -116,7 +116,7 @@
       "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Privacy", "name": "TailoredExperiencesWithDiagnosticDataEnabled", "target": 0 } ]
     },
     {
-      "id": "vorschlaege", "title": "Vorschläge in Einstellungen und auf dem Sperrbildschirm", "recommended": true,
+      "id": "vorschlaege", "group": "werbung", "title": "Vorschläge in Einstellungen und auf dem Sperrbildschirm", "recommended": true,
       "explanation": "Blendet Vorschläge, Werbung und Spotlight-Hinweise in den Einstellungen und auf dem Sperrbildschirm aus.",
       "values": [
         { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SubscribedContent-338393Enabled", "target": 0 },
@@ -126,12 +126,12 @@
       ]
     },
     {
-      "id": "vorschlags-apps", "title": "Automatisch installierte Vorschlags-Apps", "recommended": true,
+      "id": "vorschlags-apps", "group": "werbung", "title": "Automatisch installierte Vorschlags-Apps", "recommended": true,
       "explanation": "Verhindert, dass Windows ungefragt Vorschlags-Apps nachinstalliert. Bereits installierte Apps bleiben unberührt.",
       "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SilentInstalledAppsEnabled", "target": 0 } ]
     },
     {
-      "id": "tipps", "title": "Tipps und Hinweise", "recommended": true,
+      "id": "tipps", "group": "werbung", "title": "Tipps und Hinweise", "recommended": true,
       "explanation": "Schaltet Tipps, Tricks und Vorschläge von Windows ab.",
       "values": [
         { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SubscribedContent-338389Enabled", "target": 0 },
@@ -139,9 +139,34 @@
       ]
     },
     {
-      "id": "start-empfehlungen", "title": "Empfehlungen im Startmenü", "recommended": true,
+      "id": "start-empfehlungen", "group": "werbung", "title": "Empfehlungen im Startmenü", "recommended": true,
       "explanation": "Blendet den Bereich mit empfohlenen Apps und Dateien im Startmenü aus.",
       "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "name": "Start_IrisRecommendations", "target": 0 } ]
+    },
+    {
+      "id": "start-kontohinweise", "title": "Kontohinweise im Startmenü", "recommended": true, "group": "werbung",
+      "explanation": "Blendet Hinweise zu Ihrem Microsoft-Konto und zu Microsoft 365 im Startmenü aus.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "name": "Start_AccountNotifications", "target": 0 } ]
+    },
+    {
+      "id": "systemvorschlaege", "title": "Vorschläge im Startmenü und in den Einstellungen", "recommended": true, "group": "werbung",
+      "explanation": "Verhindert, dass Windows Ihnen im Startmenü und in den Einstellungen Apps und Dienste vorschlägt.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "SystemPaneSuggestionsEnabled", "target": 0 } ]
+    },
+    {
+      "id": "sperrbildschirm-tipps", "title": "Tipps und Werbung auf dem Sperrbildschirm", "recommended": true, "group": "werbung",
+      "explanation": "Blendet Hinweise, Tipps und Werbung über dem Sperrbildschirm-Bild aus.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "name": "RotatingLockScreenOverlayEnabled", "target": 0 } ]
+    },
+    {
+      "id": "explorer-werbung", "title": "Anbieter-Hinweise im Explorer", "recommended": true, "group": "werbung",
+      "explanation": "Verhindert Werbe- und Hinweisbanner von Cloud-Diensten im Datei-Explorer.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "name": "ShowSyncProviderNotifications", "target": 0 } ]
+    },
+    {
+      "id": "begruessung-nach-updates", "title": "Willkommensseite nach Updates", "recommended": true, "group": "werbung",
+      "explanation": "Schaltet die Willkommens- und Einrichtungsseiten ab, die Windows nach Updates und bei der Anmeldung einblendet.",
+      "values": [ { "hive": "HKCU", "key": "Software\\Microsoft\\Windows\\CurrentVersion\\UserProfileEngagement", "name": "ScoobeSystemSettingEnabled", "target": 0 } ]
     },
     {
       "id": "programmstarts", "title": "Programmstarts verfolgen (für Startmenü)", "recommended": false,

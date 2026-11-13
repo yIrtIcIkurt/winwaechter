@@ -70,6 +70,22 @@ public sealed class PrivacyViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Ads_group_shown_on_page()
+    {
+        var vm = Vm();
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(new[] { "Datenschutz", "Werbung & Vorschläge" }, vm.Groups.Select(g => g.Title));
+        var ads = vm.Groups.Single(g => g.Title == "Werbung & Vorschläge");
+        Assert.Equal(new[] { "vorschlaege", "vorschlags-apps", "tipps", "start-empfehlungen", "start-kontohinweise",
+            "systemvorschlaege", "sperrbildschirm-tipps", "explorer-werbung", "begruessung-nach-updates" },
+            ads.Rows.Select(r => r.Row.Setting.Id));
+        Assert.DoesNotContain(vm.Groups.Single(g => g.Title == "Datenschutz").Rows, r => r.Row.Setting.Group == PrivacyGroups.Ads);
+        // Rows stays the flat list over both groups; the same row objects are shared
+        Assert.Equal(vm.Rows.Count, vm.Groups.Sum(g => g.Rows.Count));
+        Assert.All(ads.Rows, r => Assert.Contains(r, vm.Rows));
+    }
+    [Fact]
     public async Task Select_recommended_skips_not_recommended_and_off_rows()
     {
         foreach (var v in Setting("tipps").Values) _reg.Seed(v.Hive, v.Key, v.Name, v.Target, RegistryValueKind.DWord);

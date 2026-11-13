@@ -26,12 +26,66 @@ public sealed class PrivacyTests : IDisposable
     RegValueChange Enabled() =>
         new(_reg, new PrivacyValue(Hive.CurrentUser, AdKey, "Enabled", 0), "Werbe-ID für Apps");
 
+    const string AdvKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
+
+    [Fact]
+    public void Existing_ids_keep_values_and_move_to_ads_group()
+    {
+        var p = _rules.Privacy;
+        Assert.Equal("werbung", PrivacyGroups.Ads);
+        Assert.Equal(new[] { "SubscribedContent-338393Enabled", "SubscribedContent-353694Enabled", "SubscribedContent-353696Enabled", "SubscribedContent-338388Enabled" },
+            p.Single(s => s.Id == "vorschlaege").Values.Select(v => v.Name));
+        Assert.Equal(new[] { "SubscribedContent-338389Enabled", "SoftLandingEnabled" }, p.Single(s => s.Id == "tipps").Values.Select(v => v.Name));
+        Assert.Equal("Start_IrisRecommendations", p.Single(s => s.Id == "start-empfehlungen").Values.Single().Name);
+        Assert.Equal("SilentInstalledAppsEnabled", p.Single(s => s.Id == "vorschlags-apps").Values.Single().Name);
+        Assert.All(new[] { "vorschlaege", "tipps", "start-empfehlungen", "vorschlags-apps" },
+            id => Assert.Equal(PrivacyGroups.Ads, p.Single(s => s.Id == id).Group));
+        Assert.All(p.Where(s => s.Id is "werbe-id" or "programmstarts" or "websuche" or "recall" or "diagnosedaten"), s => Assert.Null(s.Group));
+    }
+
+    [Fact]
+    public void New_ad_values_are_listed_once()
+    {
+        var p = _rules.Privacy;
+        var expected = new (string Id, string Key, string Name)[]
+        {
+            ("start-kontohinweise", AdvKey, "Start_AccountNotifications"),
+            ("systemvorschlaege", CdmKey, "SystemPaneSuggestionsEnabled"),
+            ("sperrbildschirm-tipps", CdmKey, "RotatingLockScreenOverlayEnabled"),
+            ("explorer-werbung", AdvKey, "ShowSyncProviderNotifications"),
+            ("begruessung-nach-updates", @"Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement", "ScoobeSystemSettingEnabled"),
+        };
+        foreach (var (id, key, name) in expected)
+        {
+            var s = p.Single(x => x.Id == id);
+            Assert.True(s.Recommended);
+            Assert.Equal(PrivacyGroups.Ads, s.Group);
+            Assert.False(string.IsNullOrWhiteSpace(s.Explanation));
+            var v = Assert.Single(s.Values);
+            Assert.Equal((Hive.CurrentUser, key, name, 0), (v.Hive, v.Key, v.Name, v.Target));
+        }
+        var triples = p.SelectMany(s => s.Values).Select(v => (v.Hive, v.Key.ToUpperInvariant(), v.Name.ToUpperInvariant())).ToList();
+        Assert.Equal(triples.Count, triples.Distinct().Count());
+    }
+
+    [Fact]
+    public void Duplicate_privacy_values_are_rejected()
+    {
+        var src = Path.Combine(AppContext.BaseDirectory, "rules", "rules.json");
+        if (!File.Exists(src)) src = Path.Combine(AppContext.BaseDirectory, "rules.json");
+        var path = Path.Combine(_root, "rules-dup.json");
+        var dup = "\"privacy\": [ { \"id\": \"doppelt\", \"title\": \"Doppelt\", \"recommended\": true, \"values\": [ " +
+            "{ \"hive\": \"HKCU\", \"key\": \"Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\AdvertisingInfo\", \"name\": \"enabled\", \"target\": 0 } ] },";
+        File.WriteAllText(path, File.ReadAllText(src).Replace("\"privacy\": [", dup));
+        Assert.Throws<InvalidDataException>(() => RuleSet.Load(path));
+    }
     [Fact]
     public void Rules_privacy_list_matches_spec()
     {
         var p = _rules.Privacy;
-        Assert.Equal(12, p.Count);
+        Assert.Equal(17, p.Count);
         Assert.Equal(new[] { "werbe-id", "angebote-diagnose", "vorschlaege", "vorschlags-apps", "tipps", "start-empfehlungen",
+            "start-kontohinweise", "systemvorschlaege", "sperrbildschirm-tipps", "explorer-werbung", "begruessung-nach-updates",
             "programmstarts", "websuche", "sprachliste", "feedback", "recall", "diagnosedaten" }, p.Select(s => s.Id));
         var v = p.Single(s => s.Id == "vorschlaege");
         Assert.Equal(4, v.Values.Count);
