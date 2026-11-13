@@ -37,7 +37,7 @@ public static class SecurityChecks
             else
                 items.Add(new(id, title, Light.Red, "Ausgeschaltet",
                     "Ohne Firewall sind Verbindungen von außen nicht gefiltert. Sie können sie hier wieder einschalten.",
-                    SecurityActionKind.Change, "Einschalten", Change: new FirewallChange(fw, p)));
+                    SecurityActionKind.Change, "Einschalten", Change: new FirewallChange(fw, p), Recommended: true));
         }
         return items;
     }
@@ -60,24 +60,44 @@ public static class SecurityChecks
         return Row(Light.Green, "Echtzeit- und Manipulationsschutz an", "Defender schützt Ihren Rechner und ist aktuell.");
     }
 
-    public static SecurityItem SmartScreen(IRegistry reg)
+    public static SecurityItem SmartScreen(IRegistry reg, IPolicyOwnership? policies = null)
     {
         var off = Dword(reg, PoliciesSystem, "EnableSmartScreen") == 0
                   || string.Equals(reg.Get(Hive.LocalMachine, Explorer, "SmartScreenEnabled") as string, "Off", StringComparison.OrdinalIgnoreCase);
         const string why = "SmartScreen warnt vor unbekannten oder gefährlichen Programmen und Webseiten.";
-        return new(SecurityIds.SmartScreen, SecurityTitles.SmartScreen, off ? Light.Yellow : Light.Green, off ? "Ausgeschaltet" : "Eingeschaltet", why,
-            SecurityActionKind.Link, "Einstellungen öffnen", SystemLinks.DefenderAppBrowser);
+        if (!off)
+            return new(SecurityIds.SmartScreen, SecurityTitles.SmartScreen, Light.Green, "Eingeschaltet", why,
+                SecurityActionKind.Link, "Einstellungen öffnen", SystemLinks.DefenderAppBrowser);
+        if (PolicyValues.State(reg, policies ?? NoPolicies.Instance, Hive.LocalMachine, PoliciesSystem, "EnableSmartScreen") != PolicyState.None)
+            return new(SecurityIds.SmartScreen, SecurityTitles.SmartScreen, Light.Yellow, "Ausgeschaltet – " + PolicyValues.ForeignText, why);
+        return new(SecurityIds.SmartScreen, SecurityTitles.SmartScreen, Light.Yellow, "Ausgeschaltet", why,
+            SecurityActionKind.Change, "Einschalten",
+            Change: new SecValueChange(reg, SecurityValues.SmartScreen, "SmartScreen einschalten (warnen)"), Recommended: true);
+    }
+
+    // No journal known: every present policy value counts as foreign.
+    sealed class NoPolicies : IPolicyOwnership
+    {
+        public static readonly NoPolicies Instance = new();
+        public bool IsOurs(Hive h, string key, string name) => false;
     }
 
     public static SecurityItem Uac(IRegistry reg)
     {
         const string title = SecurityTitles.Uac;
+        SecurityItem Fix(Light l, string finding, string why, SecValue v, string description) =>
+            new(SecurityIds.Uac, title, l, finding, why, SecurityActionKind.Change, "Beheben",
+                Change: new SecValueChange(reg, v, description), Recommended: true);
+
         if (Dword(reg, UacKey, "EnableLUA") == 0)
-            return new(SecurityIds.Uac, title, Light.Red, "Ausgeschaltet", "Ohne Benutzerkontensteuerung laufen Programme ungefragt mit Administratorrechten.");
+            return Fix(Light.Red, "Ausgeschaltet", "Ohne Benutzerkontensteuerung laufen Programme ungefragt mit Administratorrechten. Wirkt erst nach einem Neustart.",
+                SecurityValues.UacEnableLua, "Benutzerkontensteuerung einschalten");
         if (Dword(reg, UacKey, "ConsentPromptBehaviorAdmin") == 0)
-            return new(SecurityIds.Uac, title, Light.Yellow, "Admins werden nicht gefragt", "Programme können Administratorrechte erhalten, ohne dass Sie gefragt werden.");
+            return Fix(Light.Yellow, "Admins werden nicht gefragt", "Programme können Administratorrechte erhalten, ohne dass Sie gefragt werden.",
+                SecurityValues.UacConsentAdmin, "Admins wieder fragen");
         if (Dword(reg, UacKey, "PromptOnSecureDesktop") == 0)
-            return new(SecurityIds.Uac, title, Light.Yellow, "Abfrage ohne sicheren Desktop", "Die Abfrage erscheint nicht auf dem geschützten Desktop und ist leichter zu täuschen.");
+            return Fix(Light.Yellow, "Abfrage ohne sicheren Desktop", "Die Abfrage erscheint nicht auf dem geschützten Desktop und ist leichter zu täuschen.",
+                SecurityValues.UacSecureDesktop, "Abfrage auf dem sicheren Desktop");
         return new(SecurityIds.Uac, title, Light.Green, "Eingeschaltet", "Programme brauchen Ihre Zustimmung, bevor sie Änderungen am System vornehmen.");
     }
 
@@ -88,9 +108,12 @@ public static class SecurityChecks
         if (edition?.StartsWith("Core", StringComparison.OrdinalIgnoreCase) == true)
             return new(SecurityIds.RemoteDesktop, title, Light.Grey, "Nicht verfügbar (Home)", "Windows Home kann keine eingehenden Remotedesktop-Verbindungen annehmen.");
         var open = Dword(reg, TermServer, "fDenyTSConnections") == 0;
-        return new(SecurityIds.RemoteDesktop, title, open ? Light.Yellow : Light.Green, open ? "Eingeschaltet" : "Ausgeschaltet",
-            open ? "Andere Geräte können sich aus der Ferne mit diesem Rechner verbinden. Schalten Sie das aus, wenn Sie es nicht brauchen."
-                 : "Es sind keine Fernverbindungen per Remotedesktop erlaubt.",
+        if (open)
+            return new(SecurityIds.RemoteDesktop, title, Light.Yellow, "Eingeschaltet",
+                "Andere Geräte können sich aus der Ferne mit diesem Rechner verbinden. Schalten Sie das aus, wenn Sie es nicht brauchen.",
+                SecurityActionKind.Change, "Ausschalten",
+                Change: new SecValueChange(reg, SecurityValues.RdpDeny, "Remotedesktop ausschalten"), Recommended: true);
+        return new(SecurityIds.RemoteDesktop, title, Light.Green, "Ausgeschaltet", "Es sind keine Fernverbindungen per Remotedesktop erlaubt.",
             SecurityActionKind.Link, "Einstellungen öffnen", SystemLinks.RemoteDesktop);
     }
 

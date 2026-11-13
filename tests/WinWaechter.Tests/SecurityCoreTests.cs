@@ -45,6 +45,7 @@ public sealed class SecurityCoreTests : IDisposable
         Assert.Equal(SecurityActionKind.Change, priv.Action);
         Assert.Equal("Einschalten", priv.ActionLabel);
         Assert.Equal("firewall", priv.Change!.Kind);
+        Assert.True(priv.Recommended);
         foreach (var other in items.Where(i => i.Id != SecurityIds.FirewallPrivate))
         {
             Assert.Equal(Light.Green, other.Light);
@@ -203,11 +204,16 @@ public sealed class SecurityCoreTests : IDisposable
             @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer", "SmartScreenEnabled", "off"));
         Assert.Equal(Light.Yellow, off.Light);
         Assert.Equal("Ausgeschaltet", off.Finding);
+        Assert.Equal("secvalue", off.Change!.Kind);
+        Assert.Equal("Einschalten", off.ActionLabel);
+        Assert.True(off.Recommended);
 
         var policy = SecurityChecks.SmartScreen(new FakeRegistry().Seed(Hive.LocalMachine,
             @"SOFTWARE\Policies\Microsoft\Windows\System", "EnableSmartScreen", 0, RegistryValueKind.DWord));
         Assert.Equal(Light.Yellow, policy.Light);
-        Assert.Equal("windowsdefender://appbrowser", policy.Link);
+        Assert.Null(policy.Change);
+        Assert.Null(policy.Link);
+        Assert.Contains(PolicyValues.ForeignText, policy.Finding);
 
         var warn = SecurityChecks.SmartScreen(new FakeRegistry().Seed(Hive.LocalMachine,
             @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer", "SmartScreenEnabled", "Warn"));
@@ -226,7 +232,10 @@ public sealed class SecurityCoreTests : IDisposable
         {
             var item = SecurityChecks.Uac(new FakeRegistry().Seed(Hive.LocalMachine, Uac, name, 0, RegistryValueKind.DWord));
             Assert.Equal(light, item.Light);
-            Assert.Equal(SecurityActionKind.None, item.Action);
+            Assert.Equal(SecurityActionKind.Change, item.Action);
+            Assert.Equal("Beheben", item.ActionLabel);
+            Assert.Equal("secvalue", item.Change!.Kind);
+            Assert.True(item.Recommended);
             Assert.Null(item.Link);
         }
 
@@ -252,11 +261,14 @@ public sealed class SecurityCoreTests : IDisposable
         var open = SecurityChecks.RemoteDesktop(pro.Seed(Hive.LocalMachine, Term, "fDenyTSConnections", 0, RegistryValueKind.DWord));
         Assert.Equal(Light.Yellow, open.Light);
         Assert.Equal("Eingeschaltet", open.Finding);
-        Assert.Equal("ms-settings:remotedesktop", open.Link);
+        Assert.Equal("Ausschalten", open.ActionLabel);
+        Assert.Equal("secvalue", open.Change!.Kind);
+        Assert.True(open.Recommended);
 
         var closed = SecurityChecks.RemoteDesktop(pro.Seed(Hive.LocalMachine, Term, "fDenyTSConnections", 1, RegistryValueKind.DWord));
         Assert.Equal(Light.Green, closed.Light);
         Assert.Equal("Ausgeschaltet", closed.Finding);
+        Assert.Equal("ms-settings:remotedesktop", closed.Link);
     }
 
     [Fact]

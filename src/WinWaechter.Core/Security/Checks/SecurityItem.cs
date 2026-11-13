@@ -1,11 +1,12 @@
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
 
 namespace WinWaechter.Core.Security.Checks;
 
 public enum Light { Green, Yellow, Red, Grey }
 
-/// <summary>ExtensionPage: opens the browser's own page for one extension (<see cref="SecurityItem.Extension"/>).</summary>
-public enum SecurityActionKind { None, Link, Change, DefenderScan, ExtensionPage }
+/// <summary>ExtensionPage: opens the browser's own page for one extension (<see cref="SecurityItem.Extension"/>). Action: runs <see cref="SecurityItem.Act"/>.</summary>
+public enum SecurityActionKind { None, Link, Change, DefenderScan, ExtensionPage, Action }
 
 /// <summary>One browser extension a row's action refers to.</summary>
 public sealed record ExtensionTarget(string Browser, string Id);
@@ -14,7 +15,8 @@ public sealed record ExtensionTarget(string Browser, string Id);
 public sealed record SecurityItem(string Id, string Title, Light Light, string Finding, string Explanation,
     SecurityActionKind Action = SecurityActionKind.None, string? ActionLabel = null, string? Link = null,
     IChange? Change = null, string? ScanPath = null, IReadOnlyList<SecurityItem>? Children = null,
-    string? Chip = null, ExtensionTarget? Extension = null);
+    string? Chip = null, ExtensionTarget? Extension = null,
+    SystemAction? Act = null, string? ChangeLabel = null, bool Recommended = false);
 
 public static class SecurityIds
 {

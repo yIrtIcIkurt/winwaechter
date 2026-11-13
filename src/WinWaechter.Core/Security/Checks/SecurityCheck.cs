@@ -7,7 +7,7 @@ namespace WinWaechter.Core.Security.Checks;
 
 public sealed record SecuritySources(IFirewall Firewall, ISecurityCenter Center, IDefender Defender, IRegistry Registry,
     IVolumeEncryption Encryption, IWindowsUpdateSearch Updates, IListenerSource Listeners, IProcessList Processes,
-    ISignatureVerifier Signatures, BrowserExtensionScanner Extensions, ExtensionPageOpener? ExtensionPages = null);
+    ISignatureVerifier Signatures, BrowserExtensionScanner Extensions, ExtensionPageOpener? ExtensionPages = null, Func<IPolicyOwnership>? Policies = null);
 
 /// <summary>
 /// Runs every check off the calling thread, each with its own timeout. A failing or hanging source only
@@ -30,7 +30,7 @@ public sealed class SecurityCheck(SecuritySources s, TimeSpan? sourceTimeout = n
         var antiVirus = Guard<IReadOnlyList<SecurityProduct>>("Sicherheitscenter (Virenschutz)", () => s.Center.AntiVirus(), _ => [], ct);
         var firewalls = Guard<IReadOnlyList<SecurityProduct>>("Sicherheitscenter (Firewall)", () => s.Center.Firewalls(), _ => [], ct);
 
-        var smartScreen = One(SecurityIds.SmartScreen, SecurityTitles.SmartScreen, () => SecurityChecks.SmartScreen(s.Registry), ct);
+        var smartScreen = One(SecurityIds.SmartScreen, SecurityTitles.SmartScreen, () => SecurityChecks.SmartScreen(s.Registry, s.Policies?.Invoke()), ct);
         var uac = One(SecurityIds.Uac, SecurityTitles.Uac, () => SecurityChecks.Uac(s.Registry), ct);
         var rdp = One(SecurityIds.RemoteDesktop, SecurityTitles.RemoteDesktop, () => SecurityChecks.RemoteDesktop(s.Registry), ct);
         var encryption = One(SecurityIds.Encryption, SecurityTitles.Encryption, () => SecurityChecks.Encryption(s.Encryption.SystemDrive()), ct);
