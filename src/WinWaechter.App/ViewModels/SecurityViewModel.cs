@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Actions;
+using WinWaechter.Core.Changes;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
@@ -41,14 +43,21 @@ public sealed class SecurityItemViewModel
     public string LightText { get; }
     public string? ActionLabel => HasAction ? Item.ActionLabel : null;
     public bool HasAction => Item.Action != SecurityActionKind.None && !string.IsNullOrWhiteSpace(Item.ActionLabel);
+
+    /// <summary>A second button next to the action (a listener row: „Eingehende Verbindungen sperren“).</summary>
+    public bool HasChangeButton => Item.Change is not null && !string.IsNullOrWhiteSpace(Item.ChangeLabel);
+    public string? ChangeLabel => HasChangeButton ? Item.ChangeLabel : null;
     public IReadOnlyList<SecurityItemViewModel> Children { get; }
 }
 
-/// <summary>„Sicherheit“: traffic lights for the protection of the system; links, the firewall switch and a Defender scan as actions.</summary>
+/// <summary>„Sicherheit“: traffic lights for the protection of the system; fixes (journalled changes), one-off actions, links and a Defender scan.</summary>
 public sealed partial class SecurityViewModel : ObservableObject
 {
     public const string ReadingText = "Sicherheit wird geprüft …";
     public const string ConfirmNote = "Die Änderung steht danach im Verlauf und lässt sich dort rückgängig machen.";
+    public const string SysprotectNote = "Den Computerschutz schaltet WinWächter auch beim Rückgängigmachen nicht wieder ab, " +
+        "weil Windows dabei alle Wiederherstellungspunkte löscht.";
+    public const string OpenSecurityText = "Windows-Sicherheit öffnen";
 
     readonly Func<CancellationToken, Task<IReadOnlyList<SecurityItem>>> _check;
     readonly OptimizerEngine _engine;
@@ -59,11 +68,14 @@ public sealed partial class SecurityViewModel : ObservableObject
     readonly Func<bool> _defenderBusy;
     readonly IExtensionPages? _extensionPages;
     readonly Action<string> _copyText;
+    readonly ActionRunner? _actions;
 
+    /// <param name="actions">The app's shared runner for one-off actions; without it action rows offer no button.</param>
     public SecurityViewModel(Func<CancellationToken, Task<IReadOnlyList<SecurityItem>>> check, OptimizerEngine engine,
         IDefender defender, IDialogService dialogs, ISystemShell shell, bool canChange, ChangeGate gate, Func<bool>? defenderBusy = null,
-        IExtensionPages? extensionPages = null, Action<string>? copyText = null)
+        IExtensionPages? extensionPages = null, Action<string>? copyText = null, ActionRunner? actions = null)
     {
+        _actions = actions;
         _extensionPages = extensionPages;
         _copyText = copyText ?? System.Windows.Clipboard.SetText;
         _defenderBusy = defenderBusy ?? (() => false);
@@ -77,6 +89,7 @@ public sealed partial class SecurityViewModel : ObservableObject
         gate.PropertyChanged += (_, _) =>
         {
             RunActionCommand.NotifyCanExecuteChanged();
+            RunChangeCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(GateHint));
         };
     }
@@ -109,6 +122,7 @@ public sealed partial class SecurityViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     [NotifyCanExecuteChangedFor(nameof(RunActionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RunChangeCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -180,7 +194,7 @@ public sealed partial class SecurityViewModel : ObservableObject
                 else FileLog.Warn($"Link nicht erlaubt: {item.Link}");
                 break;
             case SecurityActionKind.Change:
-                await ApplyChangeAsync(item);
+                await ApplyChangeAsync(item, item.ActionLabel ?? "Anwenden");
                 break;
             case SecurityActionKind.DefenderScan:
                 await ScanAsync(item);
@@ -188,8 +202,21 @@ public sealed partial class SecurityViewModel : ObservableObject
             case SecurityActionKind.ExtensionPage:
                 await OpenExtensionPageAsync(item.Extension!);
                 break;
+            case SecurityActionKind.Action:
+                await RunSystemActionAsync(item.Act!);
+                break;
         }
     }
+
+    /// <summary>The second button of a row: applies <see cref="SecurityItem.Change"/> like a fix.</summary>
+    [RelayCommand(CanExecute = nameof(CanRunChange))]
+    private async Task RunChangeAsync(SecurityItemViewModel? row)
+    {
+        if (row is null || !CanRunChange(row)) return;
+        await ApplyChangeAsync(row.Item, row.ChangeLabel!);
+    }
+
+    bool CanRunChange(SecurityItemViewModel? row) => row is { HasChangeButton: true } && CanChange && !IsBusy && !_gate.IsBusy;
 
     bool CanRunAction(SecurityItemViewModel? row) => row is { HasAction: true } && row.Item.Action switch
     {
@@ -199,6 +226,8 @@ public sealed partial class SecurityViewModel : ObservableObject
         SecurityActionKind.DefenderScan => !string.IsNullOrWhiteSpace(row.Item.ScanPath) && CanChange && !IsBusy && !_defenderBusy(),
         // opening the browser's page changes nothing itself; the user removes the extension there
         SecurityActionKind.ExtensionPage => row.Item.Extension is not null && _extensionPages is not null && !IsBusy,
+        // one-off actions change the system: admin rights, the shared runner and a free gate
+        SecurityActionKind.Action => row.Item.Act is not null && _actions is not null && CanChange && !IsBusy && !_gate.IsBusy,
         _ => false,
     };
 
@@ -250,11 +279,48 @@ public sealed partial class SecurityViewModel : ObservableObject
         }
     }
 
-    async Task ApplyChangeAsync(SecurityItem item)
+    // The runner confirms (and says „endgültig“), takes the gate and logs; a blocked result can point to Windows-Sicherheit.
+    async Task RunSystemActionAsync(SystemAction act)
+    {
+        if (IsBusy) return;
+        // busy only once the action really runs, i.e. after the confirmation and inside the gate
+        var run = act with
+        {
+            RunAsync = (p, ct) =>
+            {
+                IsBusy = true;
+                ProgressText = $"{act.Title} …";
+                return act.RunAsync(p, ct);
+            },
+        };
+        try
+        {
+            var outcome = await _actions!.RunAsync(this, run, new Progress<string>(s => ProgressText = s));
+            if (outcome is null) return;
+            IsBusy = true;
+            if (outcome.Link is { } link)
+            {
+                if (!SystemLinks.IsAllowed(link)) FileLog.Warn($"Link nicht erlaubt: {link}");
+                else if (_dialogs.Confirm(act.Title, outcome.Message, OpenSecurityText)) _shell.OpenLink(link);
+            }
+            ProgressText = ReadingText;
+            await LoadAsync(CancellationToken.None);
+            LastSummary = outcome.Message;
+        }
+        finally
+        {
+            ProgressText = "";
+            IsBusy = false;
+        }
+    }
+
+    async Task ApplyChangeAsync(SecurityItem item, string label)
     {
         var change = item.Change!;
-        var title = change.Kind == "firewall" ? "Firewall einschalten" : item.ActionLabel ?? item.Title;
-        if (!_dialogs.Confirm(title, ConfirmNote, item.ActionLabel ?? "Anwenden", [change.Description])) return;
+        var title = change.Kind == "firewall" ? "Firewall einschalten" : label;
+        // Computerschutz: undo puts only the services back (the confirm line says „Nur teilweise rückgängig“)
+        var note = change.Kind == "sysprotect" ? $"{ConfirmNote} {SysprotectNote}" : ConfirmNote;
+        if (!_dialogs.Confirm(title, note, label, [ChangeText.ConfirmLine(change)])) return;
 
         var finding = new Finding($"security|{change.Target}", FindingArea.Einstellung, change.Description, change.Target, [],
             Rating.Info, true, change);

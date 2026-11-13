@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using WinWaechter.App.Services;
 using WinWaechter.App.ViewModels;
 using WinWaechter.App.Views;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
@@ -195,6 +196,7 @@ public sealed class ViewSmokeTests : IDisposable
             var securityView = new SecurityView { DataContext = security };
             Layout(securityView);
             AssertLightsDiffer(securityView, theme);
+            AssertSecurityButtons(securityView);
             Layout(new PrivacyView { DataContext = privacy });
             var programsView = new ProgramsView { DataContext = programs };
             Layout(programsView);
@@ -236,11 +238,15 @@ public sealed class ViewSmokeTests : IDisposable
         }
     }
 
-    // all four lights, one action row and one child row
+    // all four lights, a fix row, a link row, a one-off action row and a child row with two buttons
     static SecurityViewModel Security(OptimizerEngine engine, ChangeGate gate)
     {
+        var update = new SystemAction("update-signatures", "Virendefinitionen aktualisieren", "Jetzt aktualisieren", null, false,
+            (_, _) => Task.FromResult(new ActionOutcome(true, "Die Virendefinitionen sind aktuell.")));
         IReadOnlyList<SecurityItem> rows =
         [
+            new("defender", "Microsoft Defender", Light.Yellow, "Virendefinitionen sind 10 Tage alt", "Aktuelle Definitionen erkennen neue Schadprogramme besser.",
+                SecurityActionKind.Action, "Jetzt aktualisieren", Act: update),
             new("firewall-public", "Firewall (Öffentlich)", Light.Red, "Ausgeschaltet", "Ohne Firewall sind Verbindungen von außen nicht gefiltert.",
                 SecurityActionKind.Change, "Einschalten", Change: new NoChange("Firewall")),
             new("rdp", "Remotedesktop", Light.Yellow, "Eingeschaltet", "Andere Geräte können sich aus der Ferne verbinden.",
@@ -249,7 +255,8 @@ public sealed class ViewSmokeTests : IDisposable
             new("encryption", "Geräteverschlüsselung", Light.Grey, "Nicht verfügbar", "Der Status lässt sich nicht lesen."),
             new("listeners", "Im Netz lauschende Programme", Light.Yellow, "1 Programm lauscht", "Ein Programm nimmt Verbindungen an.",
                 Children: [new("l1", "tool.exe", Light.Yellow, "Port 4444", "Nicht signiert, liegt in AppData.",
-                    SecurityActionKind.DefenderScan, "Von Defender prüfen lassen", ScanPath: @"C:\Users\x\AppData\Roaming\tool.exe")]),
+                    SecurityActionKind.DefenderScan, "Von Defender prüfen lassen", Change: new NoChange("tool"),
+                    ScanPath: @"C:\Users\x\AppData\Roaming\tool.exe", ChangeLabel: "Eingehende Verbindungen sperren")]),
         ];
         return new SecurityViewModel(_ => Task.FromResult(rows), engine, new FakeDefender(), new YesDialogs(), new Shell(), canChange: false, gate);
     }
@@ -321,6 +328,27 @@ public sealed class ViewSmokeTests : IDisposable
         Assert.NotEqual(red.Color, green.Color);
         Assert.NotEqual(red.Color, grey.Color);
         Assert.NotEqual(green.Color, grey.Color);
+    }
+
+    // the action row shows its button; the listener child shows scan and block side by side
+    static void AssertSecurityButtons(FrameworkElement view)
+    {
+        Button Shown(string label)
+        {
+            var b = FindAll<Button>(view).Single(x => x.Content as string == label);
+            // laid out without a window, so IsVisible stays false: the button itself is shown and has a size
+            Assert.True(b.Visibility == Visibility.Visible && b.ActualWidth > 0, label);
+            return b;
+        }
+        Shown("Jetzt aktualisieren");
+        var scan = Shown("Von Defender prüfen lassen");
+        var block = Shown("Eingehende Verbindungen sperren");
+        var scanAt = scan.TranslatePoint(new Point(0, 0), view);
+        var blockAt = block.TranslatePoint(new Point(0, 0), view);
+        Assert.Equal(scanAt.Y, blockAt.Y, 1);
+        Assert.True(blockAt.X >= scanAt.X + scan.ActualWidth, $"block at {blockAt.X}, scan at {scanAt.X} (+{scan.ActualWidth})");
+        // rows without a second fix show no second button
+        Assert.DoesNotContain(FindAll<Button>(view), x => x.Visibility == Visibility.Visible && string.IsNullOrEmpty(x.Content as string));
     }
 
     // "Wird frei" must sit in its own column right of "Offene Vorschläge", not on top of it

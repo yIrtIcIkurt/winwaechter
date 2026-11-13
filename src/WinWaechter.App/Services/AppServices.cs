@@ -2,6 +2,7 @@ using System.IO;
 using System.Net.Http;
 using System.Security.Principal;
 using WinWaechter.App.ViewModels;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Logging;
@@ -79,9 +80,15 @@ public sealed class AppServices : IDisposable
         var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo, rules);
         FirewallChange.Register(factory, firewall);
         DefenderRegistration.Register(factory, defender);
+        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows) is { Length: > 0 } w ? w : @"C:\Windows";
+        // Sicherheit: secvalue, fwrule and sysprotect fixes (undo from the Verlauf needs them registered)
+        SecValueChange.Register(factory, reg);
+        var fwRules = new FwPolicy2Rules();
+        FirewallRuleChange.Register(factory, fwRules, windowsDir);
+        var restoreConfig = new WinSystemRestoreConfig(reg);
+        SystemProtectChange.Register(factory, sc, restoreConfig);
         var power = new WinPowerModes();
         var animation = new WinAnimationSetting();
-        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows) is { Length: > 0 } w ? w : @"C:\Windows";
         var hibernation = new WinHibernation(reg, new ProcessRunner(), windowsDir, Path.GetPathRoot(windowsDir) ?? @"C:\");
         var broadcast = new WinSettingBroadcast();
         PerformanceRegistration.Register(factory, reg, power, animation, hibernation, broadcast);
@@ -108,6 +115,8 @@ public sealed class AppServices : IDisposable
 
         var canChange = env.IsElevated;
         var gate = new ChangeGate();
+        // one runner for every one-off action, on every page
+        var actions = new ActionRunner(dialogs, gate);
         var optimize = new OptimizeViewModel(engine, dialogs, canChange, gate);
         // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
         var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),
@@ -116,9 +125,12 @@ public sealed class AppServices : IDisposable
         // the browser's own extensions page opens with the signed-in user's normal rights, never elevated
         var extensionPages = new ExtensionPageOpener(reg, paths, new UserTokenLauncher(user.Sid));
         var securitySources = new SecuritySources(firewall, new WmiSecurityCenter(), defender, reg, new WmiVolumeEncryption(),
-            new WuaUpdateSearch(), new TcpTableConnections(), procs, sig, new BrowserExtensionScanner(paths, reg), extensionPages);
+            new WuaUpdateSearch(), new TcpTableConnections(), procs, sig, new BrowserExtensionScanner(paths, reg), extensionPages,
+            Policies: () => new JournalPolicyOwnership(store), FirewallRules: fwRules, Rules: rules, WindowsDir: windowsDir,
+            Actions: SecurityActionSet.Create(defender, new WuaUpdateInstaller(), new WinRestarter(new ProcessRunner(), windowsDir)),
+            RestoreConfig: restoreConfig, Services: sc);
         var security = new SecurityViewModel(ct => Task.Run(() => new SecurityCheck(securitySources).RunAsync(ct), ct),
-            engine, defender, dialogs, shell, canChange, gate, () => protect.IsDefenderBusy, extensionPages);
+            engine, defender, dialogs, shell, canChange, gate, () => protect.IsDefenderBusy, extensionPages, actions: actions);
         // the DISM probe and the registry reads stay off the UI thread
         var privacy = new PrivacyViewModel(ct => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
         {

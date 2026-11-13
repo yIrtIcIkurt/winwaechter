@@ -39,10 +39,17 @@
                         <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource InkMuted}"
                                    TextWrapping="Wrap" MaxWidth="620" HorizontalAlignment="Left" Text="{Binding Explanation}" />
                     </StackPanel>
-                    <Button Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Top" Content="{Binding ActionLabel}"
-                            Visibility="{Binding HasAction, Converter={StaticResource Vis}}"
-                            Command="{Binding DataContext.RunActionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                            CommandParameter="{Binding}" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Button Margin="16,0,0,0" VerticalAlignment="Top" Content="{Binding ActionLabel}"
+                                Visibility="{Binding HasAction, Converter={StaticResource Vis}}"
+                                Command="{Binding DataContext.RunActionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding}" />
+                        <!-- second fix of a row (listener: block inbound connections) -->
+                        <Button Margin="8,0,0,0" VerticalAlignment="Top" Content="{Binding ChangeLabel}"
+                                Visibility="{Binding HasChangeButton, Converter={StaticResource Vis}}"
+                                Command="{Binding DataContext.RunChangeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding}" />
+                    </StackPanel>
                 </Grid>
                 <ItemsControl Margin="24,12,0,0" ItemsSource="{Binding Children}" Focusable="False"
                               Visibility="{Binding Children.Count, Converter={StaticResource Vis}}">
@@ -64,7 +71,7 @@
                 <TextBlock Style="{StaticResource Text.PageTitle}" Text="Sicherheit" />
             </DockPanel>
             <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
-                       Text="Eine Ampel je Schutzfunktion: Grün ist in Ordnung, Gelb sollten Sie sich ansehen, bei Rot sollten Sie handeln, Grau ließ sich nicht prüfen. Geändert wird nur auf Ihren Klick; die Firewall lässt sich im Verlauf wieder zurücksetzen." />
+                       Text="Eine Ampel je Schutzfunktion: Grün ist in Ordnung, Gelb sollten Sie sich ansehen, bei Rot sollten Sie handeln, Grau ließ sich nicht prüfen. Geändert wird nur auf Ihren Klick. Änderungen stehen im Verlauf und lassen sich dort zurücknehmen; Aktionen wie Updates installieren sind endgültig." />
             <StackPanel Margin="0,18,0,0" Visibility="{Binding IsBusy, Converter={StaticResource Vis}}">
                 <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
                 <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding ProgressText}"
