@@ -240,7 +240,19 @@ public sealed partial class HistoryViewModel : ObservableObject
     private async Task RetryAsync(RecordViewModel? r)
     {
         if (r is null || !CanRetry(r)) return;
-        if (!_dialogs.Confirm("Erneut versuchen", $"„{r.Description}“ noch einmal anwenden?", "Anwenden")) return;
+        // the line names the undo limit (Computerschutz, app only from the Store) like every other confirmation
+        string line;
+        try
+        {
+            line = ChangeText.ConfirmLine(_engine.RetryChange(r.Record));
+        }
+        catch (Exception ex)
+        {
+            FileLog.Warn($"Erneut versuchen abgelehnt: {r.Description}", ex);
+            _dialogs.Inform("Erneut versuchen fehlgeschlagen", ex.Message);
+            return;
+        }
+        if (!_dialogs.Confirm("Erneut versuchen", $"„{r.Description}“ noch einmal anwenden?", "Anwenden", [line])) return;
         if (!await _gate.RunAsync(this, () => RetryCoreAsync(r.Record))) _dialogs.Inform("Erneut versuchen", ChangeGate.BusyHint);
     }
 

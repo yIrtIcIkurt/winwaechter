@@ -67,6 +67,17 @@ public sealed class OptimizerEngine
     /// <summary>A Failed record that carries retry data (IChange.RetryData).</summary>
     public static bool CanRetry(ChangeRecord r) => r.Status == ChangeStatus.Failed && r.RetryBefore is not null;
 
+    /// <summary>The change a retry would apply, rebuilt through the kind's own FromRecord; throws when it rejects it.</summary>
+    public IChange RetryChange(ChangeRecord failed)
+    {
+        if (!CanRetry(failed))
+            throw new InvalidOperationException("Für diesen Eintrag ist kein erneuter Versuch möglich.");
+        return _factory.Rehydrate(failed with
+        {
+            Before = failed.RetryBefore!, After = failed.RetryAfter ?? new(), Status = ChangeStatus.Applied,
+        });
+    }
+
     /// <summary>
     /// Rebuilds a failed change from its retry data through the kind's own FromRecord (so its whitelist
     /// check runs) and applies it again in a new session.
@@ -74,12 +85,7 @@ public sealed class OptimizerEngine
     public Task<ApplyResult> RetryAsync(ChangeRecord failed, IProgress<string>? p, CancellationToken ct) =>
         Task.Run(() =>
         {
-            if (!CanRetry(failed))
-                throw new InvalidOperationException("Für diesen Eintrag ist kein erneuter Versuch möglich.");
-            var change = _factory.Rehydrate(failed with
-            {
-                Before = failed.RetryBefore!, After = failed.RetryAfter ?? new(), Status = ChangeStatus.Applied,
-            });
+            var change = RetryChange(failed);
             ct.ThrowIfCancellationRequested();
             return Apply($"Erneut versuchen: {failed.Description}", [change], p, ct, continueOnError: false);
         }, CancellationToken.None);

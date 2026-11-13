@@ -1010,6 +1010,50 @@ public sealed class ViewModelTests : IDisposable
         Assert.False(_gate.IsBusy);
     }
 
+    // like the Computerschutz: its undo is limited
+    sealed class LimitedChange : IChange, IUndoLimit
+    {
+        public string Kind => "limited";
+        public string Target => "Schutz";
+        public string Description => "Computerschutz einschalten";
+        public string? UndoLimit => UndoLimits.Partial;
+        public ChangeRecord Apply(SessionContext ctx) =>
+            new(Guid.NewGuid().ToString("N"), Kind, Target, Description, new(), new(), ChangeStatus.Applied, DateTimeOffset.Now);
+        public void Undo(ChangeRecord record, SessionContext ctx) { }
+        public DriftState CheckDrift(ChangeRecord record) => DriftState.Unchanged;
+    }
+
+    [Fact]
+    public async Task Retry_confirm_names_the_undo_limit_and_refuses_what_the_list_rejects()
+    {
+        var store = new SessionStore(_root);
+        var journal = store.Create("Sicherheit");
+        journal.Upsert(new ChangeRecord("1", "limited", "Schutz", "Computerschutz einschalten", new(), new(), ChangeStatus.Failed,
+            DateTimeOffset.Now, "Dienst deaktiviert", RetryBefore: new()));
+        journal.Upsert(new ChangeRecord("2", "rejected", "X", "X ändern", new(), new(), ChangeStatus.Failed,
+            DateTimeOffset.Now, "Fehler", RetryBefore: new()));
+        var factory = new ChangeFactory();
+        factory.Register("limited", _ => new LimitedChange());
+        factory.Register("rejected", _ => throw new InvalidOperationException("Nicht auf der Liste – abgelehnt."));
+        var dialogs = new WinWaechter.Tests.Fakes.RecordingDialogs { ConfirmAnswer = false };
+        var h = new HistoryViewModel(store, new OptimizerEngine([], store, factory, _ => new RestorePointResult(true, "ok")),
+            new AblageJanitor(store), dialogs, true, _gate);
+        await h.RefreshCommand.ExecuteAsync(null);
+        var rows = h.Sessions.Single().Records;
+
+        await h.RetryCommand.ExecuteAsync(rows.Single(r => r.Record.Id == "1"));
+
+        var confirm = Assert.Single(dialogs.Confirms);
+        Assert.Equal("„Computerschutz einschalten“ noch einmal anwenden?", confirm.Message);
+        Assert.Equal(["Computerschutz einschalten (Nur teilweise rückgängig)"], confirm.Items);
+
+        // rejected by its kind before anything is asked
+        await h.RetryCommand.ExecuteAsync(rows.Single(r => r.Record.Id == "2"));
+        Assert.Single(dialogs.Confirms);
+        Assert.Equal("Nicht auf der Liste – abgelehnt.", Assert.Single(dialogs.Informs).Message);
+        Assert.Single(store.List());
+    }
+
     [Fact]
     public async Task Retry_not_offered_for_old_records_without_template()
     {
