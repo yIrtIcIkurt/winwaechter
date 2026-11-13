@@ -29,7 +29,11 @@ public static class PerfValues
     public static readonly PerfValue StorageSenseFrequency = new("storagesense-frequency", Hive.CurrentUser,
         StoragePolicyKey, "2048", [0, 1, 7, 30], 0, false);
 
-    static readonly PerfValue[] Fixed = [Transparency, GameMode, GpuScheduling, StorageSenseOn, StorageSenseFrequency];
+    // Fast startup (hybrid shutdown); only effective while hibernation is on.
+    public static readonly PerfValue FastStartup = new("faststartup", Hive.LocalMachine,
+        @"SYSTEM\CurrentControlSet\Control\Session Manager\Power", "HiberbootEnabled", [0, 1], 0, false);
+
+    static readonly PerfValue[] Fixed = [Transparency, GameMode, GpuScheduling, StorageSenseOn, StorageSenseFrequency, FastStartup];
 
     public static PerfValue BackgroundDisabled(string app) => Background(app, "Disabled");
 

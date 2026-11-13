@@ -15,11 +15,17 @@ public sealed record PerfSetting(string Id, string Group, string Title, string E
 
 /// <summary>Reads the current state behind the Leistung page and turns a chosen value into changes.</summary>
 public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimationSetting anim, IHibernation hib,
-    IAppDisplayNames names, bool animationOwnAccount, ISettingBroadcast broadcast)
+    IAppDisplayNames names, bool animationOwnAccount, ISettingBroadcast broadcast, IPowerPlans? plans = null,
+    Func<IPolicyOwnership>? policies = null)
 {
+    // Task 14 reads the policy owner through this; stored only for now.
+    readonly Func<IPolicyOwnership>? _policies = policies;
+    // The plans captured at Scan: the powerplan option values are indexes into this list.
+    IReadOnlyList<PowerPlan> _planList = [];
+
     const string Unreadable = "Nicht lesbar";
     const string CustomLabel = "Benutzerdefiniert";
-    const string PlanLocked = "Nur mit dem Energiesparplan „Ausgewogen“ änderbar";
+    public const string PlanLocked = "Nur mit dem Energiesparplan „Ausgewogen“ änderbar";
     const string PowerUnsupported = "Auf dieser Windows-Version nicht änderbar";
     const string BackgroundPrefix = "bg:";
     public const string BackgroundUnavailableId = "bg-unavailable";
@@ -47,6 +53,8 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     {
         var rows = new List<PerfSetting>();
         Source(rows, "power", ScanPower, BrokenPower);
+        Source(rows, "powerplan", ScanPowerPlan, () => [Broken("powerplan", "power", "Energiesparplan", [])]);
+        Source(rows, "faststartup", () => [ScanFastStartup()], () => [Broken("faststartup", "power", "Schnellstart", OnOff)]);
         Source(rows, "transparency", () => [ScanTransparency()], () => [Broken("transparency", "visual", "Transparenzeffekte", OnOff)]);
         Source(rows, "animation", () => [ScanAnimation()], () => [Broken("animation", "visual", "Animationseffekte", OnOff)]);
         Source(rows, "gamemode", () => [ScanGameMode()], () => [Broken("gamemode", "gaming", "Spielmodus", OnOff)]);
@@ -133,6 +141,37 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         return locked
             ? new(id, "power", title, explanation, options, index, false, PlanLocked, hint, null, false, SystemLinks.PowerSleep)
             : new(id, "power", title, explanation, options, index, true, null, hint, null, false, SystemLinks.PowerSleep);
+    }
+
+    IEnumerable<PerfSetting> ScanPowerPlan()
+    {
+        _planList = [];
+        if (plans is null) yield break; // not wired: no row
+        const string explanation = "Der Energiesparplan bestimmt, wie Windows Strom und Leistung grundsätzlich abwägt.";
+        var list = plans.List();
+        var active = plans.Active();
+        _planList = list;
+        if (list.Count == 0 || active is null)
+        {
+            yield return new("powerplan", "power", "Energiesparplan", explanation, [], 0, false, Unreadable,
+                null, null, false, SystemLinks.PowerSleep);
+            yield break;
+        }
+        var options = list.Select((p, i) => new PerfOption(i, p.Name)).ToList();
+        var index = list.ToList().FindIndex(p => p.Id == active.Value);
+        if (index < 0) options.Insert(0, new PerfOption(-1, CustomLabel));
+        yield return new("powerplan", "power", "Energiesparplan", explanation, options, index, true, null,
+            null, null, false, SystemLinks.PowerSleep);
+    }
+
+    PerfSetting ScanFastStartup()
+    {
+        const string explanation = "Windows fährt schneller hoch, weil es beim Herunterfahren einen Teil des Systems sichert. "
+            + "Dafür wirken manche Updates und Treiberwechsel erst nach „Neu starten“, und das Gerät ist nie ganz aus.";
+        var on = ReadDword(PerfValues.FastStartup) == 1 ? 1 : 0;
+        var hibOn = hib.IsEnabled;
+        return new("faststartup", "power", "Schnellstart", explanation, OnOff, on, hibOn,
+            hibOn ? null : "Nur mit eingeschalteter Ruhezustand-Datei", null, null, false, null);
     }
 
     // ---- visual ----
@@ -275,6 +314,13 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         {
             case "power-ac": return [new PowerModeChange(power, PowerSource.Ac, PowerModeIds.All[chosen])];
             case "power-dc": return [new PowerModeChange(power, PowerSource.Dc, PowerModeIds.All[chosen])];
+            case "powerplan":
+                return plans is not null && chosen >= 0 && chosen < _planList.Count
+                    ? [new PowerPlanChange(plans, _planList[chosen].Id)]
+                    : throw new ArgumentException($"Der Wert {chosen} gehört nicht zu „{s.Title}“.", nameof(chosen));
+            case "faststartup":
+                return [new PerfValueChange(reg, PerfValues.FastStartup, chosen,
+                    on ? "Schnellstart einschalten" : "Schnellstart ausschalten", null)];
             case "transparency":
                 return [new PerfValueChange(reg, PerfValues.Transparency, chosen,
                     on ? "Transparenzeffekte einschalten" : "Transparenzeffekte ausschalten", broadcast)];

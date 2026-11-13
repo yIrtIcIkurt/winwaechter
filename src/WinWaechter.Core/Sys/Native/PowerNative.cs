@@ -37,6 +37,20 @@ internal static class PowerNative
     [DllImport("powrprof.dll", ExactSpelling = true)]
     public static extern uint PowerGetActiveScheme(IntPtr userRootPowerKey, out IntPtr activePolicyGuid);
 
+    public const uint AccessScheme = 16;
+
+    /// <summary>Enumerates power schemes (access flag <see cref="AccessScheme"/>); 0 = success, 259 = no more items.</summary>
+    [DllImport("powrprof.dll", ExactSpelling = true)]
+    public static extern uint PowerEnumerate(IntPtr rootPowerKey, IntPtr schemeGuid, IntPtr subGroupOfPowerSettingsGuid,
+        uint accessFlags, uint index, IntPtr buffer, ref uint bufferSize);
+
+    [DllImport("powrprof.dll", ExactSpelling = true)]
+    public static extern uint PowerReadFriendlyName(IntPtr rootPowerKey, ref Guid schemeGuid, IntPtr subGroupOfPowerSettingsGuid,
+        IntPtr powerSettingGuid, IntPtr buffer, ref uint bufferSize);
+
+    [DllImport("powrprof.dll", ExactSpelling = true)]
+    public static extern uint PowerSetActiveScheme(IntPtr userRootPowerKey, ref Guid schemeGuid);
+
     [DllImport("kernel32.dll", ExactSpelling = true)]
     public static extern IntPtr LocalFree(IntPtr mem);
 }

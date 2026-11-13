@@ -7,8 +7,9 @@ namespace WinWaechter.Core.Performance;
 public static class PerformanceRegistration
 {
     public static void Register(ChangeFactory f, IRegistry reg, IPowerModes power, IAnimationSetting anim,
-        IHibernation hib, ISettingBroadcast broadcast)
+        IHibernation hib, ISettingBroadcast broadcast, IPowerPlans plans)
     {
+        f.Register("powerplan", r => PowerPlanChange.FromRecord(r, plans));
         f.Register("perfvalue", r => PerfValueChange.FromRecord(r, reg, broadcast));
         f.Register("powermode", r => PowerModeChange.FromRecord(r, power));
         f.Register("spi", r => AnimationChange.FromRecord(r, anim));

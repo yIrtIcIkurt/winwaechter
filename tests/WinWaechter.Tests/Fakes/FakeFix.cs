@@ -1,3 +1,4 @@
+using WinWaechter.Core.Performance;
 using WinWaechter.Core.Actions;
 using WinWaechter.Core.Security.Checks;
 using WinWaechter.Core.Sys;
@@ -93,5 +94,27 @@ public sealed class FakeRestoreConfig : ISystemRestoreConfig
         EnableCalls.Add(drive);
         if (EnableError is { } e) throw e;
         State = true;
+    }
+}
+
+// In-memory power plans; never touches powrprof.
+public sealed class FakePowerPlans : IPowerPlans
+{
+    public static readonly Guid BalancedId = PowerModeIds.BalancedPlan;
+    public static readonly Guid HighId = new("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
+    public static readonly Guid SaverId = new("a1841308-3541-4fab-bc81-f71556f20b4a");
+
+    public List<PowerPlan> Plans { get; } =
+        [new(BalancedId, "Ausgewogen"), new(HighId, "Höchstleistung"), new(SaverId, "Energiesparmodus")];
+    public Guid? ActiveId { get; set; } = BalancedId;
+    public List<Guid> SetCalls { get; } = [];
+
+    public IReadOnlyList<PowerPlan> List() => Plans.ToList();
+    public Guid? Active() => ActiveId;
+
+    public void SetActive(Guid id)
+    {
+        SetCalls.Add(id);
+        ActiveId = id;
     }
 }

@@ -91,7 +91,7 @@ public sealed class AppServices : IDisposable
         var animation = new WinAnimationSetting();
         var hibernation = new WinHibernation(reg, new ProcessRunner(), windowsDir, Path.GetPathRoot(windowsDir) ?? @"C:\");
         var broadcast = new WinSettingBroadcast();
-        PerformanceRegistration.Register(factory, reg, power, animation, hibernation, broadcast);
+        PerformanceRegistration.Register(factory, reg, power, animation, hibernation, broadcast, new WinPowerPlans());
 
         var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);
         var services = new ServiceScanner(sc, sig, rules, reg, fo);

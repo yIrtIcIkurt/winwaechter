@@ -36,7 +36,7 @@ public sealed class PerformanceViewModelTests : IDisposable
     {
         _store = new SessionStore(_root);
         var factory = ChangeFactory.CreateDefault(_reg, new FakeServiceControl(), new FakeTaskStore(), new FakeFileOps(), RuleSet.Default);
-        PerformanceRegistration.Register(factory, _reg, _power, _anim, _hib, _broadcast);
+        PerformanceRegistration.Register(factory, _reg, _power, _anim, _hib, _broadcast, new FakePowerPlans());
         _engine = new OptimizerEngine([], _store, factory, _ => new RestorePointResult(true, "Wiederherstellungspunkt erstellt."));
         _scanner = new PerformanceScanner(_reg, _power, _anim, _hib, _names, true, _broadcast);
     }

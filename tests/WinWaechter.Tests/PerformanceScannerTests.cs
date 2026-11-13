@@ -16,13 +16,14 @@ public sealed class PerformanceScannerTests : IDisposable
     readonly FakeHibernation _hib = new();
     readonly FakeAppDisplayNames _names = new();
     readonly FakeBroadcast _broadcast = new();
+    readonly FakePowerPlans _plans = new();
 
     public PerformanceScannerTests() => Directory.CreateDirectory(_root);
     public void Dispose() { try { Directory.Delete(_root, true); } catch { } }
 
     SessionContext Ctx() => new(Path.Combine(_root, Guid.NewGuid().ToString("N")));
 
-    PerformanceScanner Scanner(bool own = true) => new(_reg, _power, _anim, _hib, _names, own, _broadcast);
+    PerformanceScanner Scanner(bool own = true) => new(_reg, _power, _anim, _hib, _names, own, _broadcast, _plans);
 
     static PerfSetting Row(IReadOnlyList<PerfSetting> rows, string id) => rows.Single(r => r.Id == id);
 
@@ -359,7 +360,7 @@ public sealed class PerformanceScannerTests : IDisposable
     public void Registered_kinds_rehydrate()
     {
         var factory = new ChangeFactory();
-        PerformanceRegistration.Register(factory, _reg, _power, _anim, _hib, _broadcast);
+        PerformanceRegistration.Register(factory, _reg, _power, _anim, _hib, _broadcast, _plans);
         Dword(_reg, PerfValues.Transparency, 1);
 
         var sc = Scanner();
@@ -370,8 +371,11 @@ public sealed class PerformanceScannerTests : IDisposable
             sc.ChangesFor(Row(rows, "power-ac"), 2).Single(),
             sc.ChangesFor(Row(rows, "animation"), 0).Single(),
             sc.ChangesFor(Row(rows, "hibernate"), 0).Single(),
+            sc.ChangesFor(Row(rows, "powerplan"), 1).Single(),
+            sc.ChangesFor(Row(rows, "faststartup"), 1).Single(),
         };
-        Assert.Equal(["perfvalue", "powermode", "spi", "hibernate"], changes.Select(c => c.Kind));
+        Assert.Equal(["perfvalue", "powermode", "spi", "hibernate", "powerplan", "perfvalue"], changes.Select(c => c.Kind));
+        Assert.Contains(changes, c => c.Target.EndsWith("HiberbootEnabled"));
 
         foreach (var change in changes)
         {
@@ -386,5 +390,58 @@ public sealed class PerformanceScannerTests : IDisposable
         Assert.Equal(PowerModeIds.Balanced, _power.Get(PowerSource.Ac));
         Assert.True(_anim.Value);
         Assert.True(_hib.IsEnabled);
+        Assert.Equal(FakePowerPlans.BalancedId, _plans.ActiveId);
+        var f = PerfValues.FastStartup;
+        Assert.Null(_reg.Get(f.Hive, f.Key, f.Name));
+    }
+
+    [Fact]
+    public void Fast_startup_row_follows_hibernation()
+    {
+        const string key = @"SYSTEM\CurrentControlSet\Control\Session Manager\Power";
+        _hib.IsEnabled = true;
+        var row = Row(Scanner().Scan(), "faststartup");
+        Assert.Equal("power", row.Group);
+        Assert.Equal("Schnellstart", row.Title);
+        Assert.True(row.Available);
+        Assert.Equal(0, row.Current); // missing = Windows default off
+        Assert.Null(row.Recommended);
+        Assert.Equal(["An", "Aus"], row.Options.Select(o => o.Label));
+        Assert.StartsWith("Windows fährt schneller hoch", row.Explanation);
+
+        var change = Scanner().ChangesFor(row, 1).Single();
+        change.Apply(Ctx());
+        Assert.Equal(1, _reg.Get(Hive.LocalMachine, key, "HiberbootEnabled"));
+        Assert.Equal(1, Row(Scanner().Scan(), "faststartup").Current);
+
+        _hib.IsEnabled = false;
+        var off = Row(Scanner().Scan(), "faststartup");
+        Assert.False(off.Available);
+        Assert.Equal("Nur mit eingeschalteter Ruhezustand-Datei", off.UnavailableText);
+        Assert.Empty(Scanner().ChangesFor(off, 0));
+    }
+
+    [Fact]
+    public void Power_plan_row_lists_plans_and_changes_active()
+    {
+        var sc = Scanner();
+        var row = Row(sc.Scan(), "powerplan");
+        Assert.Equal("power", row.Group);
+        Assert.Equal("Energiesparplan", row.Title);
+        Assert.True(row.Available);
+        Assert.Equal(["Ausgewogen", "Höchstleistung", "Energiesparmodus"], row.Options.Select(o => o.Label));
+        Assert.Equal(0, row.Current);
+
+        var change = sc.ChangesFor(row, 2).Single();
+        Assert.Equal("Energiesparplan auf „Energiesparmodus“ umstellen", change.Description);
+        change.Apply(Ctx());
+        Assert.Equal(FakePowerPlans.SaverId, _plans.ActiveId);
+        Assert.Equal(2, Row(sc.Scan(), "powerplan").Current);
+        Assert.Throws<ArgumentException>(() => sc.ChangesFor(row, 7));
+
+        _plans.ActiveId = null;
+        var unreadable = Row(sc.Scan(), "powerplan");
+        Assert.False(unreadable.Available);
+        Assert.Equal("Nicht lesbar", unreadable.UnavailableText);
     }
 }
