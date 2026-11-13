@@ -74,4 +74,22 @@ public sealed class PowerPlanTests : IDisposable
         Assert.Throws<ArgumentException>(() => new PowerPlanChange(_plans, Guid.NewGuid()));
         Assert.Throws<ArgumentException>(() => new PowerPlanChange(_plans, Guid.Empty));
     }
+
+    [Fact]
+    public void Apply_refuses_when_active_plan_unreadable()
+    {
+        var change = new PowerPlanChange(_plans, FakePowerPlans.HighId);
+        _plans.ActiveId = null;
+        Assert.Throws<InvalidOperationException>(() => change.Apply(Ctx()));
+        Assert.Empty(_plans.SetCalls);
+    }
+
+    [Fact]
+    public void Apply_refuses_when_target_vanished()
+    {
+        var change = new PowerPlanChange(_plans, FakePowerPlans.HighId);
+        _plans.Plans.RemoveAll(p => p.Id == FakePowerPlans.HighId);
+        Assert.Throws<InvalidOperationException>(() => change.Apply(Ctx()));
+        Assert.Empty(_plans.SetCalls);
+    }
 }

@@ -112,7 +112,12 @@ public sealed class PowerPlanChange : IChange
 
     public ChangeRecord Apply(SessionContext ctx)
     {
-        var before = new Dictionary<string, string?> { ["plan"] = _plans.Active()?.ToString("D") ?? "" };
+        // Without a readable old plan the change could never be undone, so nothing is switched.
+        var active = _plans.Active()
+            ?? throw new InvalidOperationException("Der aktive Energiesparplan ist nicht lesbar – WinWächter stellt ihn deshalb nicht um.");
+        if (_plans.List().All(p => p.Id != _target.Id))
+            throw new InvalidOperationException("Der Energiesparplan ist nicht mehr vorhanden – WinWächter stellt nicht um.");
+        var before = new Dictionary<string, string?> { ["plan"] = active.ToString("D") };
         _plans.SetActive(_target.Id);
         var after = new Dictionary<string, string?> { ["plan"] = _target.Id.ToString("D") };
         return new ChangeRecord(Guid.NewGuid().ToString("N"), Kind, Target, Description,
