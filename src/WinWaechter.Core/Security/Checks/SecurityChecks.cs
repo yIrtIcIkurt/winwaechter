@@ -1,4 +1,6 @@
 using System.Net;
+using WinWaechter.Core.Changes;
+using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Security.Heuristics;
 using WinWaechter.Core.Sys;
@@ -150,7 +152,8 @@ public static class SecurityChecks
         return Row(Light.Green, "Keine ausstehenden Updates" + stamp, "Windows hat bei der letzten Suche keine fehlenden Updates gefunden.");
     }
 
-    public static SecurityItem Listeners(IReadOnlyList<ListeningPort> ports, IReadOnlyList<RunningProcess> procs, ISignatureVerifier sig)
+    public static SecurityItem Listeners(IReadOnlyList<ListeningPort> ports, IReadOnlyList<RunningProcess> procs, ISignatureVerifier sig,
+        IFirewallRules? rules = null, RuleSet? ruleSet = null, string? windowsDir = null)
     {
         var pathByPid = new Dictionary<int, string?>();
         foreach (var p in procs) pathByPid.TryAdd(p.Pid, p.ExePath);
@@ -168,7 +171,7 @@ public static class SecurityChecks
             var pid = g.First().Port.Pid;
             var title = path is null ? $"PID {pid}" : Path.GetFileName(path);
             var finding = "Port " + string.Join(", ", g.Select(x => x.Port.LocalPort).Distinct().Order());
-            children.Add(ListenerRow(title, finding, path, sig));
+            children.Add(ListenerRow(title, finding, path, sig, rules, ruleSet, windowsDir));
         }
         children = children.OrderBy(c => c.Light switch { Light.Yellow => 0, Light.Grey => 1, _ => 2 })
             .ThenBy(c => c.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
@@ -182,18 +185,43 @@ public static class SecurityChecks
             Children: children);
     }
 
-    static SecurityItem ListenerRow(string title, string finding, string? path, ISignatureVerifier sig)
+    public const string BlockedNote = "Eingehende Verbindungen sind von WinWächter gesperrt.";
+
+    // The second fix of a yellow listener row: an inbound block rule, unless the program is Windows' own,
+    // Microsoft-signed or protected. A rule of that name already there turns the offer into a note.
+    static (IChange? Change, string? Note) BlockOffer(string path, SignatureInfo info, IFirewallRules? rules, RuleSet? ruleSet, string? windowsDir)
+    {
+        if (rules is null) return (null, null);
+        try
+        {
+            var change = new FirewallRuleChange(rules, path, windowsDir ?? Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+            if (info.State == SignatureState.Valid && info.Publisher?.StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase) == true)
+                return (null, null);
+            if (ruleSet?.Classify(new ItemFacts(Path.GetFileName(path), path, info.Publisher, null)) == RuleVerdict.Protected)
+                return (null, null);
+            return rules.Get(change.Target) is not null ? (null, BlockedNote) : (change, null);
+        }
+        catch (Exception) { return (null, null); } // path not allowed, or the firewall cannot be read: no offer
+    }
+
+    static SecurityItem ListenerRow(string title, string finding, string? path, ISignatureVerifier sig,
+        IFirewallRules? rules, RuleSet? ruleSet, string? windowsDir)
     {
         const string id = SecurityIds.Listeners;
         if (path is null)
             return new(id, title, Light.Grey, finding, "Pfad nicht lesbar. Systemprozesse und geschützte Dienste geben ihren Pfad nicht preis.");
 
-        SecurityItem Yellow(string why) =>
-            new(id, title, Light.Yellow, finding, why, SecurityActionKind.DefenderScan, "Von Defender prüfen lassen", ScanPath: path);
-
         SignatureInfo info;
         try { info = sig.Verify(path); }
         catch (Exception) { info = new(SignatureState.Unknown, null, false); }
+
+        SecurityItem Yellow(string why)
+        {
+            var (change, note) = BlockOffer(path, info, rules, ruleSet, windowsDir);
+            return new(id, title, Light.Yellow, finding, note is null ? why : why + " " + note,
+                SecurityActionKind.DefenderScan, "Von Defender prüfen lassen", Change: change, ScanPath: path,
+                ChangeLabel: change is null ? null : "Eingehende Verbindungen sperren");
+        }
 
         if (info.State == SignatureState.Unsigned) return Yellow("Nicht signiert. Der Hersteller des Programms ist nicht bestätigt.");
         if (info.State == SignatureState.Invalid) return Yellow("Signatur ungültig. Die Datei wurde nach dem Signieren verändert oder die Signatur ist nicht vertrauenswürdig.");

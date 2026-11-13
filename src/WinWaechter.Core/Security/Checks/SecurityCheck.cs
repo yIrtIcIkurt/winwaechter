@@ -1,4 +1,5 @@
 using WinWaechter.Core.Logging;
+using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Security.Heuristics;
 using WinWaechter.Core.Sys;
@@ -7,7 +8,8 @@ namespace WinWaechter.Core.Security.Checks;
 
 public sealed record SecuritySources(IFirewall Firewall, ISecurityCenter Center, IDefender Defender, IRegistry Registry,
     IVolumeEncryption Encryption, IWindowsUpdateSearch Updates, IListenerSource Listeners, IProcessList Processes,
-    ISignatureVerifier Signatures, BrowserExtensionScanner Extensions, ExtensionPageOpener? ExtensionPages = null, Func<IPolicyOwnership>? Policies = null);
+    ISignatureVerifier Signatures, BrowserExtensionScanner Extensions, ExtensionPageOpener? ExtensionPages = null, Func<IPolicyOwnership>? Policies = null,
+    IFirewallRules? FirewallRules = null, RuleSet? Rules = null, string? WindowsDir = null);
 
 /// <summary>
 /// Runs every check off the calling thread, each with its own timeout. A failing or hanging source only
@@ -37,7 +39,8 @@ public sealed class SecurityCheck(SecuritySources s, TimeSpan? sourceTimeout = n
         var updates = One(SecurityIds.Updates, SecurityTitles.Updates, () => SecurityChecks.Updates(
             s.Registry.KeyExists(Hive.LocalMachine, SecurityChecks.RebootRequiredKey), s.Updates.Search(UpdateSearchTimeout)), ct);
         var listeners = One(SecurityIds.Listeners, SecurityTitles.Listeners,
-            () => SecurityChecks.Listeners(s.Listeners.Listening(), s.Processes.Snapshot(), s.Signatures), ct);
+            () => SecurityChecks.Listeners(s.Listeners.Listening(), s.Processes.Snapshot(), s.Signatures,
+                s.FirewallRules, s.Rules, s.WindowsDir), ct);
         var extensions = One(SecurityIds.Extensions, SecurityTitles.Extensions, () => SecurityChecks.Extensions(s.Extensions.Scan(), s.ExtensionPages is { } pages ? pages.CanOpen : null), ct);
 
         // Raw reads start right away, each with its own timeout; the center answer is applied afterwards.
