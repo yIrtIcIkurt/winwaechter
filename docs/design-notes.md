@@ -79,3 +79,10 @@ Hell/Dunkel folgt `AppsUseLightTheme` und wechselt live. Die Titelleiste bleibt 
 - Messleiste „Jetzt“ wie auf der Übersicht: Skalenlinie, drei Ablesewerte (Prozessor, Arbeitsspeicher, Datenträger) mit Tabellenziffern, getrennt durch 1-px-Linien; unter jedem Wert eine Strichskala (`Scale`), gefüllt bis zum Messwert.
 - „Größte Verbraucher“ als Tabelle in einer `SurfaceBox`, Zahlen rechtsbündig mit Tabellenziffern.
 - Einstellungen: Zeilen wie Datenschutz, rechts immer eine Auswahlliste (ein Bedienelement für alle Zeilen); Chips für Zustand, „empfohlen: …“, „Gilt nach einem Neustart“ und „geändert“. Hintergrund-Apps stecken in einem aufklappbaren Block.
+
+## Übersicht und neue Zeilenmuster (0.5)
+
+- `Button.Tile` (lokal in `OverviewView.xaml`): Ablesekachel, die in ihren Bereich führt; sieht aus wie die einfache Kachel, dazu Hover-Fläche (`Hover`) und Fokusring.
+- „Jetzt verbessern (n)“ sitzt in einer festen Fußleiste (Linie oben, `Canvas`); die Liste „Empfohlene Verbesserungen“ ist nach Bereich gruppiert, jede Zeile mit Häkchen und einem Satz Begründung.
+- Datenschutz: Gruppenüberschriften (u. a. „Werbung & Vorschläge“); Programme: Abschnitt „Vorinstallierte Apps“ oben. Zeilen wie bisher, nur der Ort ist neu.
+- Zwei Knöpfe in einer Zeile (z. B. „Beenden“ und „Nicht mehr mit Windows starten“): „Nicht mehr mit Windows starten“ als `Button.Quiet`, das endgültige „Beenden“ als `Button.Final`.
