@@ -43,12 +43,18 @@ public sealed class ImprovementCollector(IReadOnlyList<ImprovementSource> source
 {
     static readonly StringComparer German = StringComparer.Create(new CultureInfo("de-DE"), true);
 
+    // The same registry value can come from privacy, performance and security: one key space for those kinds.
+    static string KeyOf(IChange c) =>
+        c.Kind is "regvalue" or "perfvalue" or "secvalue"
+            ? "reg|" + c.Target.Trim().ToUpperInvariant()
+            : c.Kind + "|" + c.Target;
+
     public async Task<ImprovementScan> CollectAsync(IProgress<string>? p, CancellationToken ct)
     {
         var items = new List<Improvement>();
         var actions = new List<ActionSuggestion>();
         var notChecked = new List<string>();
-        var seen = new HashSet<(string Kind, string Target)>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var seenActions = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var source in sources)
@@ -60,11 +66,19 @@ public sealed class ImprovementCollector(IReadOnlyList<ImprovementSource> source
                 var (i, a) = await source.ReadAsync(ct).ConfigureAwait(false);
                 foreach (var item in i)
                 {
-                    var keys = item.Changes.Select(c => (c.Kind, c.Target)).ToList();
-                    // The same change was already offered by an earlier source: keep the first.
-                    if (keys.Count > 0 && keys.All(seen.Contains)) continue;
+                    // Per change, first wins: drop what an earlier item (or this one) already offers.
+                    var kept = new List<IChange>();
+                    var keys = new List<string>();
+                    foreach (var c in item.Changes)
+                    {
+                        var key = KeyOf(c);
+                        if (seen.Contains(key) || keys.Contains(key)) continue;
+                        keys.Add(key);
+                        kept.Add(c);
+                    }
+                    if (kept.Count == 0) continue;
                     foreach (var k in keys) seen.Add(k);
-                    items.Add(item);
+                    items.Add(kept.Count == item.Changes.Count ? item : item with { Changes = kept });
                 }
                 foreach (var act in a)
                     if (seenActions.Add(act.Id)) actions.Add(act);

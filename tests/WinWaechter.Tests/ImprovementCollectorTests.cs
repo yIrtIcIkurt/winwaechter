@@ -211,4 +211,40 @@ public sealed class ImprovementCollectorTests
         Assert.Equal("App Microsoft.Clipchamp", one.Title);
         Assert.Empty(ImprovementMap.FromBloatApps(rows, false));
     }
+
+    [Fact]
+    public async Task Partial_overlap_is_deduplicated_per_change()
+    {
+        var x = Ch("autostart", "X");
+        var c = new ImprovementCollector([
+            Src("S1", Imp("A", ImprovementArea.Leistung, "A", x)),
+            Src("S2", Imp("B", ImprovementArea.Leistung, "B", Ch("autostart", "X"), Ch("autostart", "Y"), Ch("autostart", "Y"))),
+        ]);
+        var scan = await c.CollectAsync(null, CancellationToken.None);
+        var all = scan.Items.SelectMany(i => i.Changes).Select(ch => ch.Target).ToArray();
+        Assert.Equal(["X", "Y"], all.OrderBy(t => t).ToArray());
+        var b = scan.Items.Single(i => i.Id == "B");
+        Assert.Equal("B", b.Title);
+        Assert.Equal(["Y"], b.Changes.Select(ch => ch.Target).ToArray());
+    }
+
+    [Fact]
+    public async Task Same_registry_value_from_different_kinds_is_merged()
+    {
+        var c = new ImprovementCollector([
+            Src("Datenschutz", Imp("p", ImprovementArea.DatenschutzWerbung, "P", Ch("regvalue", @"HKLM\Key\Val"))),
+            Src("Leistung", Imp("q", ImprovementArea.Leistung, "Q", Ch("perfvalue", @" hklm\key\VAL "))),
+            Src("Sicherheit", Imp("r", ImprovementArea.Sicherheit, "R", Ch("secvalue", @"HKLM\Key\Val"))),
+        ]);
+        var scan = await c.CollectAsync(null, CancellationToken.None);
+        Assert.Equal(["p"], scan.Items.Select(i => i.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task Item_without_changes_is_dropped()
+    {
+        var c = new ImprovementCollector([Src("S", Imp("none", ImprovementArea.Leistung, "N"))]);
+        var scan = await c.CollectAsync(null, CancellationToken.None);
+        Assert.Empty(scan.Items);
+    }
 }
