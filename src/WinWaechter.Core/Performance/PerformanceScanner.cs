@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using Microsoft.Win32;
 using WinWaechter.Core.Changes;
@@ -22,8 +23,6 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
 {
     // Who set a browser policy value: asked once per Scan. Null: every present policy value counts as foreign.
     readonly Func<IPolicyOwnership>? _policies = policies;
-    // The plans captured at Scan: the powerplan option values are indexes into this list.
-    IReadOnlyList<PowerPlan> _planList = [];
 
     const string Unreadable = "Nicht lesbar";
     const string CustomLabel = "Benutzerdefiniert";
@@ -61,7 +60,8 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
 
     const string AppPathsKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\";
 
-    readonly HashSet<string> _logged = [];
+    // One scanner serves the Leistung page and the overview check, possibly at the same time.
+    readonly ConcurrentDictionary<string, byte> _logged = new(StringComparer.Ordinal);
 
     /// <summary>Shown when the browser had no policy before: the browser then reports itself as managed.</summary>
     public static string ManagedHint(string browser) =>
@@ -100,7 +100,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         }
         catch (Exception ex)
         {
-            if (_logged.Add(name)) FileLog.Warn($"Leistung: Quelle „{name}“ nicht lesbar", ex);
+            if (_logged.TryAdd(name, 0)) FileLog.Warn($"Leistung: Quelle „{name}“ nicht lesbar", ex);
             rows.AddRange(broken());
         }
     }
@@ -164,12 +164,10 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
 
     IEnumerable<PerfSetting> ScanPowerPlan()
     {
-        _planList = [];
         if (plans is null) yield break; // not wired: no row
         const string explanation = "Der Energiesparplan bestimmt, wie Windows Strom und Leistung grundsätzlich abwägt.";
         var list = plans.List();
         var active = plans.Active();
-        _planList = list;
         if (list.Count == 0 || active is null)
         {
             yield return new("powerplan", "power", "Energiesparplan", explanation, [], 0, false, Unreadable,
@@ -279,7 +277,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
             }
             catch (Exception ex)
             {
-                if (_logged.Add("bg:" + app)) FileLog.Warn($"Leistung: Hintergrund-App „{app}“ nicht lesbar", ex);
+                if (_logged.TryAdd("bg:" + app, 0)) FileLog.Warn($"Leistung: Hintergrund-App „{app}“ nicht lesbar", ex);
                 row = new(BackgroundPrefix + app, "background", title, "", BackgroundOptions, 0, false, Unreadable,
                     null, null, false, null);
             }
@@ -296,7 +294,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         }
         catch (Exception ex)
         {
-            if (_logged.Add("policies")) FileLog.Warn("Leistung: Richtlinien-Besitz nicht lesbar", ex);
+            if (_logged.TryAdd("policies", 0)) FileLog.Warn("Leistung: Richtlinien-Besitz nicht lesbar", ex);
             return SecurityChecks.NoPolicies.Instance;
         }
     }
@@ -308,7 +306,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
             try { return inner.IsOurs(h, key, name); }
             catch (Exception ex)
             {
-                if (owner._logged.Add("policies")) FileLog.Warn("Leistung: Richtlinien-Besitz nicht lesbar", ex);
+                if (owner._logged.TryAdd("policies", 0)) FileLog.Warn("Leistung: Richtlinien-Besitz nicht lesbar", ex);
                 return false;
             }
         }
@@ -342,7 +340,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
             }
             catch (Exception ex)
             {
-                if (_logged.Add("browser:" + b.Id)) FileLog.Warn($"Leistung: Browser-Einstellung „{b.Id}“ nicht lesbar", ex);
+                if (_logged.TryAdd("browser:" + b.Id, 0)) FileLog.Warn($"Leistung: Browser-Einstellung „{b.Id}“ nicht lesbar", ex);
                 row = Broken(b.Id, BrowserGroup, b.Title, options);
             }
             yield return row;
@@ -357,7 +355,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         }
         catch (Exception ex)
         {
-            if (_logged.Add("name:" + app)) FileLog.Warn($"Leistung: Anzeigename von „{app}“ nicht lesbar", ex);
+            if (_logged.TryAdd("name:" + app, 0)) FileLog.Warn($"Leistung: Anzeigename von „{app}“ nicht lesbar", ex);
             return null;
         }
     }
@@ -374,7 +372,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         }
         catch (Exception ex)
         {
-            if (_logged.Add("faststartup")) FileLog.Warn("Leistung: Schnellstart-Zustand nicht lesbar", ex);
+            if (_logged.TryAdd("faststartup", 0)) FileLog.Warn("Leistung: Schnellstart-Zustand nicht lesbar", ex);
             return false;
         }
     }
@@ -396,8 +394,9 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
             case "power-ac": return [new PowerModeChange(power, PowerSource.Ac, PowerModeIds.All[chosen])];
             case "power-dc": return [new PowerModeChange(power, PowerSource.Dc, PowerModeIds.All[chosen])];
             case "powerplan":
-                return plans is not null && chosen >= 0 && chosen < _planList.Count
-                    ? [new PowerPlanChange(plans, _planList[chosen].Id)]
+                // the option carries its plan: no list shared with a later Scan (another page may scan meanwhile)
+                return plans is not null && s.Options.First(o => o.Value == chosen).PlanId is { } plan
+                    ? [new PowerPlanChange(plans, plan)]
                     : throw new ArgumentException($"Der Wert {chosen} gehört nicht zu „{s.Title}“.", nameof(chosen));
             case "faststartup":
                 return [new PerfValueChange(reg, PerfValues.FastStartup, chosen,

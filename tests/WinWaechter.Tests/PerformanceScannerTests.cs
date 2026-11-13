@@ -444,4 +444,35 @@ public sealed class PerformanceScannerTests : IDisposable
         Assert.False(unreadable.Available);
         Assert.Equal("Nicht lesbar", unreadable.UnavailableText);
     }
+
+    [Fact]
+    public void Power_plan_change_picks_the_plan_by_id_even_after_another_scan()
+    {
+        // the Leistung page and the overview share one scanner: a later Scan must not shift an earlier row's choice
+        var sc = Scanner();
+        var row = Row(sc.Scan(), "powerplan");
+        Assert.Equal("Höchstleistung", row.Options[1].Label);
+
+        var saver = _plans.Plans.Single(p => p.Id == FakePowerPlans.SaverId);
+        _plans.Plans.Remove(saver);
+        _plans.Plans.Insert(0, saver);
+        sc.Scan();   // e.g. the overview checked in between: the plan list now has another order
+
+        var change = sc.ChangesFor(row, 1).Single();
+        Assert.Equal("Energiesparplan auf „Höchstleistung“ umstellen", change.Description);
+        change.Apply(Ctx());
+        Assert.Equal(FakePowerPlans.HighId, _plans.ActiveId);
+    }
+
+    [Fact]
+    public async Task Scanner_can_be_used_from_two_threads()
+    {
+        // unreadable sources are logged once; two threads scanning at once must not break that bookkeeping
+        var sc = new PerformanceScanner(_reg, new ThrowingPower(), _anim, _hib, _names, true, _broadcast, _plans);
+        var scans = Enumerable.Range(0, 8).Select(_ => Task.Run(() =>
+        {
+            for (var i = 0; i < 50; i++) Assert.Contains(sc.Scan(), r => r.Id == "powerplan");
+        }));
+        await Task.WhenAll(scans);
+    }
 }
