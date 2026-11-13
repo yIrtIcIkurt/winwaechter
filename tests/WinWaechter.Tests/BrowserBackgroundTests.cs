@@ -85,6 +85,28 @@ public sealed class BrowserBackgroundTests : IDisposable
         Assert.Equal("Von einer Richtlinie festgelegt", Row(unknown, "edge-background").UnavailableText);
     }
 
+    sealed class ThrowingOwnership : IPolicyOwnership
+    {
+        public bool IsOurs(Hive h, string key, string name) => throw new IOException("Journal kaputt");
+    }
+
+    [Fact]
+    public void Failing_policy_source_falls_back_to_foreign_and_keeps_rows()
+    {
+        Installed("msedge.exe");
+        _reg.Seed(Hive.LocalMachine, EdgeKey, "StartupBoostEnabled", 0, RegistryValueKind.DWord);
+        IReadOnlyList<PerfSetting> Scan(Func<IPolicyOwnership> f) => new PerformanceScanner(_reg, new FakePowerModes(),
+            new FakeAnimationSetting(), new FakeHibernation(), new FakeAppDisplayNames(), true, new FakeBroadcast(),
+            new FakePowerPlans(), f).Scan().Where(r => r.Group == "browser-background").ToList();
+
+        foreach (var rows in new[] { Scan(() => throw new IOException("kaputt")), Scan(() => new ThrowingOwnership()) })
+        {
+            Assert.Equal(2, rows.Count);
+            Assert.Equal("Von einer Richtlinie festgelegt", Row(rows, "edge-startupboost").UnavailableText);
+            Assert.True(Row(rows, "edge-background").Available);
+        }
+    }
+
     [Fact]
     public void Own_policy_off_points_to_history()
     {
@@ -213,9 +235,18 @@ public sealed class BrowserBackgroundTests : IDisposable
         await vm.RefreshCommand.ExecuteAsync(null);
         Assert.Null(vm.BackgroundLaunchersHint);
 
+        // word boundary: „Eagle Browser“ is no launcher, „EA app“ is; one name uses the singular
+        findings.Add(Auto("Eagle Browser"));
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.Null(vm.BackgroundLaunchersHint);
+        findings.Add(Auto("EA app"));
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.Equal("EA app startet mit Windows und läuft im Hintergrund. Das regeln Sie unter Optimieren → Autostart.",
+            vm.BackgroundLaunchersHint);
+
         findings.AddRange([Auto("Steam"), Auto("Epic Games Launcher")]);
         await vm.RefreshCommand.ExecuteAsync(null);
-        Assert.Equal("Steam und Epic Games Launcher starten mit Windows und laufen im Hintergrund. Das regeln Sie unter Optimieren → Autostart.",
+        Assert.Equal("EA app, Steam und Epic Games Launcher starten mit Windows und laufen im Hintergrund. Das regeln Sie unter Optimieren → Autostart.",
             vm.BackgroundLaunchersHint);
         vm.OpenOptimizeCommand.Execute(null);
         Assert.Equal(1, opened());

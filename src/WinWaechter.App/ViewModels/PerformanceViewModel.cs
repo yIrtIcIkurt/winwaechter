@@ -263,12 +263,21 @@ public sealed partial class PerformanceViewModel : ObservableObject
     {
         var names = _startup?
             .Where(f => f is { Area: FindingArea.Autostart, Change: not null }
-                && LauncherPrefixes.Any(p => f.Title.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                && LauncherPrefixes.Any(p => IsLauncher(f.Title, p)))
             .Select(f => f.Title).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
-        BackgroundLaunchersHint = names.Count == 0
-            ? null
-            : $"{JoinNames(names)} starten mit Windows und laufen im Hintergrund. Das regeln Sie unter Optimieren → Autostart.";
+        const string where = "Das regeln Sie unter Optimieren → Autostart.";
+        BackgroundLaunchersHint = names.Count switch
+        {
+            0 => null,
+            1 => $"{names[0]} startet mit Windows und läuft im Hintergrund. {where}",
+            _ => $"{JoinNames(names)} starten mit Windows und laufen im Hintergrund. {where}",
+        };
     }
+
+    // The title starts with the prefix as a whole word („EA app“ yes, „Eagle Browser“ no).
+    static bool IsLauncher(string title, string prefix) =>
+        title.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+        && (title.Length == prefix.Length || !char.IsLetterOrDigit(title[prefix.Length]));
 
     static string JoinNames(IReadOnlyList<string> names) =>
         names.Count == 1 ? names[0] : string.Join(", ", names.Take(names.Count - 1)) + " und " + names[^1];

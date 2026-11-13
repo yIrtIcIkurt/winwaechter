@@ -287,13 +287,40 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         }
     }
 
+    // A failing journal must not hide the rows: then every present policy value counts as foreign.
+    IPolicyOwnership SafeOwnership()
+    {
+        try
+        {
+            return _policies?.Invoke() is { } inner ? new GuardedOwnership(inner, this) : SecurityChecks.NoPolicies.Instance;
+        }
+        catch (Exception ex)
+        {
+            if (_logged.Add("policies")) FileLog.Warn("Leistung: Richtlinien-Besitz nicht lesbar", ex);
+            return SecurityChecks.NoPolicies.Instance;
+        }
+    }
+
+    sealed class GuardedOwnership(IPolicyOwnership inner, PerformanceScanner owner) : IPolicyOwnership
+    {
+        public bool IsOurs(Hive h, string key, string name)
+        {
+            try { return inner.IsOurs(h, key, name); }
+            catch (Exception ex)
+            {
+                if (owner._logged.Add("policies")) FileLog.Warn("Leistung: Richtlinien-Besitz nicht lesbar", ex);
+                return false;
+            }
+        }
+    }
+
     // ---- browser background brakes (official machine policies, target 0 only) ----
 
     IEnumerable<PerfSetting> ScanBrowserBackground()
     {
         const string explanation = "Spart Arbeitsspeicher und Akku; der Browser startet nur Sekundenbruchteile langsamer.";
         PerfOption[] options = [new(1, "An"), new(0, "Aus")];
-        var own = _policies?.Invoke() ?? SecurityChecks.NoPolicies.Instance;
+        var own = SafeOwnership();
         foreach (var b in Browsers)
         {
             if (!reg.KeyExists(Hive.LocalMachine, AppPathsKey + b.Exe)) continue;
