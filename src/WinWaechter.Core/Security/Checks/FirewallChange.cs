@@ -46,6 +46,9 @@ public sealed class FirewallChange : IChange
             new() { ["enabled"] = "true" }, ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
+    public (Dictionary<string, string?> Before, Dictionary<string, string?> After)? RetryData() =>
+        (new() { ["profile"] = ((int)_profile).ToString(), ["enabled"] = "false" }, new() { ["enabled"] = "true" });
+
     // Before["enabled"] must be exactly "true" or "false"; anything else must never switch the firewall off.
     static bool ParseEnabled(ChangeRecord r) =>
         r.Before.GetValueOrDefault("enabled") switch

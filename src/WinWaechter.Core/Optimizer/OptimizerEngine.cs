@@ -52,46 +52,77 @@ public sealed class OptimizerEngine
             return all;
         }, ct);
 
+    /// <summary>
+    /// Applies the selected changes in a new session. A failure stops the run, unless continueOnError:
+    /// then the failed change is journalled Failed and the rest still runs.
+    /// </summary>
     public Task<ApplyResult> ApplyAsync(string title, IReadOnlyList<Finding> selected,
-        IProgress<string>? p, CancellationToken ct) =>
+        IProgress<string>? p, CancellationToken ct, bool continueOnError = false) =>
         Task.Run(() =>
         {
             ct.ThrowIfCancellationRequested();   // before any restore point or session exists
-            var changes = selected.Select(f => f.Change).OfType<IChange>().ToList();
-            p?.Report("Wiederherstellungspunkt wird erstellt …");
-            var rp = _restorePoint(title);
-            var session = _store.Create(title);
-            int applied = 0, failed = 0;
-
-            for (var i = 0; i < changes.Count; i++)
-            {
-                if (ct.IsCancellationRequested) break;
-                var change = changes[i];
-                p?.Report($"({i + 1}/{changes.Count}) {change.Description}");
-                var id = Guid.NewGuid().ToString("N");
-                // journal first (with the paths the change will write), so a crash mid-change leaves a trace
-                var pending = change.Plan(session.Context) with { Id = id, Status = ChangeStatus.Pending, At = DateTimeOffset.Now };
-                session.Upsert(pending);
-                try
-                {
-                    var done = change.Apply(session.Context);
-                    session.Upsert(done with { Id = id, Status = ChangeStatus.Applied, Error = null });
-                    applied++;
-                }
-                catch (Exception ex)
-                {
-                    FileLog.Error($"Änderung fehlgeschlagen: {change.Description}", ex);
-                    session.Upsert(pending with
-                    {
-                        Status = ChangeStatus.Failed, At = DateTimeOffset.Now,
-                        Error = $"Änderung fehlgeschlagen: {ex.Message}",
-                    });
-                    failed++;
-                    break;
-                }
-            }
-            return new ApplyResult(session, applied, failed, rp);
+            return Apply(title, selected.Select(f => f.Change).OfType<IChange>().ToList(), p, ct, continueOnError);
         }, CancellationToken.None);
+
+    /// <summary>A Failed record that carries retry data (IChange.RetryData).</summary>
+    public static bool CanRetry(ChangeRecord r) => r.Status == ChangeStatus.Failed && r.RetryBefore is not null;
+
+    /// <summary>
+    /// Rebuilds a failed change from its retry data through the kind's own FromRecord (so its whitelist
+    /// check runs) and applies it again in a new session.
+    /// </summary>
+    public Task<ApplyResult> RetryAsync(ChangeRecord failed, IProgress<string>? p, CancellationToken ct) =>
+        Task.Run(() =>
+        {
+            if (!CanRetry(failed))
+                throw new InvalidOperationException("Für diesen Eintrag ist kein erneuter Versuch möglich.");
+            var change = _factory.Rehydrate(failed with
+            {
+                Before = failed.RetryBefore!, After = failed.RetryAfter ?? new(), Status = ChangeStatus.Applied,
+            });
+            ct.ThrowIfCancellationRequested();
+            return Apply($"Erneut versuchen: {failed.Description}", [change], p, ct, continueOnError: false);
+        }, CancellationToken.None);
+
+    ApplyResult Apply(string title, IReadOnlyList<IChange> changes, IProgress<string>? p, CancellationToken ct,
+        bool continueOnError)
+    {
+        p?.Report("Wiederherstellungspunkt wird erstellt …");
+        var rp = _restorePoint(title);
+        var session = _store.Create(title);
+        int applied = 0, failed = 0;
+
+        for (var i = 0; i < changes.Count; i++)
+        {
+            if (ct.IsCancellationRequested) break;
+            var change = changes[i];
+            p?.Report($"({i + 1}/{changes.Count}) {change.Description}");
+            var id = Guid.NewGuid().ToString("N");
+            // journal first (with the paths the change will write), so a crash mid-change leaves a trace
+            var pending = change.Plan(session.Context) with { Id = id, Status = ChangeStatus.Pending, At = DateTimeOffset.Now };
+            session.Upsert(pending);
+            try
+            {
+                var done = change.Apply(session.Context);
+                session.Upsert(done with { Id = id, Status = ChangeStatus.Applied, Error = null });
+                applied++;
+            }
+            catch (Exception ex)
+            {
+                FileLog.Error($"Änderung fehlgeschlagen: {change.Description}", ex);
+                var retry = change.RetryData();
+                session.Upsert(pending with
+                {
+                    Status = ChangeStatus.Failed, At = DateTimeOffset.Now,
+                    Error = $"Änderung fehlgeschlagen: {ex.Message}",
+                    RetryBefore = retry?.Before, RetryAfter = retry?.After,
+                });
+                failed++;
+                if (!continueOnError) break;
+            }
+        }
+        return new ApplyResult(session, applied, failed, rp);
+    }
 
     /// <summary>
     /// Applied records, plus Pending/Failed ones whose plan names what was written (e.g. files moved

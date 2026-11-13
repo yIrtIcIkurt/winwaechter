@@ -64,6 +64,9 @@ public sealed class ServiceStartModeChange : IChange
             ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
+    // Rebuilt from Target alone.
+    public (Dictionary<string, string?> Before, Dictionary<string, string?> After)? RetryData() => (new(), new());
+
     public void Undo(ChangeRecord record, SessionContext ctx)
     {
         // A vanished or unreadable service cannot be restored; report it.

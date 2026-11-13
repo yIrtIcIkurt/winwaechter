@@ -5,7 +5,7 @@ using WinWaechter.Core.Model;
 namespace WinWaechter.Core.Sys;
 
 /// <summary>
-/// Shared logic for changes that set one REG_DWORD: snapshot the old value, write the target,
+/// Shared logic for changes that set one REG_DWORD or REG_SZ: snapshot the old value, write the target,
 /// restore the old state and compare the live value with the target.
 /// </summary>
 public static class RegDword
@@ -40,6 +40,13 @@ public static class RegDword
         reg.Set(hive, key, name, value, RegistryValueKind.DWord);
     }
 
+    /// <summary>Writes the REG_SZ; creates the key first when it is missing.</summary>
+    public static void WriteString(IRegistry reg, Hive hive, string key, string name, string value)
+    {
+        if (!reg.KeyExists(hive, key)) reg.CreateKey(hive, key);
+        reg.Set(hive, key, name, value, RegistryValueKind.String);
+    }
+
     public static void Restore(IRegistry reg, Hive hive, string key, string name, IReadOnlyDictionary<string, string?> before)
     {
         if (before.GetValueOrDefault("existed") != "true")
@@ -69,5 +76,12 @@ public static class RegDword
         reg.GetKind(hive, key, name) == RegistryValueKind.DWord
         && reg.Get(hive, key, name) is { } v
         && Convert.ToInt32(v, CultureInfo.InvariantCulture) == target
+            ? DriftState.Unchanged : DriftState.Changed;
+
+    /// <summary>Unchanged only when the live value is a REG_SZ equal to target (ignoring case).</summary>
+    public static DriftState DriftString(IRegistry reg, Hive hive, string key, string name, string target) =>
+        reg.GetKind(hive, key, name) == RegistryValueKind.String
+        && reg.Get(hive, key, name) is string v
+        && string.Equals(v, target, StringComparison.OrdinalIgnoreCase)
             ? DriftState.Unchanged : DriftState.Changed;
 }

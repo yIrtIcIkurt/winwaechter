@@ -60,6 +60,9 @@ public sealed class RegValueChange : IChange
             before, after, ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
+    public (Dictionary<string, string?> Before, Dictionary<string, string?> After)? RetryData() =>
+        (new() { ["hive"] = HiveName(_value.Hive), ["key"] = _value.Key, ["name"] = _value.Name }, new());
+
     public void Undo(ChangeRecord record, SessionContext ctx) =>
         RegDword.Restore(_reg, _value.Hive, _value.Key, _value.Name, record.Before);
 
