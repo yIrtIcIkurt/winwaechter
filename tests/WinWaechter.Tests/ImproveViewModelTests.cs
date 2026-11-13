@@ -6,6 +6,8 @@ using WinWaechter.Core.Improvements;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
+using WinWaechter.Core.Programs;
+using WinWaechter.Core.Rules;
 using WinWaechter.Core.Sys;
 using WinWaechter.Tests.Fakes;
 
@@ -59,14 +61,23 @@ public sealed class ImproveViewModelTests : IDisposable
 
     SessionStore Store => new(_root);
 
-    ImproveViewModel Vm(ImprovementScan scan, bool canChange = true, Func<DriveSpace?>? disk = null)
+    sealed class LinkShell : ISystemShell
     {
-        var engine = new OptimizerEngine([], Store, new ChangeFactory(), _ => new RestorePointResult(true, "Wiederherstellungspunkt erstellt."));
+        public List<string> Links { get; } = [];
+        public void OpenFolder(string path) { }
+        public void OpenLink(string uri) => Links.Add(uri);
+    }
+
+    ImproveViewModel Vm(ImprovementScan scan, bool canChange = true, Func<DriveSpace?>? disk = null,
+        Func<string, RestorePointResult>? restorePoint = null, ISystemShell? shell = null, Action? openOptimize = null)
+    {
+        var engine = new OptimizerEngine([], Store, new ChangeFactory(),
+            restorePoint ?? (_ => new RestorePointResult(true, "Wiederherstellungspunkt erstellt.")));
         return new ImproveViewModel((_, _) =>
         {
             _collects++;
             return Task.FromResult(scan);
-        }, engine, _dialogs, new ActionRunner(_dialogs, _gate), canChange, _gate, disk);
+        }, engine, _dialogs, new ActionRunner(_dialogs, _gate), canChange, _gate, disk, shell, openOptimize);
     }
 
     [Fact]
@@ -115,13 +126,49 @@ public sealed class ImproveViewModelTests : IDisposable
         var session = Assert.Single(Store.List());
         Assert.Equal("Rechner in Ordnung bringen", session.Title);
         Assert.Equal(3, session.Records.Count(r => r.Status == ChangeStatus.Applied));
-        Assert.Equal("3 verbessert, 0 übersprungen", vm.ResultText);
+        Assert.Equal("2 verbessert, 0 übersprungen", vm.ResultText);   // per improvement, like the button
         Assert.Empty(vm.SkippedReasons);
+        Assert.True(vm.HasRunResult);
         Assert.Equal(1, raised);
         Assert.Equal(2, _collects);   // checked again afterwards, keeping the summary
 
         await vm.CheckCommand.ExecuteAsync(null);   // a new check by hand clears it
         Assert.Null(vm.ResultText);
+        Assert.False(vm.HasRunResult);
+    }
+
+    [Fact]
+    public async Task Result_counts_improvements_a_failed_change_skips_its_improvement()
+    {
+        var vm = Vm(Scan([I("a", ImprovementArea.DatenschutzWerbung, C("a1"), C("a2", fail: "Zugriff verweigert")),
+            I("b", ImprovementArea.Leistung, C("b"))]));
+        await vm.CheckCommand.ExecuteAsync(null);
+
+        await vm.ImproveCommand.ExecuteAsync(null);
+
+        Assert.Equal(["a1", "b"], _applied);
+        Assert.Equal("1 verbessert, 1 übersprungen", vm.ResultText);
+        Assert.Equal(["Ändern a2: Änderung fehlgeschlagen: Zugriff verweigert"], vm.SkippedReasons);
+    }
+
+    [Fact]
+    public async Task First_step_error_still_runs_the_main_session()
+    {
+        var vm = Vm(Scan([Sysprotect(), I("a", ImprovementArea.Aufraeumen, C("a"))]),
+            restorePoint: t => t == ImproveViewModel.FirstStepTitle
+                ? throw new IOException("Datenträger voll")
+                : new RestorePointResult(true, "Wiederherstellungspunkt erstellt."));
+        var raised = 0;
+        vm.ChangesApplied += (_, _) => raised++;
+        await vm.CheckCommand.ExecuteAsync(null);
+
+        await vm.ImproveCommand.ExecuteAsync(null);
+
+        Assert.Equal(["a"], _applied);
+        Assert.Equal(["Rechner in Ordnung bringen"], Store.List().Select(s => s.Title));
+        Assert.Equal("1 verbessert, 1 übersprungen", vm.ResultText);
+        Assert.Equal(["Computerschutz einschalten: Datenträger voll"], vm.SkippedReasons);
+        Assert.Equal(1, raised);
     }
 
     [Fact]
@@ -189,8 +236,37 @@ public sealed class ImproveViewModelTests : IDisposable
         await vm.Suggestions.Single().RunCommand.ExecuteAsync(null);
         Assert.Equal(1, runs);
         Assert.Equal("Die Virendefinitionen sind aktuell.", vm.ResultText);
+        Assert.False(vm.HasRunResult);   // nothing new in the history
         Assert.Single(Store.List());   // the action is no session
         Assert.Equal(3, _collects);   // checked again after the action
+    }
+
+    [Theory]
+    [InlineData(SystemLinks.DefenderThreat, true)]
+    [InlineData("https://example.com", false)]
+    public async Task Blocked_action_offers_Windows_Sicherheit(string link, bool offered)
+    {
+        var act = new SystemAction("realtime", "Echtzeitschutz einschalten", "Einschalten", null, false,
+            (_, _) => Task.FromResult(new ActionOutcome(false, "Windows hat das Einschalten blockiert.", link)));
+        var shell = new LinkShell();
+        var vm = Vm(Scan([], [new ActionSuggestion("realtime", "Echtzeitschutz", "weil", act)]), shell: shell);
+        await vm.CheckCommand.ExecuteAsync(null);
+
+        await vm.Suggestions[0].RunCommand.ExecuteAsync(null);
+
+        if (offered)
+        {
+            var offer = Assert.Single(_dialogs.Confirms);
+            Assert.Equal(SecurityViewModel.OpenSecurityText, offer.Button);
+            Assert.Equal("Windows hat das Einschalten blockiert.", offer.Message);
+            Assert.Equal([SystemLinks.DefenderThreat], shell.Links);
+        }
+        else
+        {
+            Assert.Empty(_dialogs.Confirms);
+            Assert.Empty(shell.Links);
+        }
+        Assert.Equal("Windows hat das Einschalten blockiert.", vm.ResultText);
     }
 
     [Fact]
@@ -217,7 +293,14 @@ public sealed class ImproveViewModelTests : IDisposable
             runs++;
             return Task.FromResult(new ActionOutcome(true, "ok"));
         });
-        var vm = Vm(Scan([I("a", ImprovementArea.Aufraeumen, C("a"))], [new ActionSuggestion("a", "Aktion", "weil", act)]),
+        var pkgs = new FakeAppPackages();
+        var p = new AppPackage("Microsoft.BingNews", "Microsoft.BingNews_1.0.0.0_neutral__8wekyb3d8bbwe", "Microsoft.BingNews_8wekyb3d8bbwe",
+            null, false, false, "Store", true);
+        pkgs.Add(p);
+        var rule = new BloatAppRule("Microsoft.BingNews", "Microsoft News", true);
+        // AppServices passes only ownAccount: without admin rights the apps are listed too, and locked like everything else
+        var apps = ImprovementMap.FromBloatApps([new BloatAppRow(rule, p, new AppxChange(pkgs, p, rule, RuleSet.Default))], allowed: true);
+        var vm = Vm(Scan([I("a", ImprovementArea.Aufraeumen, C("a")), .. apps], [new ActionSuggestion("a", "Aktion", "weil", act)]),
             canChange: false);
 
         Assert.True(vm.CheckCommand.CanExecute(null));
@@ -225,13 +308,15 @@ public sealed class ImproveViewModelTests : IDisposable
 
         Assert.True(vm.ShowAdminNotice);
         Assert.Equal(AppEnvironment.AdminNotice, vm.AdminNotice);
-        Assert.Single(vm.Groups);
-        Assert.False(vm.Groups[0].Items[0].CanSelect);
+        var group = Assert.Single(vm.Groups);
+        Assert.Equal(["Titel a", "Microsoft News"], group.Items.Select(i => i.Title));
+        Assert.All(group.Items, i => Assert.False(i.CanSelect));
         Assert.False(vm.ImproveCommand.CanExecute(null));
         Assert.False(vm.Suggestions[0].RunCommand.CanExecute(null));
         await vm.ImproveCommand.ExecuteAsync(null);
         await vm.Suggestions[0].RunCommand.ExecuteAsync(null);
         Assert.Empty(_applied);
+        Assert.Empty(pkgs.Removed);
         Assert.Equal(0, runs);
         Assert.Empty(_dialogs.Confirms);
     }
@@ -255,17 +340,26 @@ public sealed class ImproveViewModelTests : IDisposable
     [Fact]
     public async Task Low_disk_band_and_make_space_checks()
     {
-        var vm = Vm(Scan([]), disk: () => new DriveSpace(@"C:\", 8L << 30, 500L << 30));
-        Assert.Null(vm.LowDiskText);
+        var opened = 0;
+        var vm = Vm(Scan([I("temp", ImprovementArea.Aufraeumen, C("t"))]), disk: () => new DriveSpace(@"C:\", 8L << 30, 500L << 30),
+            openOptimize: () => opened++);
 
-        await vm.CheckCommand.ExecuteAsync(null);
+        await vm.DiskReading;   // read at once: the band shows before any check
         Assert.Equal("Auf Laufwerk C: sind nur noch 8,0 GB frei.", vm.LowDiskText);
+        Assert.Equal(0, _collects);
 
-        await vm.MakeSpaceCommand.ExecuteAsync(null);
-        Assert.Equal(2, _collects);
+        await vm.MakeSpaceCommand.ExecuteAsync(null);   // no list yet: the check fills it
+        Assert.Equal(1, _collects);
+        Assert.Equal(0, opened);
+        Assert.Single(vm.Groups);
+
+        await vm.MakeSpaceCommand.ExecuteAsync(null);   // with a list: Optimieren with a fresh scan, the list stays
+        Assert.Equal(1, opened);
+        Assert.Equal(1, _collects);
+        Assert.Single(vm.Groups);
 
         var roomy = Vm(Scan([]), disk: () => new DriveSpace(@"C:\", 200L << 30, 500L << 30));
-        await roomy.CheckCommand.ExecuteAsync(null);
+        await roomy.DiskReading;
         Assert.Null(roomy.LowDiskText);
     }
 }

@@ -184,7 +184,8 @@
                     <ItemsControl Margin="0,4,0,0" ItemsSource="{Binding Improve.SkippedReasons}" ItemTemplate="{StaticResource ReasonLine}"
                                   Focusable="False" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" />
                     <Button Margin="-8,4,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}" Content="Im Verlauf ansehen"
-                            Command="{Binding OpenHistoryCommand}" />
+                            Command="{Binding OpenHistoryCommand}"
+                            Visibility="{Binding Improve.HasRunResult, Converter={StaticResource Vis}}" />
                 </StackPanel>
 
                 <!-- nothing to do -->

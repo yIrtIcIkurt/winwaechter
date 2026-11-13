@@ -75,9 +75,15 @@ public sealed partial class ImproveViewModel : ObservableObject
     readonly ActionRunner _actions;
     readonly ChangeGate _gate;
     readonly Func<DriveSpace?>? _disk;
+    readonly ISystemShell? _shell;
+    readonly Action? _openOptimize;
 
+    /// <param name="disk">The system drive; read at once (for the low-disk band) and after every check.</param>
+    /// <param name="shell">Opens an allowed system link an action points to (Windows-Sicherheit).</param>
+    /// <param name="openOptimize">„Platz schaffen“ once a list exists: Optimieren with a fresh scan.</param>
     public ImproveViewModel(Func<IProgress<string>?, CancellationToken, Task<ImprovementScan>> collect, OptimizerEngine engine,
-        IDialogService dialogs, ActionRunner actions, bool canChange, ChangeGate gate, Func<DriveSpace?>? disk = null)
+        IDialogService dialogs, ActionRunner actions, bool canChange, ChangeGate gate, Func<DriveSpace?>? disk = null,
+        ISystemShell? shell = null, Action? openOptimize = null)
     {
         _collect = collect;
         _engine = engine;
@@ -86,12 +92,19 @@ public sealed partial class ImproveViewModel : ObservableObject
         CanChange = canChange;
         _gate = gate;
         _disk = disk;
+        _shell = shell;
+        _openOptimize = openOptimize;
         gate.PropertyChanged += (_, _) =>
         {
             NotifyCommands();
             OnPropertyChanged(nameof(GateHint));
         };
+        // the band shows before any check
+        DiskReading = ReadDiskAsync(CancellationToken.None);
     }
+
+    /// <summary>The disk read started by the constructor (tests wait for it).</summary>
+    public Task DiskReading { get; }
 
     /// <summary>Raised after a run created sessions (the history should show the newest one).</summary>
     public event EventHandler? ChangesApplied;
@@ -140,6 +153,10 @@ public sealed partial class ImproveViewModel : ObservableObject
     [ObservableProperty]
     private string? _resultText;
 
+    /// <summary>True when ResultText is the summary of a run that created a session (the history has it).</summary>
+    [ObservableProperty]
+    private bool _hasRunResult;
+
     /// <summary>One line per failed change of the last run: description and error.</summary>
     [ObservableProperty]
     private IReadOnlyList<string> _skippedReasons = [];
@@ -174,8 +191,7 @@ public sealed partial class ImproveViewModel : ObservableObject
     {
         if (IsBusy) return Task.CompletedTask;
         // a new check by hand: the result of an earlier run no longer applies
-        ResultText = null;
-        SkippedReasons = [];
+        ShowResult(null, [], run: false);
         return LoadAsync(ct);
     }
 
@@ -198,7 +214,7 @@ public sealed partial class ImproveViewModel : ObservableObject
         catch (Exception ex)
         {
             FileLog.Error("Rechner in Ordnung bringen: Prüfung fehlgeschlagen", ex);
-            ResultText = $"Prüfung fehlgeschlagen: {ex.Message}";
+            ShowResult($"Prüfung fehlgeschlagen: {ex.Message}", [], run: false);
         }
         finally
         {
@@ -226,6 +242,7 @@ public sealed partial class ImproveViewModel : ObservableObject
         OnPropertyChanged(nameof(OpenCount));
     }
 
+    // never throws: a failed read hides the band
     async Task ReadDiskAsync(CancellationToken ct)
     {
         if (_disk is null) return;
@@ -238,7 +255,6 @@ public sealed partial class ImproveViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            throw;
         }
         catch (Exception ex)
         {
@@ -249,9 +265,17 @@ public sealed partial class ImproveViewModel : ObservableObject
 
     static string Gb(long bytes) => (bytes / (1024.0 * 1024 * 1024)).ToString("F1", Labels.De);
 
-    /// <summary>„Platz schaffen“: the check fills the list, where „Aufräumen“ holds the safe cleanups.</summary>
+    /// <summary>
+    /// „Platz schaffen“: before the first check the check fills the list („Aufräumen“ holds the safe cleanups); once a list
+    /// exists, Optimieren opens with a fresh scan (safe findings preselected) and the list here stays.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanCheck))]
-    private Task MakeSpaceAsync() => CheckCommand.ExecuteAsync(null);
+    private Task MakeSpaceAsync()
+    {
+        if (CheckedAt is null || _openOptimize is null) return CheckCommand.ExecuteAsync(null);
+        _openOptimize();
+        return Task.CompletedTask;
+    }
 
     bool CanImprove() => CanChange && !IsBusy && !_gate.IsBusy && SelectedCount > 0;
 
@@ -272,8 +296,7 @@ public sealed partial class ImproveViewModel : ObservableObject
         var ran = await _gate.RunAsync(this, async () => created = await RunImproveAsync(selected, ct));
         if (!ran)
         {
-            ResultText = ChangeGate.BusyHint;
-            SkippedReasons = [];
+            ShowResult(ChangeGate.BusyHint, [], run: false);
             return;
         }
         if (created) ChangesApplied?.Invoke(this, EventArgs.Empty);
@@ -286,27 +309,40 @@ public sealed partial class ImproveViewModel : ObservableObject
     {
         IsBusy = true;
         ProgressText = "Sicherung wird vorbereitet …";
-        ResultText = null;
-        SkippedReasons = [];
-        var first = selected.Where(i => i.RunFirst).SelectMany(i => i.Changes).ToList();
-        var rest = selected.Where(i => !i.RunFirst).SelectMany(i => i.Changes).ToList();
-        var results = new List<ApplyResult>();
+        ShowResult(null, [], run: false);
+        var first = selected.Where(i => i.RunFirst).ToList();
+        var rest = selected.Where(i => !i.RunFirst).ToList();
+        var tally = new Tally();
+        var sessions = new List<ApplyResult>();
+        var progress = new Progress<string>(s => ProgressText = s);
+
+        async Task StepAsync(string title, List<Improvement> items, bool continueOnError)
+        {
+            if (items.Count == 0) return;
+            try
+            {
+                var r = await _engine.ApplyAsync(title, Findings(items.SelectMany(i => i.Changes)), progress, ct, continueOnError);
+                sessions.Add(r);
+                tally.Add(items, r.Session.Records);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                FileLog.Error($"{title} fehlgeschlagen", ex);
+                tally.Skipped += items.Count;
+                tally.Reasons.Add($"{title}: {ex.Message}");
+            }
+        }
+
         try
         {
-            var progress = new Progress<string>(s => ProgressText = s);
-            // Computerschutz first, so the restore point of the main session already works
-            if (first.Count > 0) results.Add(await _engine.ApplyAsync(FirstStepTitle, Findings(first), progress, ct));
-            if (rest.Count > 0)
-                results.Add(await _engine.ApplyAsync(SessionTitle, Findings(rest), progress, ct, continueOnError: true));
+            // Computerschutz first, so the restore point of the main session already works;
+            // the main session runs even when this step fails
+            await StepAsync(FirstStepTitle, first, continueOnError: false);
+            await StepAsync(SessionTitle, rest, continueOnError: true);
         }
         catch (OperationCanceledException)
         {
             FileLog.Info("Rechner in Ordnung bringen: abgebrochen");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Error("Rechner in Ordnung bringen fehlgeschlagen", ex);
-            _dialogs.Inform("Verbessern fehlgeschlagen", ex.Message);
         }
         finally
         {
@@ -314,20 +350,43 @@ public sealed partial class ImproveViewModel : ObservableObject
             IsBusy = false;
         }
 
-        var applied = results.Sum(r => r.Applied);
-        var failed = results.Sum(r => r.Failed);
-        var notDone = first.Count + rest.Count - applied - failed;
-        var reasons = results.SelectMany(r => r.Session.Records)
-            .Where(r => r.Status == ChangeStatus.Failed)
-            .Select(r => $"{r.Description}: {r.Error}")
-            .ToList();
-        var summary = $"{applied} verbessert, {failed} übersprungen";
+        // per improvement, like „Jetzt verbessern (n)“; the reasons name each failed change
+        var notDone = selected.Count - tally.Improved - tally.Skipped;
+        var summary = $"{tally.Improved} verbessert, {tally.Skipped} übersprungen";
         if (notDone > 0) summary += $", {notDone} nicht ausgeführt";
-        ResultText = summary;
+        ShowResult(summary, tally.Reasons, run: sessions.Count > 0);
+        _dialogs.Inform("Zusammenfassung", summary,
+            [.. tally.Reasons, .. sessions.Select(r => r.RestorePoint.Message).Distinct()]);
+        return sessions.Count > 0;
+    }
+
+    // An improvement counts as improved when all its changes were applied, as skipped when one of them failed.
+    sealed class Tally
+    {
+        public int Improved;
+        public int Skipped;
+        public List<string> Reasons { get; } = [];
+
+        // the engine journals one record per change, in the order of the changes
+        public void Add(IReadOnlyList<Improvement> items, IReadOnlyList<ChangeRecord> records)
+        {
+            var at = 0;
+            foreach (var item in items)
+            {
+                var mine = records.Skip(at).Take(item.Changes.Count).ToList();
+                at += item.Changes.Count;
+                if (mine.Any(r => r.Status == ChangeStatus.Failed)) Skipped++;
+                else if (mine.Count == item.Changes.Count && mine.All(r => r.Status == ChangeStatus.Applied)) Improved++;
+            }
+            Reasons.AddRange(records.Where(r => r.Status == ChangeStatus.Failed).Select(r => $"{r.Description}: {r.Error}"));
+        }
+    }
+
+    void ShowResult(string? text, IReadOnlyList<string> reasons, bool run)
+    {
+        ResultText = text;
         SkippedReasons = reasons;
-        if (results.Count > 0)
-            _dialogs.Inform("Zusammenfassung", summary, [.. reasons, .. results.Select(r => r.RestorePoint.Message).Distinct()]);
-        return results.Count > 0;
+        HasRunResult = run && text is not null;
     }
 
     static List<Finding> Findings(IEnumerable<IChange> changes) =>
@@ -362,8 +421,14 @@ public sealed partial class ImproveViewModel : ObservableObject
             IsBusy = false;
         }
         if (outcome is null) return;
-        ResultText = outcome.Message;
-        SkippedReasons = [];
+        if (outcome.Link is { } link)
+        {
+            // e.g. the real-time switch blocked by tamper protection: offer Windows-Sicherheit directly
+            if (!SystemLinks.IsAllowed(link)) FileLog.Warn($"Link nicht erlaubt: {link}");
+            else if (_shell is not null && _dialogs.Confirm(act.Title, outcome.Message, SecurityViewModel.OpenSecurityText))
+                _shell.OpenLink(link);
+        }
+        ShowResult(outcome.Message, [], run: false);
         await LoadAsync(CancellationToken.None);
     }
 

@@ -204,7 +204,8 @@ public sealed class AppServices : IDisposable
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
         var settingsVm = new SettingsViewModel(settings, env, update, shell, rulesInfo, updateRules);
 
-        // „Rechner in Ordnung bringen“: the same scanners as the area pages, in this order (the first source wins a shared change)
+        // „Rechner in Ordnung bringen“: the same scanners as the area pages, in this order (the first source wins a shared change);
+        // without admin rights everything is listed and locked (the apps only need the signed-in user's account)
         static ImprovementSource Source(string name, Func<CancellationToken, Task<IReadOnlyList<Improvement>>> read) =>
             new(name, async ct => (await read(ct), []));
         var collector = new ImprovementCollector(
@@ -214,10 +215,10 @@ public sealed class AppServices : IDisposable
             Source("Datenschutz", async ct => ImprovementMap.FromPrivacy(await PrivacyScan(ct))),
             Source("Leistung", ct => Task.Run(() => ImprovementMap.FromPerformance(perfScanner.Scan(), perfScanner.ChangesFor), ct)),
             new("Sicherheit", async ct => ImprovementMap.FromSecurity(await SecurityRun(ct))),
-            Source("Vorinstallierte Apps", ct => Task.Run(() => ImprovementMap.FromBloatApps(BloatScan(), canChange && ownAccount), ct)),
+            Source("Vorinstallierte Apps", ct => Task.Run(() => ImprovementMap.FromBloatApps(BloatScan(), ownAccount), ct)),
         ]);
         var improve = new ImproveViewModel((p, ct) => Task.Run(() => collector.CollectAsync(p, ct), ct), engine, dialogs, actions,
-            canChange, gate, disk.SystemDrive);
+            canChange, gate, disk.SystemDrive, shell, OpenOptimizeAndScan);
 
         shellVm = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settingsVm, update,
             improve, env.IsElevated);
