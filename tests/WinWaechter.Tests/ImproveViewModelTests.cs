@@ -338,6 +338,43 @@ public sealed class ImproveViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Store_only_app_is_listed_but_not_preselected()
+    {
+        var storeOnly = I("app", ImprovementArea.Aufraeumen, C("news", "appx", limit: UndoLimits.StoreOnly)) with { Preselected = false };
+        var vm = Vm(Scan([storeOnly, I("copy", ImprovementArea.Aufraeumen, C("clip", "appx"))]));
+        await vm.CheckCommand.ExecuteAsync(null);
+
+        var items = vm.Groups.Single().Items;
+        Assert.False(items.Single(i => i.Title == "Titel app").IsSelected);
+        Assert.True(items.Single(i => i.Title == "Titel copy").IsSelected);
+        Assert.Equal(1, vm.SelectedCount);
+
+        // ticked by hand it is applied like any other
+        items.Single(i => i.Title == "Titel app").IsSelected = true;
+        await vm.ImproveCommand.ExecuteAsync(null);
+        Assert.Contains("Ändern news (Nur über den Store wiederherstellbar)", Assert.Single(_dialogs.Confirms).Items);
+        Assert.Equal(["news", "clip"], _applied);
+    }
+
+    [Fact]
+    public async Task Browser_managed_note_in_row_and_confirm()
+    {
+        var hint = WinWaechter.Core.Performance.PerformanceScanner.ManagedHint("Edge");
+        var edge = I("edge", ImprovementArea.AutostartHintergrund, C("edge", "perfvalue")) with { Note = hint };
+        var vm = Vm(Scan([edge, I("other", ImprovementArea.Leistung, C("o"))]));
+        await vm.CheckCommand.ExecuteAsync(null);
+        _dialogs.ConfirmAnswer = false;
+
+        Assert.Equal("Warum edge " + hint, vm.Groups[0].Items.Single().Why);
+        Assert.Equal("Warum other", vm.Groups[1].Items.Single().Why);
+
+        await vm.ImproveCommand.ExecuteAsync(null);
+
+        var confirm = Assert.Single(_dialogs.Confirms);
+        Assert.Equal(["Ändern edge – " + hint, "Ändern o"], confirm.Items);
+    }
+
+    [Fact]
     public async Task Low_disk_band_and_make_space_checks()
     {
         var opened = 0;

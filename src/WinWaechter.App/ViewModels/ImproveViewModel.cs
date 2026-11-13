@@ -12,7 +12,7 @@ using WinWaechter.Core.Sys;
 
 namespace WinWaechter.App.ViewModels;
 
-/// <summary>One recommended improvement: what, one sentence why, a preselected checkbox.</summary>
+/// <summary>One recommended improvement: what, one sentence why (plus its note), a checkbox – preselected unless the item says otherwise.</summary>
 public sealed partial class ImprovementItemViewModel : ObservableObject
 {
     readonly Action _selectionChanged;
@@ -21,19 +21,20 @@ public sealed partial class ImprovementItemViewModel : ObservableObject
     {
         Item = item;
         CanSelect = canSelect;
+        // spec 4.1: the recommendations are preselected; R23: an app only the Store can bring back is not
+        _isSelected = item.Preselected;
         _selectionChanged = selectionChanged;
     }
 
     public Improvement Item { get; }
     public string Title => Item.Title;
-    public string Why => Item.Why;
+    public string Why => Item.Note is { } note ? $"{Item.Why} {note}" : Item.Why;
 
     /// <summary>False without admin rights: the box is shown, but locked.</summary>
     public bool CanSelect { get; }
 
-    // spec 4.1: every recommendation in the list is preselected
     [ObservableProperty]
-    private bool _isSelected = true;
+    private bool _isSelected;
 
     partial void OnIsSelectedChanged(bool value) => _selectionChanged();
 }
@@ -290,7 +291,9 @@ public sealed partial class ImproveViewModel : ObservableObject
             ? "1 Verbesserung wird angewendet. Sie steht danach im Verlauf und lässt sich dort als Ganzes oder einzeln rückgängig machen."
             : $"{selected.Count} Verbesserungen werden angewendet. Sie stehen danach im Verlauf und lassen sich dort als Ganzes oder einzeln rückgängig machen.";
         if (selected.Any(i => i.RunFirst)) message += " " + SecurityViewModel.SysprotectNote;
-        if (!_dialogs.Confirm(ConfirmTitle, message, ConfirmButton, changes.Select(ChangeText.ConfirmLine).ToList())) return;
+        // a note (e.g. „Edge zeigt danach … verwaltet“) follows each line of its improvement, as on the Leistung page
+        var lines = selected.SelectMany(i => i.Changes.Select(c => ChangeText.ConfirmLine(c) + (i.Note is { } n ? " – " + n : ""))).ToList();
+        if (!_dialogs.Confirm(ConfirmTitle, message, ConfirmButton, lines)) return;
 
         var created = false;
         var ran = await _gate.RunAsync(this, async () => created = await RunImproveAsync(selected, ct));

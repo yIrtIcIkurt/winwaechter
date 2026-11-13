@@ -25,9 +25,13 @@ public static class ImprovementAreas
     };
 }
 
-/// <summary>One recommended improvement: reversible changes only. RunFirst: runs as its own step before the session (Computerschutz).</summary>
+/// <summary>
+/// One recommended improvement: reversible changes only. RunFirst: runs as its own step before the session (Computerschutz).
+/// Note: shown in the row and after each confirmation line (e.g. the browser then reports itself as managed).
+/// Preselected: false for what is listed but left to the user (an app only the Store can bring back).
+/// </summary>
 public sealed record Improvement(string Id, ImprovementArea Area, string Title, string Why,
-    IReadOnlyList<IChange> Changes, bool RunFirst = false);
+    IReadOnlyList<IChange> Changes, bool RunFirst = false, string? Note = null, bool Preselected = true);
 
 /// <summary>A recommended one-off action without undo; never part of the collect button.</summary>
 public sealed record ActionSuggestion(string Id, string Title, string Why, SystemAction Action);
@@ -137,7 +141,9 @@ public static class ImprovementMap
             var changes = changesFor(s, r);
             if (changes.Count == 0) continue;
             var area = s.Group is "background" or "browser-background" ? ImprovementArea.AutostartHintergrund : ImprovementArea.Leistung;
-            list.Add(new Improvement("perf:" + s.Id, area, s.Title, s.Explanation, changes));
+            // like the Leistung page: a browser without any policy so far says „verwaltet“ afterwards
+            var note = s.Group == "browser-background" ? s.Hint : null;
+            list.Add(new Improvement("perf:" + s.Id, area, s.Title, s.Explanation, changes, Note: note));
         }
         return list;
     }
@@ -167,7 +173,9 @@ public static class ImprovementMap
         !allowed
             ? []
             : rows.Where(r => r.Rule.Recommended)
+                // listed, but not preselected when only the Store can bring the app back
                 .Select(r => new Improvement("bloat:" + r.Package.FamilyName, ImprovementArea.Aufraeumen, r.Rule.Title,
-                    "Vorinstalliertes Programm, das Sie vermutlich nicht brauchen.", [r.Change]))
+                    "Vorinstalliertes Programm, das Sie vermutlich nicht brauchen.", [r.Change],
+                    Preselected: r.Change.UndoLimit != UndoLimits.StoreOnly))
                 .ToList();
 }

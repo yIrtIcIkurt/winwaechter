@@ -44,8 +44,8 @@ public sealed class ImprovementCollectorTests
         new(new PrivacySetting(id, "Titel " + id, "Erklärung " + id, recommended, null, [], null), PrivacyState.Off,
             Enumerable.Range(0, changes).Select(_ => (RegValueChange)null!).ToList());
 
-    static PerfSetting Perf(string id, string group, int? recommended, int current = 0, bool available = true) =>
-        new(id, group, "Titel " + id, "Erklärung " + id, [], current, available, null, null, recommended, false, null);
+    static PerfSetting Perf(string id, string group, int? recommended, int current = 0, bool available = true, string? hint = null) =>
+        new(id, group, "Titel " + id, "Erklärung " + id, [], current, available, null, hint, recommended, false, null);
 
     static SystemAction Act() =>
         new("a", "Aktion", "Los", null, false, (_, _) => Task.FromResult(new ActionOutcome(true, "ok")));
@@ -210,6 +210,43 @@ public sealed class ImprovementCollectorTests
         Assert.Equal(ImprovementArea.Aufraeumen, one.Area);
         Assert.Equal("App Microsoft.Clipchamp", one.Title);
         Assert.Empty(ImprovementMap.FromBloatApps(rows, false));
+    }
+
+    [Fact]
+    public void Store_only_bloat_apps_are_listed_but_not_preselected()
+    {
+        var pkgs = new FakeAppPackages();
+        var rules = RuleSet.Default;
+        BloatAppRow Bloat(string name, bool inImage)
+        {
+            var p = new AppPackage(name, $"{name}_1.2.3.4_neutral__8wekyb3d8bbwe", name + "_8wekyb3d8bbwe", null, false, false, "Store", inImage);
+            var rule = new BloatAppRule(name, "App " + name, true);
+            return new BloatAppRow(rule, p, new AppxChange(pkgs, p, rule, rules));
+        }
+
+        var items = ImprovementMap.FromBloatApps([Bloat("Microsoft.Clipchamp", true), Bloat("Microsoft.BingNews", false)], true);
+
+        Assert.Equal(2, items.Count);
+        Assert.True(items.Single(i => i.Title == "App Microsoft.Clipchamp").Preselected);
+        Assert.False(items.Single(i => i.Title == "App Microsoft.BingNews").Preselected);
+        // everything else stays preselected
+        Assert.True(ImprovementMap.FromFindings([F("ok")]).Single().Preselected);
+    }
+
+    [Fact]
+    public void Browser_managed_hint_is_carried_as_note()
+    {
+        var perf = ImprovementMap.FromPerformance(
+        [
+            Perf("edge-background", "browser-background", 0, current: 1, hint: PerformanceScanner.ManagedHint("Edge")),
+            Perf("chrome-background", "browser-background", 0, current: 1),
+            Perf("storagesense", "storage", 1, hint: "anderer Hinweis"),
+        ], PerfChanges);
+
+        Assert.Equal(PerformanceScanner.ManagedHint("Edge"), perf.Single(i => i.Id == "perf:edge-background").Note);
+        Assert.Null(perf.Single(i => i.Id == "perf:chrome-background").Note);
+        // only the browser rows: the Leistung page says nothing else in its confirmation either
+        Assert.Null(perf.Single(i => i.Id == "perf:storagesense").Note);
     }
 
     [Fact]
