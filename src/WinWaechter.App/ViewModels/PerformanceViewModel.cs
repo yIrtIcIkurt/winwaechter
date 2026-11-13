@@ -239,6 +239,9 @@ public sealed partial class PerformanceViewModel : ObservableObject
     /// <summary>All rows except the background apps.</summary>
     public ObservableCollection<PerfSettingViewModel> Settings { get; } = [];
 
+    /// <summary>Edge/Chrome background switches (group „Im Hintergrund“); empty without an installed browser.</summary>
+    public ObservableCollection<PerfSettingViewModel> BrowserBackground { get; } = [];
+
     /// <summary>One row per Store app that may run in the background.</summary>
     public ObservableCollection<PerfSettingViewModel> BackgroundApps { get; } = [];
 
@@ -246,6 +249,29 @@ public sealed partial class PerformanceViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowBackgroundNote))]
     private string? _backgroundNote;
+
+    /// <summary>Names of launchers (Teams, Steam …) with an active autostart; null when there is none.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowBackgroundLaunchersHint))]
+    private string? _backgroundLaunchersHint;
+
+    public bool ShowBackgroundLaunchersHint => !string.IsNullOrEmpty(BackgroundLaunchersHint);
+
+    static readonly string[] LauncherPrefixes = ["Microsoft Teams", "Teams", "Steam", "EA", "Ubisoft", "Epic Games"];
+
+    void ShowLaunchers()
+    {
+        var names = _startup?
+            .Where(f => f is { Area: FindingArea.Autostart, Change: not null }
+                && LauncherPrefixes.Any(p => f.Title.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+            .Select(f => f.Title).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
+        BackgroundLaunchersHint = names.Count == 0
+            ? null
+            : $"{JoinNames(names)} starten mit Windows und laufen im Hintergrund. Das regeln Sie unter Optimieren → Autostart.";
+    }
+
+    static string JoinNames(IReadOnlyList<string> names) =>
+        names.Count == 1 ? names[0] : string.Join(", ", names.Take(names.Count - 1)) + " und " + names[^1];
 
     public bool ShowBackgroundNote => !string.IsNullOrEmpty(BackgroundNote);
 
@@ -467,6 +493,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
             _changesFor = scan.ChangesFor;
             Settings.Clear();
             BackgroundApps.Clear();
+            BrowserBackground.Clear();
             BackgroundNote = null;
             var switchToBalanced = BalancedSwitch(scan.Settings);
             foreach (var s in scan.Settings)
@@ -477,7 +504,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
                     continue;
                 }
                 var row = new PerfSettingViewModel(s, CanChange, _shell, UpdatePending, switchToBalanced);
-                (s.Group == "background" ? BackgroundApps : Settings).Add(row);
+                (s.Group switch { "background" => BackgroundApps, "browser-background" => BrowserBackground, _ => Settings }).Add(row);
             }
             OnPropertyChanged(nameof(BackgroundHeader));
             UpdatePending();
@@ -537,6 +564,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
             _startup = null;
         }
         foreach (var row in Top) row.Autostart = AutostartOf(row.ProcessName);
+        ShowLaunchers();
     }
 
     async Task ReadBootAsync(CancellationToken ct)
@@ -606,7 +634,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
 
     // ---- apply ----
 
-    IEnumerable<PerfSettingViewModel> AllRows => Settings.Concat(BackgroundApps);
+    IEnumerable<PerfSettingViewModel> AllRows => Settings.Concat(BrowserBackground).Concat(BackgroundApps);
 
     void UpdatePending() => PendingCount = AllRows.Count(r => r.IsPending);
 
@@ -639,9 +667,20 @@ public sealed partial class PerformanceViewModel : ObservableObject
         if (pending.Count == 0) return;
 
         List<IChange> changes;
+        var lines = new List<string>();
         try
         {
-            changes = pending.SelectMany(r => _changesFor(r.Setting, r.Chosen)).ToList();
+            changes = [];
+            foreach (var r in pending)
+            {
+                // a browser without any policy so far shows „verwaltet“ afterwards: say so in the confirmation
+                var note = r.Setting.Group == "browser-background" && r.Hint is { } h ? " – " + h : "";
+                foreach (var c in _changesFor(r.Setting, r.Chosen))
+                {
+                    changes.Add(c);
+                    lines.Add(ChangeText.ConfirmLine(c) + note);
+                }
+            }
         }
         catch (ArgumentException ex)
         {
@@ -662,7 +701,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
             ? "Diese Änderung wird vorgenommen. Vorher legt WinWächter eine Sicherung an; im Verlauf lässt sie sich rückgängig machen."
             : $"Diese {changes.Count} Änderungen werden vorgenommen. Vorher legt WinWächter eine Sicherung an; im Verlauf lässt sich jede Änderung rückgängig machen.";
         if (!_dialogs.Confirm("Leistungs-Einstellungen ändern", question, "Anwenden",
-                changes.Select(c => c.Description).ToList())) return;
+                lines)) return;
 
         var needsRestart = pending.Any(r => r.NeedsRestart);
         var findings = changes

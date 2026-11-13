@@ -33,7 +33,22 @@ public static class PerfValues
     public static readonly PerfValue FastStartup = new("faststartup", Hive.LocalMachine,
         @"SYSTEM\CurrentControlSet\Control\Session Manager\Power", "HiberbootEnabled", [0, 1], 0, false);
 
-    static readonly PerfValue[] Fixed = [Transparency, GameMode, GpuScheduling, StorageSenseOn, StorageSenseFrequency, FastStartup];
+    // Official browser machine policies. Only 0 (off) is ever written; a missing value means the browser default "on".
+    // Switching back on happens only by undo in the Verlauf (deletes the value or restores the old one).
+    public const string EdgePolicyKey = @"SOFTWARE\Policies\Microsoft\Edge";
+    public const string ChromePolicyKey = @"SOFTWARE\Policies\Google\Chrome";
+
+    public static readonly PerfValue EdgeStartupBoost = new("edge-startupboost", Hive.LocalMachine,
+        EdgePolicyKey, "StartupBoostEnabled", [0], 1, false);
+
+    public static readonly PerfValue EdgeBackgroundMode = new("edge-background", Hive.LocalMachine,
+        EdgePolicyKey, "BackgroundModeEnabled", [0], 1, false);
+
+    public static readonly PerfValue ChromeBackgroundMode = new("chrome-background", Hive.LocalMachine,
+        ChromePolicyKey, "BackgroundModeEnabled", [0], 1, false);
+
+    static readonly PerfValue[] Fixed = [Transparency, GameMode, GpuScheduling, StorageSenseOn, StorageSenseFrequency,
+        FastStartup, EdgeStartupBoost, EdgeBackgroundMode, ChromeBackgroundMode];
 
     public static PerfValue BackgroundDisabled(string app) => Background(app, "Disabled");
 

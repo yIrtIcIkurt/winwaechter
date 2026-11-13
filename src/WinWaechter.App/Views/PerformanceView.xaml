@@ -276,6 +276,19 @@
                     <ItemsControl ItemsSource="{Binding Settings}" ItemTemplate="{StaticResource PerfRow}" Focusable="False" Margin="0,0,0,-1" />
                 </Border>
 
+                <!-- Im Hintergrund: Edge/Chrome, nur wenn installiert -->
+                <StackPanel Visibility="{Binding BrowserBackground.Count, Converter={StaticResource Vis}}">
+                    <TextBlock Margin="0,36,0,12" Style="{StaticResource Text.Section}" Text="Im Hintergrund" />
+                    <Border Style="{StaticResource SurfaceBox}">
+                        <ItemsControl ItemsSource="{Binding BrowserBackground}" ItemTemplate="{StaticResource PerfRow}" Focusable="False" Margin="0,0,0,-1" />
+                    </Border>
+                </StackPanel>
+                <StackPanel Margin="0,12,0,0" Visibility="{Binding ShowBackgroundLaunchersHint, Converter={StaticResource Vis}}">
+                    <TextBlock Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left"
+                               Text="{Binding BackgroundLaunchersHint}" />
+                    <Button Margin="-8,4,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}" Content="Autostart öffnen" Command="{Binding OpenOptimizeCommand}" />
+                </StackPanel>
+
                 <Expander Margin="0,16,0,0" Style="{StaticResource Reasons}" Header="{Binding BackgroundHeader}"
                           Visibility="{Binding BackgroundApps.Count, Converter={StaticResource Vis}}">
                     <StackPanel>

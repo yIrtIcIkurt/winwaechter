@@ -3,6 +3,7 @@ using Microsoft.Win32;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
+using WinWaechter.Core.Security.Checks;
 using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Performance;
@@ -19,7 +20,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     IAppDisplayNames names, bool animationOwnAccount, ISettingBroadcast broadcast, IPowerPlans? plans = null,
     Func<IPolicyOwnership>? policies = null)
 {
-    // Task 14 reads the policy owner through this; stored only for now.
+    // Who set a browser policy value: asked once per Scan. Null: every present policy value counts as foreign.
     readonly Func<IPolicyOwnership>? _policies = policies;
     // The plans captured at Scan: the powerplan option values are indexes into this list.
     IReadOnlyList<PowerPlan> _planList = [];
@@ -29,6 +30,8 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     public const string PlanLocked = "Nur mit dem Energiesparplan „Ausgewogen“ änderbar";
     const string PowerUnsupported = "Auf dieser Windows-Version nicht änderbar";
     const string BackgroundPrefix = "bg:";
+    const string BrowserGroup = "browser-background";
+    const string OwnPolicyOff = "Aus – wieder einschalten über den Verlauf";
     public const string BackgroundUnavailableId = "bg-unavailable";
 
     const string HiberbootKey = @"SYSTEM\CurrentControlSet\Control\Session Manager\Power";
@@ -48,7 +51,21 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
     static readonly PerfOption[] PowerBase =
         PowerModeIds.All.Select((g, i) => new PerfOption(i, PowerModeIds.Label(g))).ToArray();
 
+    // (row id, title, browser, App Paths exe, whitelisted policy value)
+    static readonly (string Id, string Title, string Browser, string Exe, PerfValue Value)[] Browsers =
+    [
+        ("edge-startupboost", "Edge: Start-Boost", "Edge", "msedge.exe", PerfValues.EdgeStartupBoost),
+        ("edge-background", "Edge: Erweiterungen und Apps im Hintergrund, wenn Edge geschlossen ist", "Edge", "msedge.exe", PerfValues.EdgeBackgroundMode),
+        ("chrome-background", "Chrome: Apps im Hintergrund weiter ausführen", "Chrome", "chrome.exe", PerfValues.ChromeBackgroundMode),
+    ];
+
+    const string AppPathsKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\";
+
     readonly HashSet<string> _logged = [];
+
+    /// <summary>Shown when the browser had no policy before: the browser then reports itself as managed.</summary>
+    public static string ManagedHint(string browser) =>
+        $"{browser} zeigt danach „Von Ihrer Organisation verwaltet“; das ist normal und verschwindet beim Rückgängigmachen.";
 
     public IReadOnlyList<PerfSetting> Scan()
     {
@@ -70,6 +87,7 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         // not an app: the view should render it as a note ("Nicht lesbar"), not as a checkbox.
         Source(rows, "background", ScanBackground, () =>
             [new PerfSetting(BackgroundUnavailableId, "background", "Hintergrund-Apps", "", [], 0, false, Unreadable, null, null, false, null)]);
+        Source(rows, "browser-background", ScanBrowserBackground, () => []);
         return rows;
     }
 
@@ -269,6 +287,41 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
         }
     }
 
+    // ---- browser background brakes (official machine policies, target 0 only) ----
+
+    IEnumerable<PerfSetting> ScanBrowserBackground()
+    {
+        const string explanation = "Spart Arbeitsspeicher und Akku; der Browser startet nur Sekundenbruchteile langsamer.";
+        PerfOption[] options = [new(1, "An"), new(0, "Aus")];
+        var own = _policies?.Invoke() ?? SecurityChecks.NoPolicies.Instance;
+        foreach (var b in Browsers)
+        {
+            if (!reg.KeyExists(Hive.LocalMachine, AppPathsKey + b.Exe)) continue;
+            PerfSetting row;
+            try
+            {
+                var v = b.Value;
+                var state = PolicyValues.State(reg, own, v.Hive, v.Key, v.Name);
+                var current = ReadDword(v) == 0 ? 0 : 1;
+                var noPolicy = reg.ValueNames(v.Hive, v.Key).Count == 0 && reg.SubKeyNames(v.Hive, v.Key).Count == 0;
+                var hint = noPolicy ? ManagedHint(b.Browser) : null;
+                var (available, text) = state switch
+                {
+                    PolicyState.Foreign => (false, PolicyValues.ForeignText),
+                    PolicyState.Ours when current == 0 => (false, OwnPolicyOff),
+                    _ => (true, (string?)null),
+                };
+                row = new(b.Id, BrowserGroup, b.Title, explanation, options, current, available, text, hint, 0, false, null);
+            }
+            catch (Exception ex)
+            {
+                if (_logged.Add("browser:" + b.Id)) FileLog.Warn($"Leistung: Browser-Einstellung „{b.Id}“ nicht lesbar", ex);
+                row = Broken(b.Id, BrowserGroup, b.Title, options);
+            }
+            yield return row;
+        }
+    }
+
     string? SafeName(string app)
     {
         try
@@ -339,6 +392,16 @@ public sealed class PerformanceScanner(IRegistry reg, IPowerModes power, IAnimat
             case "storagesense-frequency":
                 return [new PerfValueChange(reg, PerfValues.StorageSenseFrequency, chosen,
                     $"Speicheroptimierung: {Frequencies.First(o => o.Value == chosen).Label}", null)];
+        }
+
+        var browser = Browsers.FirstOrDefault(b => b.Id == s.Id);
+        if (browser.Id is not null)
+        {
+            // only "off" exists as a target; PerfValueChange rejects everything else
+            var what = browser.Id == "edge-startupboost" ? "Edge: Start-Boost ausschalten"
+                : browser.Id == "edge-background" ? "Edge: Hintergrundmodus ausschalten"
+                : "Chrome: Hintergrundmodus ausschalten";
+            return [new PerfValueChange(reg, browser.Value, chosen, what, null)];
         }
 
         if (s.Id.StartsWith(BackgroundPrefix, StringComparison.Ordinal))
