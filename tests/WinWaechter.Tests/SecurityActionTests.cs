@@ -53,6 +53,23 @@ public class SecurityActionTests
     }
 
     [Fact]
+    public async Task Realtime_enable_error_gives_message_and_link()
+    {
+        var d = new FakeDefender { RealTime = false, EnableError = new InvalidOperationException("Set-MpPreference: access denied") };
+        var o = await Set(d).EnableRealTime.RunAsync(null, CancellationToken.None);
+        Assert.False(o.Success);
+        Assert.Equal(SecurityActionSet.RealTimeBlocked, o.Message);
+        Assert.Equal(SystemLinks.DefenderThreat, o.Link);
+    }
+
+    [Fact]
+    public void Restart_failure_throws()
+    {
+        var runner = new FakeProcessRunner { Handler = (_, _) => Task.FromResult((5, "", "Zugriff verweigert")) };
+        Assert.Throws<InvalidOperationException>(() => new WinRestarter(runner, @"C:\Windows").Restart());
+    }
+
+    [Fact]
     public async Task Signature_update_failure_names_the_code()
     {
         var o = await Set(new FakeDefender { UpdateExit = 2 }).UpdateSignatures.RunAsync(null, CancellationToken.None);

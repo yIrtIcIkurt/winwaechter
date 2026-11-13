@@ -12,7 +12,11 @@ public sealed class WinRestarter(IProcessRunner runner, string systemRoot) : IRe
 {
     public const string Arguments = "/r /t 0";
 
-    public void Restart() =>
-        runner.RunAsync(Path.Combine(systemRoot, "System32", "shutdown.exe"), Arguments, CancellationToken.None)
+    public void Restart()
+    {
+        var (exit, _, err) = runner.RunAsync(Path.Combine(systemRoot, "System32", "shutdown.exe"), Arguments, CancellationToken.None)
             .GetAwaiter().GetResult();
+        if (exit != 0)
+            throw new InvalidOperationException($"Der Neustart ließ sich nicht auslösen (Code {exit}): {err.Trim()}");
+    }
 }

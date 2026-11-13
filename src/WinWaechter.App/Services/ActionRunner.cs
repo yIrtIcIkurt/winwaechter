@@ -14,6 +14,9 @@ public sealed class ActionRunner(IDialogService dialogs, ChangeGate gate)
     /// <summary>Null when the user declined; otherwise the outcome (busy gate and errors included).</summary>
     public async Task<ActionOutcome?> RunAsync(object owner, SystemAction a, IProgress<string>? progress, CancellationToken ct = default)
     {
+        // a record `with` expression can bypass the constructor guard
+        if (a.Final && a.ConfirmText is null)
+            throw new ArgumentException("Eine endgültige Aktion braucht einen Bestätigungstext.", nameof(a));
         if (a.ConfirmText is not null)
         {
             var message = a.Final ? $"{a.ConfirmText} {FinalNote}" : a.ConfirmText;
@@ -28,6 +31,11 @@ public sealed class ActionRunner(IDialogService dialogs, ChangeGate gate)
             {
                 outcome = await a.RunAsync(progress, ct);
                 FileLog.Info($"Aktion {a.Title}: {outcome.Message}");
+            }
+            catch (OperationCanceledException)
+            {
+                FileLog.Info($"Aktion abgebrochen: {a.Title}");
+                outcome = new ActionOutcome(false, "Abgebrochen.");
             }
             catch (Exception ex)
             {

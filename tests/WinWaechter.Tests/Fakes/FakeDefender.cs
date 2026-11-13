@@ -41,9 +41,13 @@ public sealed class FakeDefender : IDefender
         return UpdateError is { } e ? Task.FromException<int>(e) : Task.FromResult(UpdateExit);
     }
 
+    /// <summary>EnableRealTimeAsync fails with it (and leaves the protection off).</summary>
+    public Exception? EnableError { get; set; }
+
     public Task EnableRealTimeAsync()
     {
         Calls.Add("enable-realtime");
+        if (EnableError is { } e) return Task.FromException(e);
         if (!EnableBlocked) RealTime = true;
         return Task.CompletedTask;
     }

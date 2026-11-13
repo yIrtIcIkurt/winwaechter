@@ -1,4 +1,5 @@
 using WinWaechter.Core.Actions;
+using WinWaechter.Core.Logging;
 using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Sys;
 
@@ -15,7 +16,12 @@ public sealed record SecurityActionSet(SystemAction EnableRealTime, SystemAction
             async (_, ct) =>
             {
                 ct.ThrowIfCancellationRequested();
-                await d.EnableRealTimeAsync().ConfigureAwait(false);
+                try { await d.EnableRealTimeAsync().ConfigureAwait(false); }
+                catch (InvalidOperationException ex)
+                {
+                    // Tamper protection often makes Set-MpPreference fail; the status below decides.
+                    FileLog.Warn("Echtzeitschutz einschalten fehlgeschlagen", ex);
+                }
                 var status = await d.GetStatusAsync().ConfigureAwait(false);
                 return status.RealTime
                     ? new ActionOutcome(true, "Der Echtzeitschutz ist eingeschaltet.")
@@ -44,10 +50,10 @@ public sealed record SecurityActionSet(SystemAction EnableRealTime, SystemAction
             }),
         new SystemAction("restart", "Rechner neu starten", "Jetzt neu starten",
             "Speichern Sie offene Arbeit. Der Rechner startet sofort neu.", true,
-            (_, ct) =>
+            async (_, ct) =>
             {
                 ct.ThrowIfCancellationRequested();
-                r.Restart();
-                return Task.FromResult(new ActionOutcome(true, "Der Rechner startet neu."));
+                await Task.Run(r.Restart, ct).ConfigureAwait(false);
+                return new ActionOutcome(true, "Der Rechner startet neu.");
             }));
 }

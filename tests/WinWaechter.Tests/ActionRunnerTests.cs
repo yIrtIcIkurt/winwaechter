@@ -10,6 +10,28 @@ public class ActionRunnerTests
         new("test", "Testaktion", "Los", confirm, final, (_, _) => run(), items);
 
     [Fact]
+    public async Task Cancellation_is_no_error_dialog()
+    {
+        var dialogs = new RecordingDialogs();
+        var r = await new ActionRunner(dialogs, new ChangeGate()).RunAsync(this,
+            Make(() => throw new OperationCanceledException()), null);
+        Assert.False(r!.Success);
+        Assert.Equal("Abgebrochen.", r.Message);
+        Assert.Empty(dialogs.Informs);
+    }
+
+    [Fact]
+    public async Task Final_action_without_confirm_text_is_refused()
+    {
+        var dialogs = new RecordingDialogs();
+        var ran = false;
+        var bad = Make(() => { ran = true; return Task.FromResult(new ActionOutcome(true, "ok")); }, "x", true) with { ConfirmText = null };
+        await Assert.ThrowsAsync<ArgumentException>(() => new ActionRunner(dialogs, new ChangeGate()).RunAsync(this, bad, null));
+        Assert.False(ran);
+        Assert.Empty(dialogs.Confirms);
+    }
+
+    [Fact]
     public async Task Harmless_action_runs_without_confirm()
     {
         var dialogs = new RecordingDialogs();
