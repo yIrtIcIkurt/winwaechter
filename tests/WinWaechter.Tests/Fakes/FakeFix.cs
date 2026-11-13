@@ -118,3 +118,38 @@ public sealed class FakePowerPlans : IPowerPlans
         ActiveId = id;
     }
 }
+
+// Never kills or closes anything; records the calls.
+public sealed class FakeProcessEnder : IProcessEnder
+{
+    public List<RunningProcess> Running { get; } = [];
+    public List<RunningProcess> Closed { get; } = [];
+    public List<RunningProcess> Killed { get; } = [];
+    public bool CloseEndsProcess { get; set; }
+
+    public IReadOnlyList<RunningProcess> Find(string processName) =>
+        Running.Where(p => string.Equals(p.Name.Replace(".exe", "", StringComparison.OrdinalIgnoreCase), processName,
+            StringComparison.OrdinalIgnoreCase)).ToList();
+
+    public int CloseWindows(IReadOnlyList<RunningProcess> p)
+    {
+        Closed.AddRange(p);
+        if (CloseEndsProcess) Running.RemoveAll(r => p.Contains(r));
+        return p.Count;
+    }
+
+    public int Kill(IReadOnlyList<RunningProcess> p)
+    {
+        Killed.AddRange(p);
+        Running.RemoveAll(r => p.Contains(r));
+        return p.Count;
+    }
+
+    public bool AnyRunning(IReadOnlyList<RunningProcess> p) => p.Any(Running.Contains);
+}
+
+public sealed class FakeDiskSpace : IDiskSpace
+{
+    public DriveSpace? Space { get; set; } = new("C:\\", 200L * 1024 * 1024 * 1024, 500L * 1024 * 1024 * 1024);
+    public DriveSpace? SystemDrive() => Space;
+}

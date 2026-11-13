@@ -97,4 +97,21 @@ public class BootReportTests
         try { _ = new WinBootEventSource().Read(DateTime.UtcNow.AddDays(-30)); }
         catch (UnauthorizedAccessException) { }
     }
+
+    [Fact]
+    public void File_name_is_carried()
+    {
+        var events = new List<BootEvent>
+        {
+            Boot(1, 40_000),
+            new(101, Now.AddDays(-1), "Foo Updater", null, 4_000, "foo.exe"),
+            new(103, Now.AddDays(-2), "Foo Updater", null, 9_000, "foo.exe"),
+            Delay(102, 3, "Treiber", 5_000),
+        };
+
+        var r = BootReport.From(events, Now);
+
+        Assert.Equal(new BootDelay("Foo Updater", TimeSpan.FromSeconds(9), "foo.exe"), r.Slowest[0]);
+        Assert.Null(r.Slowest[1].FileName);
+    }
 }

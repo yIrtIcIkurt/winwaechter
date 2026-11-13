@@ -6,9 +6,11 @@ using WinWaechter.Core.Logging;
 namespace WinWaechter.Core.Performance;
 
 /// <summary>One entry from the Diagnostics-Performance log. <see cref="Time"/> is UTC.</summary>
-public sealed record BootEvent(int Id, DateTime Time, string? Name, long? BootTimeMs, long? DegradationMs);
+public sealed record BootEvent(int Id, DateTime Time, string? Name, long? BootTimeMs, long? DegradationMs,
+    string? FileName = null);
 
-public sealed record BootDelay(string Name, TimeSpan Delay);
+/// <summary>FileName: the program's file name when the log gave both a friendly and a file name.</summary>
+public sealed record BootDelay(string Name, TimeSpan Delay, string? FileName = null);
 
 public interface IBootEventSource
 {
@@ -51,7 +53,8 @@ public sealed record BootReport(
             .Where(e => e.Id is 101 or 102 or 103 && e.Time >= cutoff
                         && !string.IsNullOrWhiteSpace(e.Name) && e.DegradationMs is > 0)
             .GroupBy(e => e.Name!, StringComparer.OrdinalIgnoreCase)
-            .Select(g => new BootDelay(g.First().Name!, TimeSpan.FromMilliseconds(g.Max(e => e.DegradationMs!.Value))))
+            .Select(g => new BootDelay(g.First().Name!, TimeSpan.FromMilliseconds(g.Max(e => e.DegradationMs!.Value)),
+                g.Select(e => e.FileName).FirstOrDefault(f => !string.IsNullOrWhiteSpace(f))))
             .OrderByDescending(d => d.Delay)
             .Take(Top)
             .ToList();
@@ -130,8 +133,10 @@ public sealed class WinBootEventSource : IBootEventSource
             long.TryParse(Get(key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
 
         var name = Get("FriendlyName");
+        string? fileName = null;
         if (string.IsNullOrWhiteSpace(name)) name = Get("Name");
+        else if (!string.IsNullOrWhiteSpace(Get("Name"))) fileName = Get("Name");
         return new BootEvent(rec.Id, time.ToUniversalTime(), string.IsNullOrWhiteSpace(name) ? null : name,
-            Num("BootTime"), Num("DegradationTime"));
+            Num("BootTime"), Num("DegradationTime"), fileName);
     }
 }
