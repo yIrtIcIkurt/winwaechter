@@ -832,7 +832,7 @@ public sealed class ViewModelTests : IDisposable
         new(@"C:\Windows", 1, null, new HashSet<string>(), _ => true);
 
     (OptimizeViewModel Vm, WinWaechter.Tests.Fakes.RecordingDialogs Dialogs, FakeProcessEnder Ender, List<TimeSpan> Waits)
-        BrowserVm(bool canChange = true)
+        BrowserVm(bool canChange = true, Func<ProcessGuardContext>? guard = null)
     {
         var dialogs = new WinWaechter.Tests.Fakes.RecordingDialogs();
         var ender = new FakeProcessEnder();
@@ -841,7 +841,7 @@ public sealed class ViewModelTests : IDisposable
         IReadOnlyList<Finding> Scan() => ender.Closed.Count > 0 && ender.Running.All(r => r.Pid != 100) ? [FreeEdge()] : [BlockedEdge()];
         var engine = new OptimizerEngine([Scan], new SessionStore(_root), new ChangeFactory(), _ => new RestorePointResult(true, "ok"));
         var vm = new OptimizeViewModel(engine, dialogs, canChange, _gate, new ActionRunner(dialogs, _gate), null,
-            ender, BrowserGuard, (t, _) => { waits.Add(t); return Task.CompletedTask; });
+            ender, guard ?? BrowserGuard, (t, _) => { waits.Add(t); return Task.CompletedTask; });
         return (vm, dialogs, ender, waits);
     }
 
@@ -917,6 +917,46 @@ public sealed class ViewModelTests : IDisposable
         lockedEnder.Running.Add(new RunningProcess("msedge.exe", EdgeExe, 100));
         await locked.ScanCommand.ExecuteAsync(null);
         Assert.False(locked.CloseBrowserCommand.CanExecute(locked.AllItems.Single()));
+    }
+
+    [Fact]
+    public async Task Close_browser_does_not_claim_closed_when_the_run_time_check_allows_nothing()
+    {
+        // allowed when clicked; by the time the action runs the guard context cannot be read
+        var calls = 0;
+        var (vm, dialogs, ender, _) = BrowserVm(guard: () => calls++ == 0 ? BrowserGuard() : throw new InvalidOperationException("boom"));
+        ender.Running.Add(new RunningProcess("msedge.exe", EdgeExe, 100));
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        await vm.CloseBrowserCommand.ExecuteAsync(vm.AllItems.Single());
+
+        Assert.Single(dialogs.Confirms);
+        Assert.Empty(ender.Closed);
+        Assert.Empty(ender.Killed);
+        Assert.Equal("Edge lässt sich nicht schließen.", vm.LastSummary);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task Close_browser_reports_closed_when_it_ended_before_the_run()
+    {
+        FakeProcessEnder? e = null;
+        var calls = 0;
+        // the browser ends between the click and the run
+        var (vm, dialogs, ender, _) = BrowserVm(guard: () =>
+        {
+            if (calls++ > 0) e!.Running.Clear();
+            return BrowserGuard();
+        });
+        e = ender;
+        ender.Running.Add(new RunningProcess("msedge.exe", EdgeExe, 100));
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        await vm.CloseBrowserCommand.ExecuteAsync(vm.AllItems.Single());
+
+        Assert.Single(dialogs.Confirms);
+        Assert.Empty(ender.Closed);
+        Assert.Equal("Edge ist geschlossen.", vm.LastSummary);
     }
 
     // a kind whose FromRecord rebuilds the change from the retry data, like the whitelisted kinds

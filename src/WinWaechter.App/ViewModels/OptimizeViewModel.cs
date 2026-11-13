@@ -314,11 +314,29 @@ public sealed partial class OptimizeViewModel : ObservableObject
         }
     }
 
+    // An unreadable process list counts as still running (never reported as closed).
+    async Task<bool> StillRunningAsync(string process)
+    {
+        try
+        {
+            return await Task.Run(() => _ender!.Find(process).Any());
+        }
+        catch (Exception ex)
+        {
+            FileLog.Warn($"Browser-Prozesse nicht lesbar: {process}", ex);
+            return true;
+        }
+    }
+
     async Task<ActionOutcome> RunCloseBrowserAsync(string process, string name, CancellationToken ct)
     {
         // asked again at run time: the browser may have opened or ended processes meanwhile
         var allowed = await AllowedBrowserAsync(process);
-        if (allowed.Count == 0) return new ActionOutcome(true, $"{name} ist geschlossen.");
+        // closed only when nothing of the browser runs any more; still running but none allowed: say so
+        if (allowed.Count == 0)
+            return await StillRunningAsync(process)
+                ? new ActionOutcome(false, $"{name} lässt sich nicht schließen.")
+                : new ActionOutcome(true, $"{name} ist geschlossen.");
 
         // gently first: ask the windows to close, then give the browser up to 10 s
         await Task.Run(() => _ender!.CloseWindows(allowed), ct);
