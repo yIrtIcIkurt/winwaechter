@@ -38,6 +38,12 @@ public static class BloatApps
             : string.Equals(packageName, n, StringComparison.OrdinalIgnoreCase));
     }
 
+    // Frameworks, system packages and anything whose safety flags could not be read (fail closed).
+    public static bool IsBlocked(AppPackage p) =>
+        p.IsFramework || p.NonRemovable || !SafeKinds.Contains(p.SignatureKind);
+
+    static readonly string[] SafeKinds = ["None", "Developer", "Enterprise", "Store"];
+
     /// <summary>Plain package name characters with an optional "*" at the very end.</summary>
     public static bool IsValidRulePackage(string package) => RulePackage.IsMatch(package);
 
@@ -57,7 +63,7 @@ public static class BloatApps
 }
 
 public sealed record AppPackage(string Name, string FullName, string FamilyName, string? InstallLocation,
-    bool IsFramework, bool NonRemovable, string SignatureKind, bool InImage);
+    bool IsFramework, bool NonRemovable, string SignatureKind, bool InImage, string? Publisher = null);
 
 public interface IAppPackages
 {
@@ -65,6 +71,9 @@ public interface IAppPackages
     void Remove(string fullName);
     void Register(string manifestPath);
     bool IsInstalled(string familyName);
+
+    /// <summary>The only manifest path Register accepts for this package (null for an invalid full name).</summary>
+    string? ManifestPathFor(string fullName);
 }
 
 /// <summary>
@@ -111,13 +120,23 @@ public sealed class WinAppPackages(IProcessRunner runner, string userSid, string
     }
 
     // Exactly <programFiles>\WindowsApps\<FullName>\AppxManifest.xml, nothing else.
+    /// <summary>True for every character PowerShell may read as a quote: ' " and the typographic U+2018..U+201B.</summary>
+    public static bool HasQuote(string s) => s.Any(c => c is '\'' or '"' or (>= '\u2018' and <= '\u201B'));
+
+    public string? ManifestPathFor(string fullName)
+    {
+        if (!IsValidFullName(fullName)) return null;
+        var path = Path.Combine(programFiles, "WindowsApps", fullName, "AppxManifest.xml");
+        return HasQuote(path) ? null : path;
+    }
+
     string CheckedManifest(string manifestPath)
     {
-        if (manifestPath is null || manifestPath.Contains('\'') || manifestPath.Contains('"'))
+        if (manifestPath is null || HasQuote(manifestPath))
             throw new ArgumentException("Ungültiger Manifest-Pfad.", nameof(manifestPath));
         var folder = Path.GetFileName(Path.GetDirectoryName(manifestPath) ?? "");
-        var expected = Path.Combine(programFiles, "WindowsApps", folder, "AppxManifest.xml");
-        if (!IsValidFullName(folder) || expected.Contains('\'') || !string.Equals(manifestPath, expected, StringComparison.OrdinalIgnoreCase))
+        var expected = ManifestPathFor(folder);
+        if (expected is null || !string.Equals(manifestPath, expected, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Das Manifest liegt nicht im WindowsApps-Ordner des Pakets.", nameof(manifestPath));
         return expected;
     }
@@ -131,7 +150,7 @@ public sealed class WinAppPackages(IProcessRunner runner, string userSid, string
     List<AppPackage> ListPackages()
     {
         var sid = CheckedSid();
-        var json = Run($"Get-AppxPackage -User '{sid}' | Select-Object Name,PackageFullName,PackageFamilyName,InstallLocation,IsFramework,NonRemovable,SignatureKind | ConvertTo-Json -Compress");
+        var json = Run($"Get-AppxPackage -User '{sid}' | Select-Object Name,PackageFullName,PackageFamilyName,Publisher,InstallLocation,IsFramework,NonRemovable,SignatureKind | ConvertTo-Json -Compress");
         var result = new List<AppPackage>();
         foreach (var e in Elements(json))
         {
@@ -139,8 +158,9 @@ public sealed class WinAppPackages(IProcessRunner runner, string userSid, string
             var full = Str(e, "PackageFullName");
             var family = Str(e, "PackageFamilyName");
             if (name is null || !IsValidFullName(full) || !IsValidFamily(family)) continue;   // never offer what we cannot address safely
-            result.Add(new AppPackage(name, full!, family!, Str(e, "InstallLocation"), Bool(e, "IsFramework"), Bool(e, "NonRemovable"),
-                Kind(e), false));
+            // A flag that is missing or not a boolean counts as "framework"/"not removable": never offered.
+            result.Add(new AppPackage(name, full!, family!, Str(e, "InstallLocation"), Bool(e, "IsFramework", true), Bool(e, "NonRemovable", true),
+                Kind(e), false, Str(e, "Publisher")));
         }
         return result;
     }
@@ -183,8 +203,10 @@ public sealed class WinAppPackages(IProcessRunner runner, string userSid, string
     static string? Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
-    static bool Bool(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+    static bool Bool(JsonElement e, string name, bool whenUnreadable) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? v.ValueKind == JsonValueKind.True
+            : whenUnreadable;
 
     static string Kind(JsonElement e)
     {
@@ -207,24 +229,23 @@ public sealed class WinAppPackages(IProcessRunner runner, string userSid, string
 /// <summary>Removes one preinstalled app for the signed-in user. Undo registers it again from the files Windows kept.</summary>
 public sealed class AppxChange : IChange, IUndoLimit
 {
-    const string ManifestFile = "AppxManifest.xml";
-
     readonly IAppPackages _pkgs;
     readonly AppPackage _pkg;
     readonly BloatAppRule _rule;
     readonly RuleSet _rules;
+    readonly bool? _restorable;   // from the journal after FromRecord; null before Apply
 
-    public AppxChange(IAppPackages pkgs, AppPackage pkg, BloatAppRule rule, RuleSet rules)
+    public AppxChange(IAppPackages pkgs, AppPackage pkg, BloatAppRule rule, RuleSet rules, bool? restorable = null)
     {
         if (!WinAppPackages.IsValidFullName(pkg.FullName) || !WinAppPackages.IsValidFamily(pkg.FamilyName))
             throw new ArgumentException("Ungültiger Paketname.", nameof(pkg));
-        _pkgs = pkgs; _pkg = pkg; _rule = rule; _rules = rules;
+        _pkgs = pkgs; _pkg = pkg; _rule = rule; _rules = rules; _restorable = restorable;
     }
 
     public string Kind => "appx";
     public string Target => _pkg.FamilyName;
     public string Description => $"„{_rule.Title}“ entfernen";
-    public string? UndoLimit => _pkg.InImage ? null : UndoLimits.StoreOnly;
+    public string? UndoLimit => (_restorable ?? _pkg.InImage) ? null : UndoLimits.StoreOnly;
 
     public static AppxChange FromRecord(ChangeRecord r, IAppPackages pkgs, RuleSet rules)
     {
@@ -238,9 +259,10 @@ public sealed class AppxChange : IChange, IUndoLimit
             || !family!.StartsWith(name + "_", StringComparison.OrdinalIgnoreCase) || !full!.StartsWith(name + "_", StringComparison.OrdinalIgnoreCase))
             throw Rejected();
         var manifest = r.After.GetValueOrDefault("manifest");
-        if (!string.IsNullOrEmpty(manifest) && !IsManifestOf(manifest, full))
+        if (!string.IsNullOrEmpty(manifest) && !IsAcceptedManifest(pkgs, manifest, full))
             throw Rejected();
-        return new AppxChange(pkgs, new AppPackage(name, full, family, null, false, false, "Store", false), rule, rules);
+        bool? restorable = r.After.TryGetValue("restorable", out var flag) ? flag == "true" && !string.IsNullOrEmpty(manifest) : null;
+        return new AppxChange(pkgs, new AppPackage(name, full, family, null, false, false, "Store", false), rule, rules, restorable);
     }
 
     static InvalidOperationException Rejected() =>
@@ -249,59 +271,58 @@ public sealed class AppxChange : IChange, IUndoLimit
     public static void Register(ChangeFactory f, IAppPackages pkgs, RuleSet rules) =>
         f.Register("appx", r => FromRecord(r, pkgs, rules));
 
-    // <anything>\WindowsApps\<fullName>\AppxManifest.xml; WinAppPackages pins the real programFiles path again.
-    static bool IsManifestOf(string manifest, string fullName)
+    // Exactly the path the package interface would accept for this package (WinAppPackages checks it again).
+    static bool IsAcceptedManifest(IAppPackages pkgs, string manifest, string fullName)
     {
-        if (manifest.Contains('\'') || manifest.Contains('"') || !Path.IsPathFullyQualified(manifest)) return false;
-        var dir = Path.GetDirectoryName(manifest);
-        return string.Equals(Path.GetFileName(manifest), ManifestFile, StringComparison.OrdinalIgnoreCase)
-            && dir is not null && string.Equals(Path.GetFileName(dir), fullName, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(Path.GetFileName(Path.GetDirectoryName(dir)), "WindowsApps", StringComparison.OrdinalIgnoreCase);
+        if (WinAppPackages.HasQuote(manifest)) return false;
+        var expected = pkgs.ManifestPathFor(fullName);
+        return expected is not null && string.Equals(manifest, expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    public (Dictionary<string, string?> Before, Dictionary<string, string?> After)? RetryData() => (Identity(), new());
+    public (Dictionary<string, string?> Before, Dictionary<string, string?> After)? RetryData() => (Identity(_pkg), new());
 
-    Dictionary<string, string?> Identity() => new()
+    Dictionary<string, string?> Identity(AppPackage p) => new()
     {
-        ["name"] = _pkg.Name, ["fullName"] = _pkg.FullName, ["family"] = _pkg.FamilyName, ["title"] = _rule.Title,
+        ["name"] = p.Name, ["fullName"] = p.FullName, ["family"] = p.FamilyName, ["title"] = _rule.Title,
     };
-
-    string? Manifest => string.IsNullOrEmpty(_pkg.InstallLocation) ? null : Path.Combine(_pkg.InstallLocation, ManifestFile);
 
     public ChangeRecord Apply(SessionContext ctx)
     {
-        Recheck();
-        if (!_pkgs.IsInstalled(_pkg.FamilyName))
-            throw new InvalidOperationException($"„{_rule.Title}“ ist nicht mehr installiert.");
-        try { _pkgs.Remove(_pkg.FullName); }
+        // What is installed right now counts, not what was listed or journalled earlier (update, retry).
+        var live = _pkgs.List().FirstOrDefault(p => string.Equals(p.FamilyName, _pkg.FamilyName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"„{_rule.Title}“ ist nicht mehr installiert.");
+        Recheck(live);
+        try { _pkgs.Remove(live.FullName); }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             throw new InvalidOperationException($"„{_rule.Title}“ ließ sich nicht entfernen: {ex.Message}", ex);
         }
 
-        // The files Windows kept (image copy) decide whether Undo can register the app again.
-        var manifest = Manifest;
-        var restorable = manifest is not null && IsManifestOf(manifest, _pkg.FullName) && File.Exists(manifest);
-        return new ChangeRecord(Guid.NewGuid().ToString("N"), Kind, Target, Description, Identity(),
-            new() { ["restorable"] = restorable ? "true" : "false", ["manifest"] = manifest },
+        // The files Windows kept (image copy) at the one path Register accepts decide whether Undo can work.
+        var manifest = _pkgs.ManifestPathFor(live.FullName);
+        var restorable = manifest is not null && !WinAppPackages.HasQuote(manifest) && File.Exists(manifest);
+        return new ChangeRecord(Guid.NewGuid().ToString("N"), Kind, Target, Description, Identity(live),
+            restorable ? new() { ["restorable"] = "true", ["manifest"] = manifest } : new() { ["restorable"] = "false" },
             ChangeStatus.Applied, DateTimeOffset.Now);
     }
 
-    // The list and the protection are checked again right before removing, whatever built this change.
-    void Recheck()
+    // The list and the protection are checked again right before removing, against the live package.
+    void Recheck(AppPackage live)
     {
-        var rule = _rules.FindBloatApp(_pkg.Name);
-        if (rule is null || BloatApps.IsNever(_pkg.Name))
+        if (!string.Equals(live.Name, _pkg.Name, StringComparison.OrdinalIgnoreCase)
+            || !WinAppPackages.IsValidFullName(live.FullName) || !WinAppPackages.IsValidFamily(live.FamilyName)
+            || !live.FullName.StartsWith(live.Name + "_", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"„{_rule.Title}“ stimmt nicht mehr mit dem installierten Paket überein.");
+        if (_rules.FindBloatApp(live.Name) is null || BloatApps.IsNever(live.Name))
             throw new InvalidOperationException($"„{_rule.Title}“ steht nicht auf der Liste der entfernbaren Apps.");
-        if (_pkg.IsFramework || _pkg.NonRemovable || string.Equals(_pkg.SignatureKind, "System", StringComparison.OrdinalIgnoreCase)
-            || _rules.IsProtectedApp(new ItemFacts(_pkg.Name, _pkg.InstallLocation, null, null)))
-            throw new InvalidOperationException($"„{_rule.Title}“ ist ein geschütztes Windows-Bestandteil und wird nicht entfernt.");
+        if (BloatApps.IsBlocked(live) || _rules.IsProtectedApp(new ItemFacts(live.Name, live.InstallLocation, live.Publisher, null)))
+            throw new InvalidOperationException($"„{_rule.Title}“ ist ein geschützter Windows-Bestandteil und wird nicht entfernt.");
     }
 
     public void Undo(ChangeRecord record, SessionContext ctx)
     {
         var manifest = record.After.GetValueOrDefault("manifest");
-        if (record.After.GetValueOrDefault("restorable") != "true" || string.IsNullOrEmpty(manifest) || !IsManifestOf(manifest, _pkg.FullName))
+        if (record.After.GetValueOrDefault("restorable") != "true" || string.IsNullOrEmpty(manifest) || !IsAcceptedManifest(_pkgs, manifest, _pkg.FullName))
             throw new InvalidOperationException(UndoLimits.StoreOnly);
         _pkgs.Register(manifest);
     }
@@ -322,11 +343,10 @@ public sealed class BloatAppScanner(IAppPackages pkgs, RuleSet rules)
         var rows = new List<BloatAppRow>();
         foreach (var p in pkgs.List())
         {
-            if (p.IsFramework || p.NonRemovable || string.Equals(p.SignatureKind, "System", StringComparison.OrdinalIgnoreCase)) continue;
-            if (BloatApps.IsNever(p.Name)) continue;
+            if (BloatApps.IsBlocked(p) || BloatApps.IsNever(p.Name)) continue;
             var rule = rules.FindBloatApp(p.Name);
             if (rule is null) continue;
-            if (rules.IsProtectedApp(new ItemFacts(p.Name, p.InstallLocation, null, null))) continue;
+            if (rules.IsProtectedApp(new ItemFacts(p.Name, p.InstallLocation, p.Publisher, null))) continue;
             if (!WinAppPackages.IsValidFullName(p.FullName) || !WinAppPackages.IsValidFamily(p.FamilyName)) continue;
             rows.Add(new BloatAppRow(rule, p, new AppxChange(pkgs, p, rule, rules)));
         }

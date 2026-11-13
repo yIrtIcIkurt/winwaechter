@@ -21,7 +21,13 @@ public sealed class BloatAppTests : IDisposable
     readonly FakeAppPackages _pkgs = new();
     static readonly RuleSet Rules = RuleSet.Default;
 
-    public BloatAppTests() => Directory.CreateDirectory(_root);
+    public BloatAppTests()
+    {
+        Directory.CreateDirectory(_root);
+        _pkgs.ProgramFiles = _root;   // the manifest path WinAppPackages would accept is <temp>\WindowsApps\<full>\AppxManifest.xml
+    }
+
+    string Man(string full) => Path.Combine(_root, "WindowsApps", full, "AppxManifest.xml");
 
     public void Dispose() { try { Directory.Delete(_root, true); } catch { } }
 
@@ -325,11 +331,15 @@ public sealed class BloatAppTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => AppxChange.FromRecord(
             Rec("Microsoft.Copilot", CopilotFull, CopilotFamily, @"C:\Temp\AppxManifest.xml"), _pkgs, Rules));
         Assert.Throws<InvalidOperationException>(() => AppxChange.FromRecord(
-            Rec("Microsoft.Copilot", CopilotFull, CopilotFamily, $@"C:\Program Files\WindowsApps\{CopilotFull}\..\evil\AppxManifest.xml"), _pkgs, Rules));
+            Rec("Microsoft.Copilot", CopilotFull, CopilotFamily, Path.Combine(_root, "WindowsApps", CopilotFull, "..", "evil", "AppxManifest.xml")), _pkgs, Rules));
         Assert.Throws<InvalidOperationException>(() => AppxChange.FromRecord(
-            Rec("Microsoft.Copilot", CopilotFull, CopilotFamily, $@"C:\Program Files\WindowsApps\{CopilotFull}\AppxManifest.xml'"), _pkgs, Rules));
+            Rec("Microsoft.Copilot", CopilotFull, CopilotFamily, $@"C:\Program Files\WindowsApps\{CopilotFull}\AppxManifest.xml"), _pkgs, Rules));   // not the accepted programFiles
+        Assert.Throws<InvalidOperationException>(() => AppxChange.FromRecord(
+            Rec("Microsoft.Copilot", CopilotFull, CopilotFamily, Man(CopilotFull) + "'"), _pkgs, Rules));
+        Assert.Throws<InvalidOperationException>(() => AppxChange.FromRecord(
+            Rec("Microsoft.Copilot", CopilotFull, CopilotFamily, Man(CopilotFull) + "\u2019"), _pkgs, Rules));
         // a clean record passes
-        AppxChange.FromRecord(Rec("Microsoft.Copilot", CopilotFull, CopilotFamily, $@"C:\Program Files\WindowsApps\{CopilotFull}\AppxManifest.xml"), _pkgs, Rules);
+        AppxChange.FromRecord(Rec("Microsoft.Copilot", CopilotFull, CopilotFamily, Man(CopilotFull)), _pkgs, Rules);
     }
 
     [Fact]
@@ -342,6 +352,142 @@ public sealed class BloatAppTests : IDisposable
             new() { ["restorable"] = "false" }, ChangeStatus.Applied, DateTimeOffset.Now);
 
         Assert.IsType<AppxChange>(f.Rehydrate(rec));
+    }
+
+    const string MsPublisher = "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US";
+
+    [Fact]
+    public void Retry_after_failure_uses_the_live_package_for_checks_removal_and_undo()
+    {
+        var live = Installed("Microsoft.Copilot", full: CopilotFull);
+        var (before, after) = Change(live).RetryData()!.Value;
+        var rec = new ChangeRecord("id", "appx", live.FamilyName, "x", before, after, ChangeStatus.Failed, DateTimeOffset.Now);
+        // The package was updated meanwhile: the journal's full name is stale, the live one counts.
+        _pkgs.Remove(live.FullName);
+        _pkgs.Removed.Clear();
+        var newer = Installed("Microsoft.Copilot", full: "Microsoft.Copilot_156.0.1.1_neutral__8wekyb3d8bbwe");
+
+        var applied = AppxChange.FromRecord(rec, _pkgs, Rules).Apply(Ctx());
+
+        Assert.Equal([newer.FullName], _pkgs.Removed);
+        Assert.Equal("true", applied.After["restorable"]);
+        Assert.Equal(Man(newer.FullName), applied.After["manifest"]);
+        Assert.Equal(newer.FullName, applied.Before["fullName"]);
+    }
+
+    [Theory]
+    [InlineData(true, "Store")]
+    [InlineData(false, "System")]
+    public void Retry_refuses_when_the_live_package_is_protected(bool nonRemovable, string kind)
+    {
+        var live = Installed("Microsoft.Copilot", full: CopilotFull, nonRemovable: nonRemovable, kind: kind);
+        var (before, after) = Change(live).RetryData()!.Value;
+        var rec = new ChangeRecord("id", "appx", live.FamilyName, "x", before, after, ChangeStatus.Failed, DateTimeOffset.Now);
+
+        Assert.Throws<InvalidOperationException>(() => AppxChange.FromRecord(rec, _pkgs, Rules).Apply(Ctx()));
+
+        Assert.Empty(_pkgs.Removed);
+    }
+
+    [Fact]
+    public void Publisher_is_read_and_protects()
+    {
+        var ms = Installed("Microsoft.Copilot", full: CopilotFull);
+        _pkgs.Remove(ms.FullName);
+        _pkgs.Removed.Clear();
+        _pkgs.Add(ms with { Publisher = MsPublisher });
+        var dell = Installed("Microsoft.BingNews");
+        _pkgs.Remove(dell.FullName);
+        _pkgs.Add(dell with { Publisher = "CN=Dell Inc., O=Dell Inc." });
+        _pkgs.Removed.Clear();
+
+        // Microsoft as publisher does not block a listed package, Dell does.
+        var rows = new BloatAppScanner(_pkgs, Rules).Scan();
+        Assert.Equal(["Copilot"], rows.Select(r => r.Rule.Title));
+
+        var dellRule = Rules.FindBloatApp("Microsoft.BingNews")!;
+        Assert.Throws<InvalidOperationException>(() =>
+            new AppxChange(_pkgs, dell with { Publisher = "CN=Dell Inc., O=Dell Inc." }, dellRule, Rules).Apply(Ctx()));
+        Assert.Empty(_pkgs.Removed);
+    }
+
+    [Fact]
+    public void Missing_or_odd_safety_fields_fail_closed()
+    {
+        string Json(string flags) => "{\"Name\":\"Microsoft.Copilot\",\"PackageFullName\":\"" + CopilotFull + "\",\"PackageFamilyName\":\"" + CopilotFamily
+            + "\",\"InstallLocation\":\"C:\\\\x\"" + flags + "}";
+        foreach (var flags in new[]
+        {
+            ",\"NonRemovable\":false,\"SignatureKind\":1",                                 // IsFramework missing
+            ",\"IsFramework\":false,\"SignatureKind\":1",                                  // NonRemovable missing
+            ",\"IsFramework\":false,\"NonRemovable\":false",                               // SignatureKind missing
+            ",\"IsFramework\":\"nein\",\"NonRemovable\":false,\"SignatureKind\":1",        // not a boolean
+            ",\"IsFramework\":false,\"NonRemovable\":null,\"SignatureKind\":1",
+            ",\"IsFramework\":false,\"NonRemovable\":false,\"SignatureKind\":9",           // unknown kind
+        })
+        {
+            var runner = new FakeProcessRunner { Handler = (_, a) => Task.FromResult(a.Contains("Get-AppxPackage") ? (0, Json(flags), "") : (0, "", "")) };
+            var apps = new WinAppPackages(runner, Sid, @"C:\Program Files");
+            Assert.Empty(new BloatAppScanner(apps, Rules).Scan());
+        }
+        var ok = new FakeProcessRunner { Handler = (_, a) => Task.FromResult(a.Contains("Get-AppxPackage")
+            ? (0, Json(",\"IsFramework\":false,\"NonRemovable\":false,\"SignatureKind\":1"), "") : (0, "", "")) };
+        Assert.Single(new BloatAppScanner(new WinAppPackages(ok, Sid, @"C:\Program Files"), Rules).Scan());
+    }
+
+    [Fact]
+    public void Apply_refuses_a_live_package_with_unknown_safety_fields()
+    {
+        var p = Installed("Microsoft.Copilot", full: CopilotFull, kind: "Unknown");
+        Assert.Throws<InvalidOperationException>(() => Change(p).Apply(Ctx()));
+        Assert.Empty(_pkgs.Removed);
+    }
+
+    [Fact]
+    public void Package_outside_the_accepted_path_is_marked_store_only()
+    {
+        var p = Installed("Microsoft.Copilot", full: CopilotFull);
+        _pkgs.ProgramFiles = @"D:\Elsewhere";   // Register would not accept a manifest in the files that are there
+
+        var rec = Change(p).Apply(Ctx());
+
+        Assert.Equal("false", rec.After["restorable"]);
+        Assert.False(rec.After.ContainsKey("manifest") && rec.After["manifest"] is not null);
+        Assert.False(OptimizerEngine.IsUndoable(rec));
+    }
+
+    [Fact]
+    public void Undo_limit_after_FromRecord_follows_restorable()
+    {
+        ChangeRecord Rec(string restorable) =>
+            new("id", "appx", CopilotFamily, "x",
+                new() { ["name"] = "Microsoft.Copilot", ["fullName"] = CopilotFull, ["family"] = CopilotFamily },
+                new() { ["restorable"] = restorable, ["manifest"] = restorable == "true" ? Man(CopilotFull) : null },
+                ChangeStatus.Applied, DateTimeOffset.Now);
+
+        Assert.Null(AppxChange.FromRecord(Rec("true"), _pkgs, Rules).UndoLimit);
+        Assert.Equal(UndoLimits.StoreOnly, AppxChange.FromRecord(Rec("false"), _pkgs, Rules).UndoLimit);
+    }
+
+    [Theory]
+    [InlineData("'")]
+    [InlineData("\"")]
+    [InlineData("\u2018")]
+    [InlineData("\u2019")]
+    [InlineData("\u201A")]
+    [InlineData("\u201B")]
+    public void Every_quote_character_is_rejected_in_paths(string q)
+    {
+        Assert.True(WinAppPackages.HasQuote("a" + q + "b"));
+        var runner = new FakeProcessRunner();
+        var folder = CopilotFull;
+        Assert.Throws<ArgumentException>(() => new WinAppPackages(runner, Sid, @"C:\Program Files").Register($@"C:\Program Files\WindowsApps\{folder}\AppxManifest.xml" + q));
+        // a quote inside the programFiles value itself
+        var odd = @"C:\Prog" + q + "ram";
+        var apps = new WinAppPackages(runner, Sid, odd);
+        Assert.Null(apps.ManifestPathFor(folder));
+        Assert.Throws<ArgumentException>(() => apps.Register(Path.Combine(odd, "WindowsApps", folder, "AppxManifest.xml")));
+        Assert.Empty(runner.Calls);
     }
 
     // ---- package interface ----
@@ -399,7 +545,7 @@ public sealed class BloatAppTests : IDisposable
         var ps = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
         var runner = new FakeProcessRunner();
         var list = "{\"Name\":\"Microsoft.Copilot\",\"PackageFullName\":\"" + CopilotFull + "\",\"PackageFamilyName\":\"" + CopilotFamily
-            + "\",\"InstallLocation\":\"C:\\\\Program Files\\\\WindowsApps\\\\" + CopilotFull + "\",\"IsFramework\":false,\"NonRemovable\":false,\"SignatureKind\":1}";
+            + "\",\"Publisher\":\"CN=Microsoft Corporation, O=Microsoft Corporation\",\"InstallLocation\":\"C:\\\\Program Files\\\\WindowsApps\\\\" + CopilotFull + "\",\"IsFramework\":false,\"NonRemovable\":false,\"SignatureKind\":1}";
         var sys = "{\"Name\":\"Microsoft.BingNews\",\"PackageFullName\":\"Microsoft.BingNews_4.0_neutral__8wekyb3d8bbwe\",\"PackageFamilyName\":\"Microsoft.BingNews"
             + Pfn + "\",\"InstallLocation\":null,\"IsFramework\":true,\"NonRemovable\":true,\"SignatureKind\":4}";
         runner.Handler = (_, args) => Task.FromResult(args.Contains("Get-AppxPackage")
@@ -410,10 +556,10 @@ public sealed class BloatAppTests : IDisposable
         var all = apps.List();
 
         Assert.Equal(2, all.Count);
-        Assert.Equal(new AppPackage("Microsoft.Copilot", CopilotFull, CopilotFamily, @"C:\Program Files\WindowsApps\" + CopilotFull, false, false, "Developer", true), all[0]);
+        Assert.Equal(new AppPackage("Microsoft.Copilot", CopilotFull, CopilotFamily, @"C:\Program Files\WindowsApps\" + CopilotFull, false, false, "Developer", true, "CN=Microsoft Corporation, O=Microsoft Corporation"), all[0]);
         Assert.Equal(("System", true, true, false, null), (all[1].SignatureKind, all[1].IsFramework, all[1].NonRemovable, all[1].InImage, all[1].InstallLocation));
 
-        var listCmd = $"Get-AppxPackage -User '{Sid}' | Select-Object Name,PackageFullName,PackageFamilyName,InstallLocation,IsFramework,NonRemovable,SignatureKind | ConvertTo-Json -Compress";
+        var listCmd = $"Get-AppxPackage -User '{Sid}' | Select-Object Name,PackageFullName,PackageFamilyName,Publisher,InstallLocation,IsFramework,NonRemovable,SignatureKind | ConvertTo-Json -Compress";
         string Args(string cmd) => $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{cmd}\"";
         Assert.Equal(
         [

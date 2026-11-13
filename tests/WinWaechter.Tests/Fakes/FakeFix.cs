@@ -188,6 +188,11 @@ public sealed class FakeAppPackages : IAppPackages
 
     public void Register(string manifestPath) => Registered.Add(manifestPath);
 
+    public string ProgramFiles { get; set; } = @"C:\Program Files";
+
+    public string? ManifestPathFor(string fullName) =>
+        WinAppPackages.IsValidFullName(fullName) ? Path.Combine(ProgramFiles, "WindowsApps", fullName, "AppxManifest.xml") : null;
+
     // Test helper: the user installed it again.
     public void Reinstall(AppPackage p) => _installed.Add(p);
 }
