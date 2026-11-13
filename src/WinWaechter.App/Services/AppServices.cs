@@ -80,6 +80,9 @@ public sealed class AppServices : IDisposable
         var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo, rules);
         FirewallChange.Register(factory, firewall);
         DefenderRegistration.Register(factory, defender);
+        // Programme: preinstalled apps (Windows PowerShell Appx cmdlets for the signed-in user's packages)
+        var pkgs = new WinAppPackages(new ProcessRunner(), user.Sid, Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+        AppxChange.Register(factory, pkgs, rules);
         var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows) is { Length: > 0 } w ? w : @"C:\Windows";
         // Sicherheit: secvalue, fwrule and sysprotect fixes (undo from the Verlauf needs them registered)
         SecValueChange.Register(factory, reg);
@@ -144,12 +147,13 @@ public sealed class AppServices : IDisposable
         var programService = new ProgramService(new ProgramInventory(reg, rules), reg, fo, sig, new JobUninstallLauncher(user.Sid),
             new UninstallLeftoverFinder(reg, fo, rules, procs, paths, TraceScan),
             new ForcedRemovalPlanner(reg, fo, rules, procs, paths, TraceScan), paths);
-        // the view model runs every read of the service on the thread pool
-        var programs = new ProgramsViewModel(programService, engine, dialogs, shell, canChange, gate);
-        // Leistung: the animation switch (SPI) acts on the process's own account, so it is offered only when
-        // that is the signed-in user. The view model runs the scan, the samples and the boot report on the pool.
+        // Leistung and Programme: the animation switch (SPI) and the app removal act on the signed-in user's account,
+        // so they are offered only when the process runs as that user.
         using var identity = WindowsIdentity.GetCurrent();
         var ownAccount = string.Equals(identity.User?.Value, user.Sid, StringComparison.OrdinalIgnoreCase);
+        // the view model runs every read of the service (and the app scan) on the thread pool
+        var programs = new ProgramsViewModel(programService, engine, dialogs, shell, canChange, gate,
+            () => new BloatAppScanner(pkgs, rules).Scan(), ownAccount);
         var perfScanner = new PerformanceScanner(reg, power, animation, hibernation, new WinAppDisplayNames(reg), ownAccount, broadcast,
             plans, () => new JournalPolicyOwnership(store));
         // „Beenden“ asks the guard at run time: never Windows, services, protected vendors (rules.json) or WinWächter itself.
@@ -180,7 +184,7 @@ public sealed class AppServices : IDisposable
             engine, dialogs, shell, canChange, gate, OpenOptimizeAndScan, new DispatcherTickSource(),
             perfScanner.FastStartupActive, perfTools);
         var janitor = new AblageJanitor(store);
-        var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate);
+        var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate, shell);
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
         var settingsVm = new SettingsViewModel(settings, env, update, shell, rulesInfo, updateRules);
 

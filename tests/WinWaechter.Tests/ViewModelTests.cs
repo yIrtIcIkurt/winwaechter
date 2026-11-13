@@ -6,6 +6,7 @@ using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Security.Defender;
+using WinWaechter.Core.Sys;
 using WinWaechter.Core.Update;
 using WinWaechter.Tests.Fakes;
 
@@ -596,6 +597,85 @@ public sealed class ViewModelTests : IDisposable
         await h.PurgeAblageCommand.ExecuteAsync(null);
 
         Assert.Contains("Darin enthalten: 1 Programmordner", dialogs.LastConfirm);
+    }
+
+    // ---------- history: Store button and partial-undo hint (4.4, Task 6) ----------
+
+    sealed class LinkShell : ISystemShell
+    {
+        public List<string> Links { get; } = [];
+        public void OpenFolder(string path) { }
+        public void OpenLink(string uri) => Links.Add(uri);
+    }
+
+    const string NewsFamily = "Microsoft.BingNews_8wekyb3d8bbwe";
+
+    async Task<(HistoryViewModel H, LinkShell Shell)> HistoryWith(params ChangeRecord[] records)
+    {
+        var store = new SessionStore(_root);
+        var j = store.Create("T");
+        foreach (var r in records) j.Upsert(r);
+        var shell = new LinkShell();
+        var h = new HistoryViewModel(store, Engine(), new AblageJanitor(store), new YesDialogs(), true, _gate, shell);
+        await h.RefreshCommand.ExecuteAsync(null);
+        return (h, shell);
+    }
+
+    static ChangeRecord Appx(string restorable) => new("a1", "appx", NewsFamily, "„Microsoft News“ entfernen",
+        new() { ["name"] = "Microsoft.BingNews", ["fullName"] = "Microsoft.BingNews_1.2.3.4_neutral__8wekyb3d8bbwe", ["family"] = NewsFamily, ["title"] = "Microsoft News" },
+        new() { ["restorable"] = restorable }, ChangeStatus.Applied, DateTimeOffset.Now);
+
+    [Fact]
+    public async Task History_store_only_record_offers_store_link_not_undo()
+    {
+        var (h, shell) = await HistoryWith(Appx("false"));
+        var r = h.Sessions[0].Records[0];
+
+        Assert.False(r.CanUndo);
+        Assert.Equal(SystemLinks.StoreLink(NewsFamily), r.StoreLink);
+        Assert.True(r.HasStoreLink);
+        Assert.False(r.ShowDisabledUndo);
+        Assert.Equal("Nur über den Store wiederherstellbar", r.Hint);
+
+        h.OpenStoreCommand.Execute(r);
+
+        Assert.Equal([SystemLinks.StoreLink(NewsFamily)], shell.Links);
+    }
+
+    [Fact]
+    public async Task History_restorable_appx_keeps_undo_and_has_no_store_link()
+    {
+        var rec = Appx("true") with { After = new() { ["restorable"] = "true", ["manifest"] = @"C:\x" } };
+        var (h, shell) = await HistoryWith(rec);
+        var r = h.Sessions[0].Records[0];
+
+        Assert.True(r.CanUndo);
+        Assert.Null(r.StoreLink);
+        Assert.Null(r.Hint);
+        h.OpenStoreCommand.Execute(r);
+        Assert.Empty(shell.Links);
+    }
+
+    [Fact]
+    public async Task History_store_link_needs_a_valid_family()
+    {
+        var good = Appx("false");
+        var bad = good with { Before = new(good.Before) { ["family"] = "x'; calc" } };
+        var (h, shell) = await HistoryWith(bad);
+        var r = h.Sessions[0].Records[0];
+
+        Assert.Null(r.StoreLink);
+        h.OpenStoreCommand.Execute(r);
+        Assert.Empty(shell.Links);
+    }
+
+    [Fact]
+    public async Task Sysprotect_record_says_partial()
+    {
+        var rec = new ChangeRecord("s1", "sysprotect", @"C:\", "Computerschutz einschalten", new(), new(), ChangeStatus.Applied, DateTimeOffset.Now);
+        var (h, _) = await HistoryWith(rec);
+
+        Assert.Equal("Nur teilweise rückgängig: Der Computerschutz bleibt an.", h.Sessions[0].Records[0].Hint);
     }
 
     sealed class CallbackChange(string target, Action onApply) : IChange

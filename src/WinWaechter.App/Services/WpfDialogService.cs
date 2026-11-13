@@ -49,7 +49,7 @@ public sealed class ExplorerShell : ISystemShell
     public void OpenLink(string uri)
     {
         // only the fixed list goes to the shell, never a URI from data
-        if (!SystemLinks.IsAllowed(uri))
+        if (!SystemLinks.IsAllowed(uri) && !SystemLinks.IsStoreLink(uri))
         {
             FileLog.Warn($"Link nicht erlaubt: {uri}");
             return;

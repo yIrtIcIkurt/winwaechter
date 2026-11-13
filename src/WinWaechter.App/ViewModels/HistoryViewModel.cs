@@ -3,11 +3,14 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Storage;
+using WinWaechter.Core.Programs;
+using WinWaechter.Core.Sys;
 
 namespace WinWaechter.App.ViewModels;
 
@@ -24,10 +27,22 @@ public sealed class RecordViewModel(ChangeRecord record, SessionViewModel sessio
     public bool IsPurged => Record.After.TryGetValue("purged", out var p) && p == "true";
     public bool MovedNothing => OptimizerEngine.MovedNothing(Record);
     public bool CanUndo => OptimizerEngine.IsUndoable(Record) && !IsPurged;
+    /// <summary>Store page of an app that only the Store can bring back (appx without image copy); otherwise null.</summary>
+    public string? StoreLink =>
+        Record.Kind == "appx" && Record.After.GetValueOrDefault("restorable") == "false"
+        && WinAppPackages.IsValidFamily(Record.Before.GetValueOrDefault("family"))
+            ? SystemLinks.StoreLink(Record.Before["family"]!)
+            : null;
+    public bool HasStoreLink => StoreLink is not null;
     public string? Hint =>
         MovedNothing ? "Nichts verschoben"
         : IsPurged && Record.Status == ChangeStatus.Applied ? "Ablage geleert"
+        : HasStoreLink ? UndoLimits.StoreOnly
+        : Record.Kind == "sysprotect" && Record.Status == ChangeStatus.Applied ? PartialText
         : null;
+    public const string PartialText = "Nur teilweise rückgängig: Der Computerschutz bleibt an.";
+    /// <summary>A greyed-out „Rückgängig“ with the reason under it (nothing can be undone here, and no Store button).</summary>
+    public bool ShowDisabledUndo => Hint is not null && !CanUndo && !HasStoreLink;
 }
 
 /// <summary>One optimizer session with its records.</summary>
@@ -65,10 +80,12 @@ public sealed partial class HistoryViewModel : ObservableObject
     readonly AblageJanitor _janitor;
     readonly IDialogService _dialogs;
     readonly ChangeGate _gate;
+    readonly ISystemShell? _shell;
 
     public HistoryViewModel(SessionStore store, OptimizerEngine engine, AblageJanitor janitor, IDialogService dialogs,
-        bool canChange, ChangeGate gate)
+        bool canChange, ChangeGate gate, ISystemShell? shell = null)
     {
+        _shell = shell;
         _store = store;
         _engine = engine;
         _janitor = janitor;
@@ -191,6 +208,13 @@ public sealed partial class HistoryViewModel : ObservableObject
                 "Rückgängig machen"))
             return;
         await RunUndoAsync(p => _engine.UndoSession(s.Journal, p));
+    }
+
+    /// <summary>Opens the Store page of an app that was removed without a local copy (needs no admin rights).</summary>
+    [RelayCommand]
+    private void OpenStore(RecordViewModel? r)
+    {
+        if (r?.StoreLink is { } link) _shell?.OpenLink(link);
     }
 
     bool CanUndoOne(RecordViewModel? r) => CanChange && !IsBusy && !_gate.IsBusy && r is { CanUndo: true };

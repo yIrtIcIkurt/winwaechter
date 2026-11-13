@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Changes;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
@@ -59,6 +60,31 @@ public sealed partial class ProgramItemViewModel : ObservableObject
     }
 }
 
+/// <summary>One removable preinstalled app: title, recommendation and what the Verlauf can do afterwards.</summary>
+public sealed partial class BloatAppItemViewModel : ObservableObject
+{
+    readonly Action? _changed;
+
+    public BloatAppItemViewModel(BloatAppRow row, bool canSelect, Action? changed = null)
+    {
+        Row = row;
+        CanSelect = canSelect;
+        _changed = changed;
+        UndoText = row.Change.UndoLimit is null ? "Rückgängig im Verlauf" : UndoLimits.StoreOnly;
+    }
+
+    public BloatAppRow Row { get; }
+    public string Title => Row.Rule.Title;
+    public bool IsRecommended => Row.Rule.Recommended;
+    public bool CanSelect { get; }
+    public string UndoText { get; }
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    partial void OnIsSelectedChanged(bool value) => _changed?.Invoke();
+}
+
 public enum ProgramSort { Name, Size, Date }
 
 public sealed record ProgramSortOption(ProgramSort Value, string Label);
@@ -85,6 +111,8 @@ public sealed partial class ProgramsViewModel : ObservableObject
     readonly IDialogService _dialogs;
     readonly ISystemShell _shell;
     readonly ChangeGate _gate;
+    readonly Func<IReadOnlyList<BloatAppRow>>? _apps;
+    readonly bool _sameAccount;
 
     List<ProgramItemViewModel> _rows = [];
     // why „Erzwungen entfernen“ was offered per program id; survives a reload
@@ -93,8 +121,10 @@ public sealed partial class ProgramsViewModel : ObservableObject
     InstalledProgram? _leftoversFor;
 
     public ProgramsViewModel(IProgramActions actions, OptimizerEngine engine, IDialogService dialogs, ISystemShell shell,
-        bool canChange, ChangeGate gate)
+        bool canChange, ChangeGate gate, Func<IReadOnlyList<BloatAppRow>>? apps = null, bool sameAccount = true)
     {
+        _apps = apps;
+        _sameAccount = sameAccount;
         _actions = actions;
         _engine = engine;
         _dialogs = dialogs;
@@ -153,6 +183,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ForceRemoveCommand))]
     [NotifyCanExecuteChangedFor(nameof(FindLeftoversCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyLeftoversCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RemoveAppsCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -185,6 +216,75 @@ public sealed partial class ProgramsViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApplyLeftoversCommand))]
     private int _selectedLeftoverCount;
+
+    // ---------- preinstalled apps ----------
+
+    public const string OtherAccountText =
+        "WinWächter läuft unter einem anderen Konto als dem angemeldeten. Apps lassen sich nur im eigenen Konto entfernen.";
+
+    public ObservableCollection<BloatAppItemViewModel> Apps { get; } = [];
+    public bool ShowApps => Apps.Count > 0;
+
+    /// <summary>Removal is locked: no admin rights, or the process runs as another account than the signed-in user.</summary>
+    public bool AppsLocked => !CanChange || !_sameAccount;
+    public string? AppsLockedText => !CanChange ? AdminNotice : !_sameAccount ? OtherAccountText : null;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RemoveAppsCommand))]
+    private int _selectedAppCount;
+
+    public string RemoveAppsText => $"Ausgewählte entfernen ({SelectedAppCount})";
+    partial void OnSelectedAppCountChanged(int value) => OnPropertyChanged(nameof(RemoveAppsText));
+
+    void UpdateAppSelection() => SelectedAppCount = Apps.Count(a => a.IsSelected);
+
+    // The scan runs on the pool; a failure leaves the programs list working and the section empty.
+    async Task LoadAppsAsync()
+    {
+        IReadOnlyList<BloatAppRow> rows = [];
+        if (_apps is { } read)
+        {
+            try { rows = await Task.Run(() => read()); }
+            catch (Exception ex) { FileLog.Error("Vorinstallierte Apps lesen fehlgeschlagen", ex); }
+        }
+        Apps.Clear();
+        foreach (var r in rows) Apps.Add(new BloatAppItemViewModel(r, !AppsLocked, UpdateAppSelection));
+        UpdateAppSelection();
+        OnPropertyChanged(nameof(ShowApps));
+        SelectRecommendedAppsCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSelectApps))]
+    private void SelectRecommendedApps()
+    {
+        foreach (var a in Apps) a.IsSelected = a.IsRecommended;
+    }
+
+    bool CanSelectApps() => !AppsLocked && Apps.Any(a => a.IsRecommended);
+
+    [RelayCommand(CanExecute = nameof(CanRemoveApps))]
+    private async Task RemoveAppsAsync()
+    {
+        if (!CanRemoveApps()) return;
+        var selected = Apps.Where(a => a.IsSelected).ToList();
+        var question = selected.Count == 1
+            ? "Diese App wird für Ihr Konto entfernt. Vorher legt WinWächter eine Sicherung an; im Verlauf lässt sich zurücknehmen, was möglich ist."
+            : $"Diese {selected.Count} Apps werden für Ihr Konto entfernt. Vorher legt WinWächter eine Sicherung an; im Verlauf lässt sich zurücknehmen, was möglich ist.";
+        if (!_dialogs.Confirm("Vorinstallierte Apps entfernen", question, "Entfernen",
+                selected.Select(a => ChangeText.ConfirmLine(a.Row.Change)).ToList()))
+            return;
+
+        var findings = selected.Select(a => new Finding($"app|{a.Row.Package.FamilyName}", FindingArea.Einstellung,
+            a.Row.Change.Description, a.Row.Package.FamilyName, [], Rating.Info, false, a.Row.Change)).ToList();
+        var ran = await _gate.RunAsync(this, async () =>
+        {
+            if (await ApplyAsync("Vorinstallierte Apps entfernen", findings) is null) return;
+            await ReloadAsync();
+        });
+        if (!ran) LastSummary = ChangeGate.BusyHint;
+    }
+
+    bool CanRemoveApps() => CanAct() && !AppsLocked && SelectedAppCount > 0;
 
     // ---------- list ----------
 
@@ -222,6 +322,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
         }).ToList();
         HasLoaded = true;
         UpdateView();
+        await LoadAppsAsync();
     }
 
     void UpdateView()
@@ -519,6 +620,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
         ForceRemoveCommand.NotifyCanExecuteChanged();
         ApplyLeftoversCommand.NotifyCanExecuteChanged();
         FindLeftoversCommand.NotifyCanExecuteChanged();
+        RemoveAppsCommand.NotifyCanExecuteChanged();
     }
 
     async Task ReloadAsync()

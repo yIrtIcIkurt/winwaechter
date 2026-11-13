@@ -765,4 +765,123 @@ public sealed class ProgramsViewModelTests : IDisposable
         nav.IsSelected = true;
         Assert.Equal(1, _actions.ReadCount);
     }
+
+    // ---------- preinstalled apps (4.4) ----------
+
+    const string Pfn = "_8wekyb3d8bbwe";
+    readonly FakeAppPackages _pkgs = new();
+
+    AppPackage App(string name, bool inImage = true)
+    {
+        var p = new AppPackage(name, $"{name}_1.2.3.4_neutral__8wekyb3d8bbwe", name + Pfn, null, false, false, "Store", inImage);
+        _pkgs.Add(p);
+        return p;
+    }
+
+    ProgramsViewModel AppsVm(RecordingDialogs dialogs, bool canChange = true, bool sameAccount = true) =>
+        new(_actions, _engine, dialogs, _shell, canChange, _gate, () => new BloatAppScanner(_pkgs, RuleSet.Default).Scan(), sameAccount);
+
+    [Fact]
+    public async Task Apps_section_lists_rows_unselected()
+    {
+        App("Microsoft.BingNews");
+        App("Microsoft.Copilot");
+        App("Microsoft.WindowsCalculator");   // Nie-Liste: never listed
+        var vm = AppsVm(new RecordingDialogs());
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(["Microsoft News", "Copilot"], vm.Apps.Select(a => a.Title));
+        Assert.All(vm.Apps, a => Assert.False(a.IsSelected));
+        Assert.Equal([true, false], vm.Apps.Select(a => a.IsRecommended));
+        Assert.True(vm.ShowApps);
+        Assert.False(vm.AppsLocked);
+        Assert.False(vm.RemoveAppsCommand.CanExecute(null));
+
+        vm.SelectRecommendedAppsCommand.Execute(null);
+
+        Assert.Equal([true, false], vm.Apps.Select(a => a.IsSelected));
+        Assert.Equal("Ausgewählte entfernen (1)", vm.RemoveAppsText);
+        Assert.True(vm.RemoveAppsCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Remove_confirm_marks_store_only()
+    {
+        App("Microsoft.BingNews", inImage: true);
+        App("Microsoft.Copilot", inImage: false);
+        var dialogs = new RecordingDialogs();
+        var vm = AppsVm(dialogs);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var changes = vm.Apps.Select(a => a.Row.Change).ToList();
+        Assert.Equal(["Rückgängig im Verlauf", UndoLimits.StoreOnly], vm.Apps.Select(a => a.UndoText));
+        foreach (var a in vm.Apps) a.IsSelected = true;
+        var applied = 0;
+        vm.ChangesApplied += (_, _) => applied++;
+
+        await vm.RemoveAppsCommand.ExecuteAsync(null);
+
+        var confirm = Assert.Single(dialogs.Confirms);
+        Assert.Equal("Vorinstallierte Apps entfernen", confirm.Title);
+        Assert.Equal(changes.Select(ChangeText.ConfirmLine), confirm.Items);
+        Assert.Contains($"({UndoLimits.StoreOnly})", confirm.Items[1]);
+        Assert.DoesNotContain("(", confirm.Items[0]);
+        Assert.Equal(["Microsoft.BingNews_1.2.3.4_neutral__8wekyb3d8bbwe", "Microsoft.Copilot_1.2.3.4_neutral__8wekyb3d8bbwe"], _pkgs.Removed);
+        Assert.Equal(1, applied);
+        Assert.Empty(vm.Apps);   // reloaded: both are gone
+        Assert.False(vm.ShowApps);
+    }
+
+    [Fact]
+    public async Task Remove_declined_removes_nothing()
+    {
+        App("Microsoft.BingNews");
+        var dialogs = new RecordingDialogs { ConfirmAnswer = false };
+        var vm = AppsVm(dialogs);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.SelectRecommendedAppsCommand.Execute(null);
+
+        await vm.RemoveAppsCommand.ExecuteAsync(null);
+
+        Assert.Single(dialogs.Confirms);
+        Assert.Empty(_pkgs.Removed);
+        Assert.Single(vm.Apps);
+    }
+
+    [Fact]
+    public async Task Apps_locked_for_other_account_and_without_admin()
+    {
+        App("Microsoft.BingNews");
+
+        var noAdmin = AppsVm(new RecordingDialogs(), canChange: false);
+        await noAdmin.RefreshCommand.ExecuteAsync(null);
+        Assert.True(noAdmin.AppsLocked);
+        Assert.Equal(AppEnvironment.AdminNotice, noAdmin.AppsLockedText);
+        Assert.All(noAdmin.Apps, a => Assert.False(a.CanSelect));
+        Assert.False(noAdmin.SelectRecommendedAppsCommand.CanExecute(null));
+        Assert.False(noAdmin.RemoveAppsCommand.CanExecute(null));
+
+        var other = AppsVm(new RecordingDialogs(), sameAccount: false);
+        await other.RefreshCommand.ExecuteAsync(null);
+        Assert.True(other.AppsLocked);
+        Assert.Equal("WinWächter läuft unter einem anderen Konto als dem angemeldeten. Apps lassen sich nur im eigenen Konto entfernen.",
+            other.AppsLockedText);
+        foreach (var a in other.Apps) a.IsSelected = true;   // even if forced on: nothing is removable
+        Assert.False(other.RemoveAppsCommand.CanExecute(null));
+        await other.RemoveAppsCommand.ExecuteAsync(null);
+        Assert.Empty(_pkgs.Removed);
+    }
+
+    [Fact]
+    public async Task Apps_read_failure_keeps_the_programs_list()
+    {
+        _actions.Programs = [P("Foo")];
+        var vm = new ProgramsViewModel(_actions, _engine, new RecordingDialogs(), _shell, true, _gate,
+            () => throw new InvalidOperationException("PowerShell fehlt"), true);
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Single(vm.Items);
+        Assert.Empty(vm.Apps);
+    }
 }

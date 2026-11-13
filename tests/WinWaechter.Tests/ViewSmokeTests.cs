@@ -110,6 +110,9 @@ public sealed class ViewSmokeTests : IDisposable
         j.Upsert(new ChangeRecord("1", "autostart", "Steam", "Autostart „Steam“ ausschalten", new(), new(), ChangeStatus.Applied, DateTimeOffset.Now));
         j.Upsert(new ChangeRecord("2", "temp", "Temp", "Temp-Dateien in die Ablage", new(), new() { ["purged"] = "true" }, ChangeStatus.Applied, DateTimeOffset.Now));
         j.Upsert(new ChangeRecord("3", "task", "T", "Aufgabe deaktivieren", new(), new(), ChangeStatus.Failed, DateTimeOffset.Now, "Zugriff verweigert"));
+        // 4.4: an app only the Store can bring back (button „Im Store öffnen“, no „Rückgängig“)
+        j.Upsert(new ChangeRecord("4", "appx", "Microsoft.Copilot_8wekyb3d8bbwe", "„Copilot“ entfernen",
+            new() { ["family"] = "Microsoft.Copilot_8wekyb3d8bbwe" }, new() { ["restorable"] = "false" }, ChangeStatus.Applied, DateTimeOffset.Now));
 
         var engine = new OptimizerEngine([() => findings], store, new ChangeFactory(), _ => new RestorePointResult(true, "ok"));
         var dialogs = new Dialogs();
@@ -125,7 +128,7 @@ public sealed class ViewSmokeTests : IDisposable
         var reg = new FakeRegistry();
         var privacy = new PrivacyViewModel(_ => Task.FromResult(new PrivacyScanner(reg, RuleSet.Default).Scan(_ => true)),
             engine, dialogs, canChange: false, gate);
-        var history = new HistoryViewModel(store, engine, new AblageJanitor(store), dialogs, canChange: false, gate);
+        var history = new HistoryViewModel(store, engine, new AblageJanitor(store), dialogs, canChange: false, gate, new Shell());
         var env = new AppEnvironment(false, _root, new SemVer(0, 1, 0));
         var update = new UpdateViewModel(new Updates(), dialogs, canInstall: false, () => { }, gate);
         var settings = new SettingsViewModel(new AppSettings(), env, update, new Shell(),
@@ -214,6 +217,7 @@ public sealed class ViewSmokeTests : IDisposable
             var programsView = new ProgramsView { DataContext = programs };
             Layout(programsView);
             AssertComboShowsLabel(programsView, "ProgramSortOption");
+            AssertAppsSection(programsView);
             var performanceView = new PerformanceView { DataContext = performance };
             Layout(performanceView);
             AssertComboShowsLabel(performanceView, "PerfOption");
@@ -225,12 +229,38 @@ public sealed class ViewSmokeTests : IDisposable
             shell.Navigate(shell.Overview);
             Layout(new MessageDialog("Deinstallation", "Ist die Deinstallation abgeschlossen?", null, "Ja", false, "Noch nicht").Content
                 as FrameworkElement);
-            Layout(new HistoryView { DataContext = history });
+            var historyView = new HistoryView { DataContext = history };
+            Layout(historyView);
+            AssertStoreButton(historyView);
             Layout(new SettingsView { DataContext = settings });
             var dialog = new MessageDialog("Titel", "Text", ["Eins", "Zwei"], "Anwenden", final: true);
             Layout(dialog.Content as FrameworkElement);
         }
         app.Shutdown();
+    }
+
+    // 4.4: the preinstalled-apps section shows its title, one unticked box per app, the undo text and the remove button
+    static void AssertAppsSection(FrameworkElement view)
+    {
+        var texts = FindAll<TextBlock>(view).Select(t => t.Text).ToList();
+        Assert.Contains("Vorinstallierte Apps", texts);
+        Assert.Contains("Microsoft News", texts);
+        Assert.Contains(UndoLimits.StoreOnly, texts);
+        Assert.Contains("Rückgängig im Verlauf", texts);
+        var boxes = FindAll<CheckBox>(view).Where(c => AutomationProperties.GetName(c) is "Microsoft News" or "Copilot").ToList();
+        Assert.Equal(2, boxes.Count);
+        Assert.All(boxes, c => Assert.True(c.IsChecked != true && c.IsEnabled));
+        var remove = FindAll<Button>(view).Single(b => b.Content as string == "Ausgewählte entfernen (0)");
+        Assert.True(remove.Visibility == Visibility.Visible && remove.ActualWidth > 0);
+    }
+
+    // 4.4: a Store-only removal shows „Im Store öffnen“ and its hint instead of an undo button
+    static void AssertStoreButton(FrameworkElement view)
+    {
+        // every row carries the (collapsed) button; exactly one is shown
+        var store = FindAll<Button>(view).Single(b => b.Content as string == "Im Store öffnen" && b.Visibility == Visibility.Visible);
+        Assert.True(store.ActualWidth > 0);
+        Assert.Contains(FindAll<TextBlock>(view), t => t.Text == UndoLimits.StoreOnly);
     }
 
     // the closed sort box shows the option's Label (DisplayMemberPath), not the record's ToString()
@@ -298,13 +328,20 @@ public sealed class ViewSmokeTests : IDisposable
                 new("l2", FindingArea.Aufgabe, "Foo Updater", @"\Foo Updater", ["Ziel fehlt"], Rating.Entbehrlich, true, new NoChange("Updater")),
             ],
         };
-        var vm = new ProgramsViewModel(actions, engine, new YesDialogs(), new Shell(), canChange: true, gate);
+        // 4.4: two preinstalled apps, one with an image copy and one that only the Store can restore
+        var pkgs = new FakeAppPackages()
+            .Add(new AppPackage("Microsoft.BingNews", "Microsoft.BingNews_1.0.0.0_neutral__8wekyb3d8bbwe", "Microsoft.BingNews_8wekyb3d8bbwe",
+                null, false, false, "Store", true))
+            .Add(new AppPackage("Microsoft.Copilot", "Microsoft.Copilot_1.0.0.0_neutral__8wekyb3d8bbwe", "Microsoft.Copilot_8wekyb3d8bbwe",
+                null, false, false, "Store", false));
+        var vm = new ProgramsViewModel(actions, engine, new YesDialogs(), new Shell(), canChange: true, gate,
+            () => new BloatAppScanner(pkgs, RuleSet.Default).Scan());
         vm.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         actions.Programs = [tool, lexware];   // the launched uninstaller removed „Foo“
         vm.UninstallCommand.ExecuteAsync(vm.Items.Single(i => i.Name == "Foo")).GetAwaiter().GetResult();
         vm.UninstallCommand.ExecuteAsync(vm.Items.Single(i => i.Name == "Spiel-Tool")).GetAwaiter().GetResult();
         Assert.True(vm.Items.Count == 2 && vm.Pending == tool && vm.ShowLeftovers && vm.Leftovers.Count == 2
-            && vm.Items.Single(i => i.Name == "Spiel-Tool").CanForceRemove);
+            && vm.Items.Single(i => i.Name == "Spiel-Tool").CanForceRemove && vm.Apps.Count == 2);
         return vm;
     }
 

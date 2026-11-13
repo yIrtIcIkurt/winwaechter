@@ -46,6 +46,54 @@
             <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
                        Text="Installierte Programme mit Herausgeber, Version, Datum und Größe. „Deinstallieren“ startet das Deinstallationsprogramm des Herstellers; das lässt sich in WinWächter nicht rückgängig machen. „Erzwungen entfernen“ erscheint nur, wenn die offizielle Deinstallation nicht möglich war, und lässt sich im Verlauf rückgängig machen." />
 
+            <!-- preinstalled apps (spec 4.4) -->
+            <StackPanel Margin="0,18,0,0" Visibility="{Binding ShowApps, Converter={StaticResource Vis}}">
+                <DockPanel Margin="2,0,0,8">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
+                        <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,0" Content="Empfohlene auswählen"
+                                Command="{Binding SelectRecommendedAppsCommand}" />
+                        <Button Style="{StaticResource Button.Primary}" Content="{Binding RemoveAppsText}" Command="{Binding RemoveAppsCommand}" />
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Text.Section}" Text="Vorinstallierte Apps" />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap" MaxWidth="{StaticResource ProseWidth}"
+                                   HorizontalAlignment="Left"
+                                   Text="Werbe- und Zusatz-Apps, die mit Windows geliefert wurden. Nichts ist vorausgewählt; Systemapps, Xbox und der Store stehen nicht in der Liste." />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" TextWrapping="Wrap"
+                                   MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding AppsLockedText}"
+                                   Visibility="{Binding AppsLockedText, Converter={StaticResource Vis}}" />
+                    </StackPanel>
+                </DockPanel>
+                <Border Style="{StaticResource SurfaceBox}">
+                    <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto" Focusable="False">
+                        <ItemsControl ItemsSource="{Binding Apps}" Focusable="False" Margin="0,0,0,-1">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:BloatAppItemViewModel}">
+                                    <Border Style="{StaticResource RowDivider}" Padding="16,10,16,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <CheckBox VerticalAlignment="Center" Margin="0,0,14,0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                      IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding Title}" />
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding UndoText}" />
+                                            </StackPanel>
+                                            <ContentControl Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center" Style="{StaticResource Chip}"
+                                                            Tag="{x:Static vm:Tone.Good}" Content="Empfohlen"
+                                                            Visibility="{Binding IsRecommended, Converter={StaticResource Vis}}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+            </StackPanel>
+
             <!-- search and sort -->
             <DockPanel Margin="0,16,0,0">
                 <TextBlock DockPanel.Dock="Right" Margin="16,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Small}"

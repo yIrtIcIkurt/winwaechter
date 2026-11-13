@@ -117,10 +117,14 @@
                                                         Visibility="{Binding CanUndo, Converter={StaticResource Vis}}"
                                                         Command="{Binding DataContext.UndoOneCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                         CommandParameter="{Binding}" AutomationProperties.HelpText="{Binding Description}" />
-                                                <StackPanel Visibility="{Binding Hint, Converter={StaticResource Vis}}" HorizontalAlignment="Right">
-                                                    <Button Content="Rückgängig" IsEnabled="False" HorizontalAlignment="Right" />
-                                                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" HorizontalAlignment="Right" Text="{Binding Hint}" />
-                                                </StackPanel>
+                                                <Button Content="Rückgängig" IsEnabled="False" HorizontalAlignment="Right"
+                                                        Visibility="{Binding ShowDisabledUndo, Converter={StaticResource Vis}}" />
+                                                <Button Content="Im Store öffnen" HorizontalAlignment="Right"
+                                                        Visibility="{Binding HasStoreLink, Converter={StaticResource Vis}}"
+                                                        Command="{Binding DataContext.OpenStoreCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}" AutomationProperties.HelpText="{Binding Description}" />
+                                                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" HorizontalAlignment="Right" TextWrapping="Wrap"
+                                                           TextAlignment="Right" Text="{Binding Hint}" Visibility="{Binding Hint, Converter={StaticResource Vis}}" />
                                             </StackPanel>
                                         </Grid>
                                     </Border>
