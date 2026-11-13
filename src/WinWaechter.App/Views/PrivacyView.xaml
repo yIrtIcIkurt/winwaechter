@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="WinWaechter.App.Views.PrivacyView"
+<UserControl x:Class="WinWaechter.App.Views.PrivacyView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">

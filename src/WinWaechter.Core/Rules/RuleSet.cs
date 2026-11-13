@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using BloatNever = WinWaechter.Core.Programs.BloatApps;
 using WinWaechter.Core.Sys;
 

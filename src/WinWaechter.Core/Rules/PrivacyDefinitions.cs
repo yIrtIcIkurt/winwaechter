@@ -1,4 +1,4 @@
-﻿using WinWaechter.Core.Sys;
+using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Rules;
 
