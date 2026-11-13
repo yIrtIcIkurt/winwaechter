@@ -90,7 +90,7 @@ public sealed class RulesUpdateTests : IDisposable
     {
         var remote = RuleSet.Parse(Rules(
             "\"pua\":[{\"name\":\"BadTool\"}],\"minerNames\":[\"xmrnew\"],\"minerCommandLine\":[\"--new-pool\"],"
-            + "\"poolPorts\":[12345],\"leftoverIgnore\":[\"RemoteKeep\"],\"rulesVersion\":2,\"minAppVersion\":\"0.3.0\"",
+            + "\"poolPorts\":[12345],\"leftoverIgnore\":[\"RemoteKeep\"],\"rulesVersion\":" + (B + 1) + ",\"minAppVersion\":\"0.3.0\"",
             "[{\"name\":\"Foo Remote\"}]"));
         var u = RuleSet.Default.UnionWith(remote);
 
@@ -105,7 +105,7 @@ public sealed class RulesUpdateTests : IDisposable
         Assert.True(u.IsMinerCommandLine("stratum+tcp://a"));
         Assert.True(u.IsLeftoverIgnored("RemoteKeep"));
         Assert.True(u.IsLeftoverIgnored("Common Files"));
-        Assert.Equal(2, u.RulesVersion);
+        Assert.Equal(B + 1, u.RulesVersion);
         Assert.Equal("0.3.0", u.MinAppVersion);
     }
 

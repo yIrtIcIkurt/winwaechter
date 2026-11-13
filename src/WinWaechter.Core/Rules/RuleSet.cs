@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BloatNever = WinWaechter.Core.Programs.BloatApps;
 using WinWaechter.Core.Sys;
 
 namespace WinWaechter.Core.Rules;
@@ -17,6 +18,13 @@ public sealed class RuleSet
     sealed record Matcher(string? Name, string? Publisher, string? Path)
     {
         // An empty matcher never matches (it would otherwise match everything).
+        // The two protected entries that do not apply to apps named in bloatApps.
+        public bool IsAppException =>
+            (Name is null && Path is null && string.Equals(Publisher, "Microsoft", StringComparison.OrdinalIgnoreCase))
+            || (Name is null && Publisher is null && Path is not null
+                && (string.Equals(Path, @"%ProgramFiles%\WindowsApps\", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(Path, @"%ProgramFiles(x86)%\WindowsApps\", StringComparison.OrdinalIgnoreCase)));
+
         public bool IsMatch(ItemFacts f) =>
             (Name is not null || Publisher is not null || Path is not null)
             && (Name is null || WordStart(f.Name, Name))
@@ -48,6 +56,14 @@ public sealed class RuleSet
         public List<int>? PoolPorts { get; set; }
         public List<string>? LeftoverIgnore { get; set; }
         public List<PrivacyDto>? Privacy { get; set; }
+        public List<BloatAppDto>? BloatApps { get; set; }
+    }
+
+    sealed class BloatAppDto
+    {
+        public string? Package { get; set; }
+        public string? Title { get; set; }
+        public bool Recommended { get; set; }
     }
 
     sealed class PrivacyDto
@@ -113,11 +129,13 @@ public sealed class RuleSet
         PoolPorts = new HashSet<int>(d.PoolPorts ?? []);
         LeftoverIgnore = (d.LeftoverIgnore ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
         Privacy = (d.Privacy ?? []).Select(ToSetting).ToArray();
+        BloatApps = (d.BloatApps ?? []).Select(ToBloatRule).ToArray();
     }
 
     // Used by UnionWith only.
     RuleSet(int version, string? minApp, Matcher[] prot, Matcher[] exp, Matcher[] pua, string[] minerNames,
-        string[] minerCmd, IReadOnlySet<int> ports, IReadOnlyList<string> leftoverIgnore, IReadOnlyList<PrivacySetting> privacy)
+        string[] minerCmd, IReadOnlySet<int> ports, IReadOnlyList<string> leftoverIgnore, IReadOnlyList<PrivacySetting> privacy,
+        IReadOnlyList<BloatAppRule> bloatApps)
     {
         RulesVersion = version;
         MinAppVersion = minApp;
@@ -129,11 +147,12 @@ public sealed class RuleSet
         PoolPorts = ports;
         LeftoverIgnore = leftoverIgnore;
         Privacy = privacy;
+        BloatApps = bloatApps;
     }
 
     /// <summary>
     /// Bundled rules (this) plus downloaded rules (other). Lists are only ever unioned, so an update can add
-    /// protection but never remove it. Privacy always stays this set's (never taken from the network).
+    /// protection but never remove it. Privacy and BloatApps always stay this set's (never taken from the network).
     /// </summary>
     public RuleSet UnionWith(RuleSet other)
     {
@@ -144,7 +163,7 @@ public sealed class RuleSet
         return new RuleSet(Math.Max(RulesVersion, other.RulesVersion), other.MinAppVersion,
             M(_protected, other._protected), M(_expendable, other._expendable), M(_pua, other._pua),
             S(_minerNames, other._minerNames), S(_minerCmd, other._minerCmd),
-            new HashSet<int>(PoolPorts.Concat(other.PoolPorts)), S(LeftoverIgnore, other.LeftoverIgnore), Privacy);
+            new HashSet<int>(PoolPorts.Concat(other.PoolPorts)), S(LeftoverIgnore, other.LeftoverIgnore), Privacy, BloatApps);
     }
 
     // The fixed list of registry values the privacy feature may ever write.
@@ -168,6 +187,21 @@ public sealed class RuleSet
         return new PrivacySetting(p.Id, p.Title, p.Explanation ?? "", p.Recommended, p.Requires, values, eff);
     }
 
+    // The fixed list of preinstalled apps that may be offered for removal ("*" only at the end).
+    static BloatAppRule ToBloatRule(BloatAppDto b)
+    {
+        if (string.IsNullOrWhiteSpace(b.Package) || string.IsNullOrWhiteSpace(b.Title))
+            throw new InvalidDataException("rules.json: ungültiger Eintrag in \"bloatApps\" (Paket und Titel nötig).");
+        var star = b.Package.IndexOf('*');
+        if (star >= 0 && star != b.Package.Length - 1)
+            throw new InvalidDataException($"rules.json: \"*\" nur am Ende erlaubt (\"{b.Package}\" in \"bloatApps\").");
+        if (!BloatNever.IsValidRulePackage(b.Package))
+            throw new InvalidDataException($"rules.json: ungültiger Paketname \"{b.Package}\" in \"bloatApps\".");
+        if (BloatNever.RuleTouchesNever(b.Package))
+            throw new InvalidDataException($"rules.json: \"{b.Package}\" steht auf der Nie-Liste und darf nicht in \"bloatApps\" stehen.");
+        return new BloatAppRule(b.Package, b.Title, b.Recommended);
+    }
+
     static Hive ToHive(string? s) => s switch
     {
         "HKCU" => Hive.CurrentUser,
@@ -177,6 +211,29 @@ public sealed class RuleSet
 
     /// <summary>Privacy settings (fixed list; the only registry values the privacy feature may write).</summary>
     public IReadOnlyList<PrivacySetting> Privacy { get; }
+
+    /// <summary>Preinstalled apps that may be offered for removal (fixed local list; never from the network).</summary>
+    public IReadOnlyList<BloatAppRule> BloatApps { get; }
+
+    /// <summary>The rule naming this package (exact name, or prefix for "X*"); null for anything unlisted or on the Nie-Liste.</summary>
+    public BloatAppRule? FindBloatApp(string packageName)
+    {
+        if (string.IsNullOrWhiteSpace(packageName) || BloatNever.IsNever(packageName)) return null;
+        return BloatApps.FirstOrDefault(r => r.Package.EndsWith('*')
+            ? packageName.StartsWith(r.Package[..^1], StringComparison.OrdinalIgnoreCase)
+            : string.Equals(packageName, r.Package, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The protection list for an app named in bloatApps: like <see cref="Classify"/>'s Protected, but without the
+    /// {publisher: Microsoft} entry and the two WindowsApps paths (nearly every such app is a Microsoft package there).
+    /// Dell, Lexware, antivirus, names and all other paths still protect.
+    /// </summary>
+    public bool IsProtectedApp(ItemFacts f)
+    {
+        if (!string.IsNullOrWhiteSpace(f.ExePath)) f = f with { ExePath = PathNormalizer.NormalizePath(f.ExePath) };
+        return _protected.Any(m => !m.IsAppException && m.IsMatch(f));
+    }
 
     /// <summary>Folder-name patterns the leftover scan skips ("X*" = prefix, else exact).</summary>
     public IReadOnlyList<string> LeftoverIgnore { get; }

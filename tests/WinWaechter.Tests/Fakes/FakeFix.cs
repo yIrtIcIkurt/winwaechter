@@ -1,3 +1,4 @@
+using WinWaechter.Core.Programs;
 using WinWaechter.Core.Performance;
 using WinWaechter.Core.Actions;
 using WinWaechter.Core.Security.Checks;
@@ -152,4 +153,41 @@ public sealed class FakeDiskSpace : IDiskSpace
 {
     public DriveSpace? Space { get; set; } = new("C:\\", 200L * 1024 * 1024 * 1024, 500L * 1024 * 1024 * 1024);
     public DriveSpace? SystemDrive() => Space;
+}
+
+// In-memory package list; never touches the real packages.
+public sealed class FakeAppPackages : IAppPackages
+{
+    readonly List<AppPackage> _installed = [];
+
+    public List<string> Removed { get; } = [];
+    public List<string> Registered { get; } = [];
+    public string? RemoveError { get; set; }
+    // Runs after a successful Remove (a test deletes the manifest here, like Windows does for Store-only apps).
+    public Action<AppPackage>? AfterRemove { get; set; }
+
+    public FakeAppPackages Add(AppPackage p)
+    {
+        _installed.Add(p);
+        return this;
+    }
+
+    public IReadOnlyList<AppPackage> List() => _installed.ToList();
+
+    public bool IsInstalled(string familyName) =>
+        _installed.Any(p => string.Equals(p.FamilyName, familyName, StringComparison.OrdinalIgnoreCase));
+
+    public void Remove(string fullName)
+    {
+        if (RemoveError is not null) throw new InvalidOperationException(RemoveError);
+        var p = _installed.First(x => x.FullName == fullName);
+        _installed.Remove(p);
+        Removed.Add(fullName);
+        AfterRemove?.Invoke(p);
+    }
+
+    public void Register(string manifestPath) => Registered.Add(manifestPath);
+
+    // Test helper: the user installed it again.
+    public void Reinstall(AppPackage p) => _installed.Add(p);
 }

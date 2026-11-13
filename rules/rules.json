@@ -1,5 +1,5 @@
 {
-  "rulesVersion": 2,
+  "rulesVersion": 3,
   "minAppVersion": "0.3.0",
   "protected": [
     { "publisher": "Microsoft" }, { "publisher": "Dell" }, { "publisher": "Intel" }, { "publisher": "Realtek" },
@@ -174,5 +174,30 @@
       "effective": { "hive": "HKLM", "key": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection", "name": "AllowTelemetry", "atMost": 1 },
       "values": [ { "hive": "HKLM", "key": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection", "name": "AllowTelemetry", "target": 1 } ]
     }
+  ],
+  "bloatApps": [
+    { "package": "king.com.*", "title": "Candy Crush (King)", "recommended": true },
+    { "package": "BytedancePte.Ltd.TikTok", "title": "TikTok", "recommended": true },
+    { "package": "SpotifyAB.SpotifyMusic", "title": "Spotify", "recommended": true },
+    { "package": "Disney.37853FC22B2CE", "title": "Disney+", "recommended": true },
+    { "package": "Facebook.Facebook", "title": "Facebook", "recommended": true },
+    { "package": "Facebook.InstagramBeta", "title": "Instagram", "recommended": true },
+    { "package": "7EE7776C.LinkedInforWindows", "title": "LinkedIn", "recommended": true },
+    { "package": "5319275A.WhatsAppDesktop", "title": "WhatsApp", "recommended": true },
+    { "package": "Microsoft.MicrosoftSolitaireCollection", "title": "Microsoft Solitaire Collection", "recommended": true },
+    { "package": "Microsoft.BingNews", "title": "Microsoft News", "recommended": true },
+    { "package": "Microsoft.BingWeather", "title": "Wetter", "recommended": true },
+    { "package": "Microsoft.Getstarted", "title": "Tipps", "recommended": true },
+    { "package": "Microsoft.WindowsFeedbackHub", "title": "Feedback-Hub", "recommended": true },
+    { "package": "Microsoft.GetHelp", "title": "Hilfe anfordern", "recommended": true },
+    { "package": "Microsoft.People", "title": "Kontakte", "recommended": true },
+    { "package": "Clipchamp.Clipchamp", "title": "Clipchamp (Videoeditor)", "recommended": true },
+    { "package": "Microsoft.Windows.DevHome", "title": "Dev Home", "recommended": true },
+    { "package": "Microsoft.Copilot", "title": "Copilot", "recommended": false },
+    { "package": "Microsoft.OutlookForWindows", "title": "Outlook (neu)", "recommended": false },
+    { "package": "MSTeams", "title": "Teams (privat)", "recommended": false },
+    { "package": "Microsoft.MicrosoftOfficeHub", "title": "Microsoft 365 (Office)", "recommended": false },
+    { "package": "MicrosoftCorporationII.QuickAssist", "title": "Schnellhilfe (Quick Assist)", "recommended": false },
+    { "package": "Microsoft.MicrosoftStickyNotes", "title": "Kurznotizen", "recommended": false }
   ]
 }

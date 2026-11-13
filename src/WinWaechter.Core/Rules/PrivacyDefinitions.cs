@@ -10,3 +10,6 @@ public sealed record PrivacyEffective(Hive Hive, string Key, string Name, int At
 
 public sealed record PrivacySetting(string Id, string Title, string Explanation, bool Recommended, string? Requires,
     IReadOnlyList<PrivacyValue> Values, PrivacyEffective? Effective);
+
+/// <summary>One preinstalled app that may be offered for removal. Package = package Name, optional trailing "*".</summary>
+public sealed record BloatAppRule(string Package, string Title, bool Recommended);

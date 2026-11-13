@@ -22,4 +22,17 @@ public static class SystemLinks
 
     /// <summary>Exact match against <see cref="Allowed"/> (case-insensitive, no trimming).</summary>
     public static bool IsAllowed(string? uri) => uri is not null && Allowed.Contains(uri);
+
+    const string StorePrefix = "ms-windows-store://pdp/?PFN=";
+
+    /// <summary>Store page of exactly one package family; throws for anything that is not a package family name.</summary>
+    public static string StoreLink(string family) =>
+        Programs.WinAppPackages.IsValidFamily(family)
+            ? StorePrefix + family
+            : throw new ArgumentException("Ungültiger Paketfamilienname.", nameof(family));
+
+    /// <summary>True only for a link <see cref="StoreLink"/> could have made.</summary>
+    public static bool IsStoreLink(string? uri) =>
+        uri is not null && uri.StartsWith(StorePrefix, StringComparison.Ordinal)
+        && Programs.WinAppPackages.IsValidFamily(uri[StorePrefix.Length..]);
 }

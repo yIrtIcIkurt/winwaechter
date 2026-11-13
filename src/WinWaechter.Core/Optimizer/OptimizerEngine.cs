@@ -130,7 +130,10 @@ public sealed class OptimizerEngine
     /// </summary>
     public static bool IsUndoable(ChangeRecord r) =>
         (r.Status == ChangeStatus.Applied || ((r.Status is ChangeStatus.Pending or ChangeStatus.Failed) && r.After.Count > 0))
-        && !MovedNothing(r) && !RemovedNoKey(r);
+        && !MovedNothing(r) && !RemovedNoKey(r) && !NotRestorable(r);
+
+    /// <summary>An appx record whose package files are gone (installed from the Store): only the Store can bring it back.</summary>
+    static bool NotRestorable(ChangeRecord r) => r.Kind == "appx" && r.After.GetValueOrDefault("restorable") == "false";
 
     /// <summary>A regkey record that stopped before its backup (e.g. the entry vanished before Apply):
     /// RegKeyChange writes the backup before it deletes anything, so no backup file means nothing was removed.</summary>
