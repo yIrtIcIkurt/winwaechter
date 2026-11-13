@@ -99,7 +99,7 @@ public sealed class FirewallRuleTests : IDisposable
         _fw.Seed(RuleName, @"C:\else\foo.exe");
         Assert.Equal(DriftState.Changed, change.CheckDrift(rec));
 
-        _fw.Remove(RuleName);
+        _fw.Clear(RuleName);
         Assert.Equal(DriftState.Gone, change.CheckDrift(rec));
     }
 
@@ -158,6 +158,29 @@ public sealed class FirewallRuleTests : IDisposable
         Assert.Null(_fw.Get(RuleName));
     }
 
+    [Fact]
+    public void Undo_refuses_when_a_second_rule_has_the_same_name_and_removes_nothing()
+    {
+        var change = Change();
+        var rec = change.Apply(Ctx);
+        _fw.Seed(RuleName, @"C:\else\foo.exe", add: true);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => change.Undo(rec, Ctx));
+
+        Assert.Contains("mehrere", ex.Message);
+        Assert.Equal(2, _fw.Count(RuleName));
+        Assert.Empty(_fw.Removed);
+    }
+
+    [Fact]
+    public void Remove_takes_only_the_rule_of_that_program()
+    {
+        _fw.Seed(RuleName, Exe).Seed(RuleName, @"C:\else\foo.exe", add: true);
+        _fw.Remove(RuleName, Exe);
+        Assert.Equal(@"C:\else\foo.exe", _fw.Get(RuleName)!.Program);
+        Assert.Equal(1, _fw.Count(RuleName));
+    }
+
     // ---------- listener rows ----------
 
     static readonly RuleSet Rules = RuleSet.Parse(Encoding.UTF8.GetBytes("""{ "protected": [ { "path": "\\Dell\\" } ] }"""));
@@ -165,7 +188,7 @@ public sealed class FirewallRuleTests : IDisposable
     SecurityItem Row(string path, FakeSignatures sig, bool withRules = true)
     {
         var item = SecurityChecks.Listeners([new(1, "0.0.0.0", 8080)], [new(Path.GetFileName(path), path, 1)], sig,
-            withRules ? _fw : null, Rules, WinDir);
+            withRules ? _fw : null, Rules, WinDir, @"C:\Own\WinWaechter");
         return item.Children!.Single();
     }
 
@@ -219,5 +242,30 @@ public sealed class FirewallRuleTests : IDisposable
         Assert.Null(row.ChangeLabel);
         Assert.EndsWith("Eingehende Verbindungen sind von WinWächter gesperrt.", row.Explanation);
         Assert.Equal(SecurityActionKind.DefenderScan, row.Action);
+    }
+
+    [Fact]
+    public void Listener_row_without_rule_set_offers_no_block()
+    {
+        var dell = @"C:\Users\x\AppData\Local\Dell\d.exe";
+        var sig = new FakeSignatures().Unsigned(dell);
+        var item = SecurityChecks.Listeners([new(1, "0.0.0.0", 8080)], [new("d.exe", dell, 1)], sig, _fw, null, WinDir, @"C:\Own");
+        var row = item.Children!.Single();
+        Assert.Equal(Light.Yellow, row.Light);
+        Assert.Null(row.Change);
+        Assert.Null(row.ChangeLabel);
+    }
+
+    [Fact]
+    public void Listener_row_of_the_app_itself_offers_no_block()
+    {
+        var own = @"C:\Own\WinWaechter\sub\WinWaechter.App.exe";
+        var row = Row(own, new FakeSignatures().Unsigned(own));
+        Assert.Equal(Light.Yellow, row.Light);
+        Assert.Null(row.Change);
+
+        // a look-alike folder is not the app's folder
+        var other = @"C:\Own\WinWaechter2\x.exe";
+        Assert.NotNull(Row(other, new FakeSignatures().Unsigned(other)).Change);
     }
 }

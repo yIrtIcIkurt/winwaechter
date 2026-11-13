@@ -20,32 +20,40 @@ public sealed class FakePolicyOwnership : IPolicyOwnership
         (h, key.Trim('\\').ToUpperInvariant(), name.ToUpperInvariant());
 }
 
-// In-memory firewall rule list; never touches the real firewall.
+// In-memory firewall rule list (names may repeat, like in the real firewall); never touches the real firewall.
 public sealed class FakeFirewallRules : IFirewallRules
 {
-    readonly Dictionary<string, FirewallRuleInfo> _rules = new(StringComparer.OrdinalIgnoreCase);
+    readonly List<FirewallRuleInfo> _rules = [];
 
     public List<string> Added { get; } = [];
     public List<string> Removed { get; } = [];
 
-    public FirewallRuleInfo? Get(string name) => _rules.GetValueOrDefault(name);
+    public FirewallRuleInfo? Get(string name) => _rules.FirstOrDefault(r => Same(r.Name, name));
+
+    public int Count(string name) => _rules.Count(r => Same(r.Name, name));
 
     public void AddInboundBlock(string name, string program)
     {
         Added.Add(name);
-        _rules[name] = new(name, program, true, true, true);
+        _rules.Add(new(name, program, true, true, true));
     }
 
-    public void Remove(string name)
+    public void Remove(string name, string program)
     {
         Removed.Add(name);
-        _rules.Remove(name);
+        _rules.RemoveAll(r => Same(r.Name, name) && Same(r.Program, program));
     }
 
-    // Puts a rule there as if somebody else had made it.
-    public FakeFirewallRules Seed(string name, string? program, bool inbound = true, bool block = true)
+    // Puts a rule there as if somebody else had made it; replaces a rule of that name unless add is true.
+    public FakeFirewallRules Seed(string name, string? program, bool inbound = true, bool block = true, bool add = false)
     {
-        _rules[name] = new(name, program, inbound, block, true);
+        if (!add) _rules.RemoveAll(r => Same(r.Name, name));
+        _rules.Add(new(name, program, inbound, block, true));
         return this;
     }
+
+    // Test helper: drops every rule of that name.
+    public void Clear(string name) => _rules.RemoveAll(r => Same(r.Name, name));
+
+    static bool Same(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 }

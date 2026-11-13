@@ -14,7 +14,11 @@ public interface IFirewallRules
     /// <summary>Adds an enabled inbound block rule for one program, all profiles.</summary>
     void AddInboundBlock(string name, string program);
 
-    void Remove(string name);
+    /// <summary>How many rules carry that name (the firewall allows duplicates).</summary>
+    int Count(string name);
+
+    /// <summary>Removes only rules with that name and that program (case-insensitive); never a rule of another program.</summary>
+    void Remove(string name, string program);
 }
 
 // HNetCfg.FwPolicy2 → Rules / HNetCfg.FWRule through late binding; every COM object is released.
@@ -83,14 +87,50 @@ public sealed class FwPolicy2Rules : IFirewallRules
         }
     }
 
-    public void Remove(string name)
+    public int Count(string name)
     {
         var pol = Create("HNetCfg.FwPolicy2");
         object? rules = null;
         try
         {
             rules = Read(pol, "Rules");
-            rules!.GetType().InvokeMember("Remove", BindingFlags.InvokeMethod, null, rules, [name]);
+            var n = 0;
+            foreach (var rule in (System.Collections.IEnumerable)rules!)
+            {
+                try { if (string.Equals(Read(rule, "Name") as string, name, StringComparison.OrdinalIgnoreCase)) n++; }
+                finally { Marshal.ReleaseComObject(rule); }
+            }
+            return n;
+        }
+        finally
+        {
+            if (rules is not null) Marshal.ReleaseComObject(rules);
+            Marshal.ReleaseComObject(pol);
+        }
+    }
+
+    // The COM Remove works by name only, so it is called only when exactly one rule has that name and it is ours.
+    public void Remove(string name, string program)
+    {
+        var pol = Create("HNetCfg.FwPolicy2");
+        object? rules = null;
+        try
+        {
+            rules = Read(pol, "Rules");
+            int sameName = 0, ours = 0;
+            foreach (var rule in (System.Collections.IEnumerable)rules!)
+            {
+                try
+                {
+                    if (!string.Equals(Read(rule, "Name") as string, name, StringComparison.OrdinalIgnoreCase)) continue;
+                    sameName++;
+                    if (string.Equals(Read(rule, "ApplicationName") as string, program, StringComparison.OrdinalIgnoreCase)) ours++;
+                }
+                finally { Marshal.ReleaseComObject(rule); }
+            }
+            if (ours == 0) return;
+            if (sameName != 1) throw new InvalidOperationException($"Es gibt mehrere Firewall-Regeln „{name}“ – es wird keine entfernt.");
+            rules.GetType().InvokeMember("Remove", BindingFlags.InvokeMethod, null, rules, [name]);
         }
         finally
         {

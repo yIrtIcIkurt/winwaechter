@@ -75,9 +75,11 @@ public sealed class FirewallRuleChange : IChange
     {
         var live = _rules.Get(_name);
         if (live is null) return;
+        if (_rules.Count(_name) > 1)
+            throw new InvalidOperationException($"Es gibt mehrere Firewall-Regeln „{_name}“ – Rückgängig abgelehnt, damit keine fremde Regel verloren geht.");
         if (!string.Equals(live.Program, _program, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"Die Firewall-Regel „{_name}“ gehört nicht mehr zu diesem Programm – Rückgängig abgelehnt.");
-        _rules.Remove(_name);
+        _rules.Remove(_name, _program);
     }
 
     public DriftState CheckDrift(ChangeRecord record)

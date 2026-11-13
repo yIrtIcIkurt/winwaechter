@@ -153,7 +153,7 @@ public static class SecurityChecks
     }
 
     public static SecurityItem Listeners(IReadOnlyList<ListeningPort> ports, IReadOnlyList<RunningProcess> procs, ISignatureVerifier sig,
-        IFirewallRules? rules = null, RuleSet? ruleSet = null, string? windowsDir = null)
+        IFirewallRules? rules = null, RuleSet? ruleSet = null, string? windowsDir = null, string? ownDir = null)
     {
         var pathByPid = new Dictionary<int, string?>();
         foreach (var p in procs) pathByPid.TryAdd(p.Pid, p.ExePath);
@@ -171,7 +171,7 @@ public static class SecurityChecks
             var pid = g.First().Port.Pid;
             var title = path is null ? $"PID {pid}" : Path.GetFileName(path);
             var finding = "Port " + string.Join(", ", g.Select(x => x.Port.LocalPort).Distinct().Order());
-            children.Add(ListenerRow(title, finding, path, sig, rules, ruleSet, windowsDir));
+            children.Add(ListenerRow(title, finding, path, sig, rules, ruleSet, windowsDir, ownDir));
         }
         children = children.OrderBy(c => c.Light switch { Light.Yellow => 0, Light.Grey => 1, _ => 2 })
             .ThenBy(c => c.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
@@ -189,23 +189,28 @@ public static class SecurityChecks
 
     // The second fix of a yellow listener row: an inbound block rule, unless the program is Windows' own,
     // Microsoft-signed or protected. A rule of that name already there turns the offer into a note.
-    static (IChange? Change, string? Note) BlockOffer(string path, SignatureInfo info, IFirewallRules? rules, RuleSet? ruleSet, string? windowsDir)
+    static (IChange? Change, string? Note) BlockOffer(string path, SignatureInfo info, IFirewallRules? rules, RuleSet? ruleSet, string? windowsDir, string? ownDir)
     {
-        if (rules is null) return (null, null);
+        // without the rule set protected programs cannot be told apart: no offer then
+        if (rules is null || ruleSet is null) return (null, null);
         try
         {
             var change = new FirewallRuleChange(rules, path, windowsDir ?? Environment.GetFolderPath(Environment.SpecialFolder.Windows));
             if (info.State == SignatureState.Valid && info.Publisher?.StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase) == true)
                 return (null, null);
-            if (ruleSet?.Classify(new ItemFacts(Path.GetFileName(path), path, info.Publisher, null)) == RuleVerdict.Protected)
+            if (IsUnder(path, ownDir ?? AppContext.BaseDirectory)) return (null, null); // WinWächter itself
+            if (ruleSet.Classify(new ItemFacts(Path.GetFileName(path), path, info.Publisher, null)) == RuleVerdict.Protected)
                 return (null, null);
             return rules.Get(change.Target) is not null ? (null, BlockedNote) : (change, null);
         }
         catch (Exception) { return (null, null); } // path not allowed, or the firewall cannot be read: no offer
     }
 
+    static bool IsUnder(string path, string dir) =>
+        Path.GetFullPath(path).StartsWith(Path.GetFullPath(dir).TrimEnd('\\', '/') + "\\", StringComparison.OrdinalIgnoreCase);
+
     static SecurityItem ListenerRow(string title, string finding, string? path, ISignatureVerifier sig,
-        IFirewallRules? rules, RuleSet? ruleSet, string? windowsDir)
+        IFirewallRules? rules, RuleSet? ruleSet, string? windowsDir, string? ownDir)
     {
         const string id = SecurityIds.Listeners;
         if (path is null)
@@ -217,7 +222,7 @@ public static class SecurityChecks
 
         SecurityItem Yellow(string why)
         {
-            var (change, note) = BlockOffer(path, info, rules, ruleSet, windowsDir);
+            var (change, note) = BlockOffer(path, info, rules, ruleSet, windowsDir, ownDir);
             return new(id, title, Light.Yellow, finding, note is null ? why : why + " " + note,
                 SecurityActionKind.DefenderScan, "Von Defender prüfen lassen", Change: change, ScanPath: path,
                 ChangeLabel: change is null ? null : "Eingehende Verbindungen sperren");
