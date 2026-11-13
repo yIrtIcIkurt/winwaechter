@@ -8,7 +8,8 @@ namespace WinWaechter.Core.Optimizer.Storage;
 /// <summary>
 /// Offers browser caches and Windows leftovers (update downloads, crash dumps, error reports) for the Ablage.
 /// Fixed targets only, no rule set. A target that is in use is shown as Info without a change.
-/// The app never closes a browser or stops a service.
+/// The scanner never closes a browser or stops a service; a blocked browser cache names its process
+/// (Finding.BlockingProcess), so the Optimize page can offer „Browser schließen und leeren“.
 /// </summary>
 public sealed class CacheScanner
 {
@@ -35,7 +36,8 @@ public sealed class CacheScanner
         _files = f; _p = paths; _procs = procs; _sc = sc; _reg = reg;
     }
 
-    sealed record Target(string Title, string Group, string Location, MoveToAblageChange? Change, int Age, string? Blocked);
+    sealed record Target(string Title, string Group, string Location, MoveToAblageChange? Change, int Age, string? Blocked,
+        string? BlockingProcess = null);
 
     public IReadOnlyList<Finding> Scan()
     {
@@ -121,7 +123,8 @@ public sealed class CacheScanner
         // msedgewebview2.exe has another name and never counts; an unreadable path counts as running
         var isRunning = running.Any(r => r.Name.Equals(exe, StringComparison.OrdinalIgnoreCase)
             && (r.ExePath is null || installDirs.Any(d => IsUnder(r.ExePath, d))));
-        return new Target(title, FindingGroups.BrowserCache, root, change, 0, isRunning ? blockedText : null);
+        return new Target(title, FindingGroups.BrowserCache, root, change, 0, isRunning ? blockedText : null,
+            isRunning ? Path.GetFileNameWithoutExtension(exe) : null);
     }
 
     static bool IsUnder(string path, string dir) =>
@@ -212,7 +215,7 @@ public sealed class CacheScanner
         {
             reasons.Add(t.Blocked);
             result.Add(new Finding($"cache|{t.Title}", FindingArea.Speicher, t.Title, where, reasons,
-                Rating.Info, false, null, bytes, Group: t.Group));
+                Rating.Info, false, null, bytes, Group: t.Group, BlockingProcess: t.BlockingProcess));
         }
     }
 }

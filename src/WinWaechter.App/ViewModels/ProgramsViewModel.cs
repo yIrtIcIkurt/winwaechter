@@ -118,7 +118,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
     // why „Erzwungen entfernen“ was offered per program id; survives a reload
     readonly Dictionary<string, (bool Missing, bool Finished)> _forceOffers = new(StringComparer.OrdinalIgnoreCase);
     InstalledProgram? _pending;
-    InstalledProgram? _leftoversFor;
+    IReadOnlyList<InstalledProgram>? _leftoversFor;
 
     public ProgramsViewModel(IProgramActions actions, OptimizerEngine engine, IDialogService dialogs, ISystemShell shell,
         bool canChange, ChangeGate gate, Func<IReadOnlyList<BloatAppRow>>? apps = null, bool sameAccount = true)
@@ -184,6 +184,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(FindLeftoversCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyLeftoversCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveAppsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UninstallUnwantedCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -210,7 +211,12 @@ public sealed partial class ProgramsViewModel : ObservableObject
     public bool ShowPending => Pending is not null;
 
     public ObservableCollection<FindingItemViewModel> Leftovers { get; } = [];
-    public string? LeftoversTitle => _leftoversFor is { } p ? $"Reste von „{p.DisplayName}“" : null;
+    public string? LeftoversTitle => _leftoversFor switch
+    {
+        null or [] => null,
+        [var p] => $"Reste von „{p.DisplayName}“",
+        var all => $"Reste von {all.Count} Programmen",
+    };
     public bool ShowLeftovers => Leftovers.Count > 0;
 
     [ObservableProperty]
@@ -344,6 +350,9 @@ public sealed partial class ProgramsViewModel : ObservableObject
         foreach (var r in shown) Items.Add(r);
         OnPropertyChanged(nameof(CountText));
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(UnwantedCount));
+        OnPropertyChanged(nameof(ShowUninstallUnwanted));
+        OnPropertyChanged(nameof(UninstallUnwantedText));
         NotifyActions();
     }
 
@@ -353,13 +362,20 @@ public sealed partial class ProgramsViewModel : ObservableObject
     private async Task UninstallAsync(ProgramItemViewModel? item)
     {
         if (item is null || !CanUninstall(item)) return;
-        if (!await _gate.RunAsync(this, () => RunUninstallAsync(item.Program)))
+        var p = item.Program;
+        if (!await _gate.RunAsync(this, async () =>
+            {
+                if (await RunUninstallAsync(p, confirm: true)) await SearchLeftoversAsync([p]);
+            }))
             LastSummary = ChangeGate.BusyHint;
     }
 
     bool CanUninstall(ProgramItemViewModel? item) => CanAct() && item is { CanUninstall: true };
 
-    async Task RunUninstallAsync(InstalledProgram p)
+    /// <summary>The vendor's uninstaller for one program, with every rule of the single uninstall. True when the program
+    /// is gone afterwards (the caller then searches leftovers). confirm false skips only the per-program question,
+    /// because the caller already asked once for all; the uninstaller and its signature are logged instead.</summary>
+    async Task<bool> RunUninstallAsync(InstalledProgram p, bool confirm)
     {
         IsBusy = true;
         LastSummary = null;
@@ -369,15 +385,19 @@ public sealed partial class ProgramsViewModel : ObservableObject
             if (plan.Route == UninstallRoute.OpenSettings)
             {
                 ViaSettings(p, plan);
-                return;
+                return false;
             }
 
             var sig = await Task.Run(() => _actions.UninstallerSignature(plan));
             var cmd = plan.Command!;
             var lines = new List<string> { $"Programm: {cmd.Exe} {cmd.Arguments}".TrimEnd(), SignatureText.Line(sig) };
             if (plan.Route == UninstallRoute.LaunchAsUser) lines.Add(AsUserText);
-            var question = $"„{p.DisplayName}“ von {p.Publisher ?? "unbekanntem Herausgeber"}. {Irreversible}";
-            if (!_dialogs.Confirm("Deinstallieren", question, "Deinstallieren", lines, final: true)) return;
+            if (confirm)
+            {
+                var question = $"„{p.DisplayName}“ von {p.Publisher ?? "unbekanntem Herausgeber"}. {Irreversible}";
+                if (!_dialogs.Confirm("Deinstallieren", question, "Deinstallieren", lines, final: true)) return false;
+            }
+            else FileLog.Info($"Deinstallation „{p.DisplayName}“: {string.Join(" · ", lines)}");
 
             ProgressText = RunningText;
             UninstallOutcome outcome;
@@ -392,13 +412,13 @@ public sealed partial class ProgramsViewModel : ObservableObject
                 FileLog.Warn($"Deinstallation mit Benutzerrechten nicht möglich: {p.DisplayName}", ex);
                 ProgressText = "";
                 ViaSettings(p, plan with { Route = UninstallRoute.OpenSettings, Command = null, Reason = SettingsReason(p, ex) });
-                return;
+                return false;
             }
             ProgressText = "";
             if (outcome.Cancelled)
             {
                 LastSummary = "Deinstallation abgebrochen.";
-                return;
+                return false;
             }
             var summary = outcome.ExitCode == 0 || outcome.RestartRequired
                 ? "Das Deinstallationsprogramm ist beendet."
@@ -406,10 +426,12 @@ public sealed partial class ProgramsViewModel : ObservableObject
             LastSummary = outcome.RestartRequired ? $"{summary} {RestartText}" : summary;
 
             var doneQuestion = outcome.ChildrenStillRunning ? $"{ChildrenText} {DoneQuestion}" : DoneQuestion;
-            if (!_dialogs.Ask("Deinstallation", doneQuestion, "Ja", "Noch nicht"))
+            // one after the other: the question names the program it is about
+            var askTitle = confirm ? "Deinstallation" : $"Deinstallation „{p.DisplayName}“";
+            if (!_dialogs.Ask(askTitle, doneQuestion, "Ja", "Noch nicht"))
             {
                 Pending = p;
-                return;
+                return false;
             }
 
             ProgressText = ReadingText;
@@ -422,22 +444,70 @@ public sealed partial class ProgramsViewModel : ObservableObject
                 _dialogs.Inform("Deinstallation", offered
                     ? "Der Eintrag ist noch vorhanden. Wenn das Programm trotzdem entfernt ist, räumt „Erzwungen entfernen“ den Rest auf; das lässt sich im Verlauf rückgängig machen."
                     : "Der Eintrag ist noch vorhanden. Bitte prüfen Sie das Programm in den Windows-Einstellungen.");
-                return;
+                return false;
             }
 
             if (Pending is { } pending && SameEntry(pending, p)) Pending = null;
-            await ShowLeftoversAsync(p);
+            return true;
         }
         catch (Exception ex)
         {
             FileLog.Error($"Deinstallation fehlgeschlagen: {p.DisplayName}", ex);
             _dialogs.Inform("Deinstallation fehlgeschlagen", ex.Message);
+            return false;
         }
         finally
         {
             ProgressText = "";
             IsBusy = false;
         }
+    }
+
+    // ---------- all unwanted programs at once (Aktion, endgültig) ----------
+
+    public const string UnwantedTitle = "Alle unerwünschten entfernen";
+
+    /// <summary>Programs flagged „Unerwünscht“ or „Miner“ that may be uninstalled (never protected ones or WinWächter itself).</summary>
+    public int UnwantedCount => UnwantedPrograms().Count;
+    public bool ShowUninstallUnwanted => UnwantedCount > 0;
+    public string UninstallUnwantedText => $"{UnwantedTitle} ({UnwantedCount})";
+
+    List<InstalledProgram> UnwantedPrograms() => _rows
+        .Where(r => r.Program.Flag is ProgramFlag.Pua or ProgramFlag.Miner && r.CanUninstall)
+        .OrderBy(r => r.Name, StringComparer.Create(Labels.De, ignoreCase: true))
+        .Select(r => r.Program)
+        .ToList();
+
+    bool CanUninstallUnwanted() => CanAct() && UnwantedCount > 0;
+
+    // One question for the whole list, then one after the other through the normal uninstall (signature, user rights,
+    // „Ist die Deinstallation abgeschlossen?“) inside one gate, and one leftover search over all removed programs.
+    [RelayCommand(CanExecute = nameof(CanUninstallUnwanted))]
+    private async Task UninstallUnwantedAsync()
+    {
+        if (!CanUninstallUnwanted()) return;
+        var targets = UnwantedPrograms();
+        if (!_dialogs.Confirm(UnwantedTitle, $"{Irreversible} {ActionRunner.FinalNote}", "Deinstallieren",
+                targets.Select(p => p.DisplayName).ToList(), final: true))
+            return;
+
+        var ran = await _gate.RunAsync(this, async () =>
+        {
+            FileLog.Info($"Aktion: {UnwantedTitle} ({targets.Count})");
+            var removed = new List<InstalledProgram>();
+            var restart = false;
+            foreach (var p in targets)
+            {
+                var gone = await RunUninstallAsync(p, confirm: false);
+                restart |= LastSummary?.Contains(RestartText, StringComparison.Ordinal) == true;
+                FileLog.Info($"{UnwantedTitle}: „{p.DisplayName}“ {(gone ? "entfernt" : "nicht entfernt")}");
+                if (gone) removed.Add(p);
+            }
+            if (removed.Count > 0) await SearchLeftoversAsync(removed);
+            var summary = $"{removed.Count} von {targets.Count} unerwünschten Programmen entfernt.";
+            LastSummary = restart ? $"{summary} {RestartText}" : summary;
+        });
+        if (!ran) LastSummary = ChangeGate.BusyHint;
     }
 
     // HKU entries, user-writable or unsafe uninstallers: the user removes the program via Windows-Einstellungen
@@ -484,7 +554,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
             }
             ProgressText = ReadingText;
             await LoadAsync();
-            await ShowLeftoversAsync(p);
+            await ShowLeftoversAsync([p]);
             Pending = null;   // only once the search ran; a failure keeps the banner for another try
         }
         catch (Exception ex)
@@ -501,17 +571,39 @@ public sealed partial class ProgramsViewModel : ObservableObject
 
     bool CanFindLeftovers() => CanChange && !IsBusy && Pending is not null;
 
-    async Task ShowLeftoversAsync(InstalledProgram p)
+    // after an uninstall from this page (one program or the unwanted ones): the gate is already held
+    async Task SearchLeftoversAsync(IReadOnlyList<InstalledProgram> removed)
+    {
+        IsBusy = true;
+        try
+        {
+            await ShowLeftoversAsync(removed);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Error($"Restesuche fehlgeschlagen: {string.Join(", ", removed.Select(p => p.DisplayName))}", ex);
+            _dialogs.Inform("Restesuche fehlgeschlagen", ex.Message);
+        }
+        finally
+        {
+            ProgressText = "";
+            IsBusy = false;
+        }
+    }
+
+    // one search per removed program, shown together; a trace found for two programs is listed once
+    async Task ShowLeftoversAsync(IReadOnlyList<InstalledProgram> removed)
     {
         ProgressText = "Reste werden gesucht …";
-        var found = await Task.Run(() => _actions.FindLeftovers(p));
+        var found = await Task.Run(() => removed.SelectMany(p => _actions.FindLeftovers(p))
+            .DistinctBy(f => f.Id, StringComparer.Ordinal).ToList());
         if (found.Count == 0)
         {
             _dialogs.Inform("Reste", "Keine Reste gefunden.");
             return;
         }
         Leftovers.Clear();
-        _leftoversFor = p;
+        _leftoversFor = removed;
         OnPropertyChanged(nameof(LeftoversTitle));
         // folders come unselected, orphaned entries preselected (Finding.Preselected)
         foreach (var f in found) Leftovers.Add(new FindingItemViewModel(f, UpdateLeftoverSelection));
@@ -520,7 +612,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanApplyLeftovers))]
     private async Task ApplyLeftoversAsync()
     {
-        if (_leftoversFor is not { } p || !CanApplyLeftovers()) return;
+        if (_leftoversFor is not { Count: > 0 } removed || !CanApplyLeftovers()) return;
         var selected = Leftovers.Where(i => i.IsSelected && i.CanSelect).ToList();
         var question = selected.Count == 1
             ? "Diese Änderung wird angewendet. Vorher legt WinWächter eine Sicherung an; im Verlauf lässt sie sich rückgängig machen."
@@ -529,7 +621,8 @@ public sealed partial class ProgramsViewModel : ObservableObject
 
         var ran = await _gate.RunAsync(this, async () =>
         {
-            var result = await ApplyAsync($"Reste von {p.DisplayName}", selected.Select(i => i.Finding).ToList());
+            var title = removed.Count == 1 ? $"Reste von {removed[0].DisplayName}" : $"Reste von {removed.Count} Programmen";
+            var result = await ApplyAsync(title, selected.Select(i => i.Finding).ToList());
             if (result is null) return;
             // the engine applies in order and stops at the first failure
             foreach (var done in selected.Take(result.Applied)) Leftovers.Remove(done);
@@ -621,6 +714,7 @@ public sealed partial class ProgramsViewModel : ObservableObject
         ApplyLeftoversCommand.NotifyCanExecuteChanged();
         FindLeftoversCommand.NotifyCanExecuteChanged();
         RemoveAppsCommand.NotifyCanExecuteChanged();
+        UninstallUnwantedCommand.NotifyCanExecuteChanged();
     }
 
     async Task ReloadAsync()

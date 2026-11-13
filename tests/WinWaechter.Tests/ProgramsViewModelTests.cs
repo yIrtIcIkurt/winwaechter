@@ -884,4 +884,102 @@ public sealed class ProgramsViewModelTests : IDisposable
         Assert.Single(vm.Items);
         Assert.Empty(vm.Apps);
     }
+
+    // ---------- all unwanted at once (4.9) ----------
+
+    [Fact]
+    public async Task Uninstall_unwanted_confirms_once_with_list_and_runs_each()
+    {
+        var b = P("Toolbar B", flag: ProgramFlag.Pua);
+        var a = P("Adware A", flag: ProgramFlag.Pua);
+        var miner = P("Miner X", flag: ProgramFlag.Miner);
+        var lexware = P("Lexware buchhalter", flag: ProgramFlag.Protected);
+        var own = P("WinWächter 0.5.0", flag: ProgramFlag.Pua);   // never: WinWächter itself
+        var foo = P("Foo");
+        _actions.PlanFor = _ => LaunchPlan;
+        _actions.Leftovers = [FolderLeftover(), TaskLeftover()];
+        _actions.Programs = [b, a, miner, lexware, own, foo];
+        var dialogs = new RecordingDialogs();
+        var vm = new ProgramsViewModel(_actions, _engine, dialogs, _shell, true, _gate);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(3, vm.UnwantedCount);
+        Assert.True(vm.ShowUninstallUnwanted);
+        Assert.Equal("Alle unerwünschten entfernen (3)", vm.UninstallUnwantedText);
+        Assert.True(vm.UninstallUnwantedCommand.CanExecute(null));
+
+        _actions.Programs = [lexware, own, foo];   // the uninstallers removed the three
+        await vm.UninstallUnwantedCommand.ExecuteAsync(null);
+
+        var confirm = Assert.Single(dialogs.Confirms);
+        Assert.Equal("Alle unerwünschten entfernen", confirm.Title);
+        Assert.Equal(ProgramsViewModel.Irreversible + " " + ActionRunner.FinalNote, confirm.Message);
+        Assert.True(confirm.Final);
+        Assert.Equal(["Adware A", "Miner X", "Toolbar B"], confirm.Items);
+        // each through the normal uninstall: planned, started, asked whether it finished
+        Assert.Equal([a, miner, b], _actions.Planned);
+        Assert.Equal(3, _actions.Runs.Count);
+        Assert.Equal(3, dialogs.Asks.Count);
+        Assert.All(dialogs.Asks, q => Assert.Equal(ProgramsViewModel.DoneQuestion, q.Message));
+        Assert.Equal(["Deinstallation „Adware A“", "Deinstallation „Miner X“", "Deinstallation „Toolbar B“"],
+            dialogs.Asks.Select(q => q.Title));
+        // one leftover search over all three, shown once
+        Assert.Equal([a, miner, b], _actions.LeftoverCalls);
+        Assert.True(vm.ShowLeftovers);
+        Assert.Equal("Reste von 3 Programmen", vm.LeftoversTitle);
+        Assert.Equal(2, vm.Leftovers.Count);
+        Assert.Equal(0, vm.UnwantedCount);
+        Assert.False(vm.ShowUninstallUnwanted);
+        Assert.False(_gate.IsBusy);
+        Assert.False(vm.IsBusy);
+
+        await vm.ApplyLeftoversCommand.ExecuteAsync(null);
+        Assert.Equal("Reste von 3 Programmen", _store.List()[0].Title);
+    }
+
+    [Fact]
+    public async Task Uninstall_unwanted_declined_or_unfinished_starts_nothing_more()
+    {
+        _actions.PlanFor = _ => LaunchPlan;
+        _actions.Programs = [P("Adware A", flag: ProgramFlag.Pua), P("Toolbar B", flag: ProgramFlag.Pua)];
+        var dialogs = new RecordingDialogs { ConfirmAnswer = false };
+        var vm = new ProgramsViewModel(_actions, _engine, dialogs, _shell, true, _gate);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        await vm.UninstallUnwantedCommand.ExecuteAsync(null);
+        Assert.Single(dialogs.Confirms);
+        Assert.Empty(_actions.Planned);
+
+        // „Noch nicht“: no leftover search for that program
+        dialogs.ConfirmAnswer = true;
+        dialogs.AskAnswer = false;
+        await vm.UninstallUnwantedCommand.ExecuteAsync(null);
+        Assert.Equal(2, _actions.Runs.Count);
+        Assert.Empty(_actions.LeftoverCalls);
+        Assert.False(vm.ShowLeftovers);
+        Assert.NotNull(vm.Pending);
+    }
+
+    [Fact]
+    public async Task Uninstall_unwanted_hidden_when_none()
+    {
+        _actions.Programs = [P("Foo"), P("Lexware buchhalter", flag: ProgramFlag.Protected), P("WinWächter 0.5.0", flag: ProgramFlag.Pua)];
+        var dialogs = new RecordingDialogs();
+        var vm = new ProgramsViewModel(_actions, _engine, dialogs, _shell, true, _gate);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, vm.UnwantedCount);
+        Assert.False(vm.ShowUninstallUnwanted);
+        Assert.False(vm.UninstallUnwantedCommand.CanExecute(null));
+        await vm.UninstallUnwantedCommand.ExecuteAsync(null);
+        Assert.Empty(dialogs.Confirms);
+        Assert.Empty(_actions.Planned);
+
+        // without admin rights the button shows, but is locked
+        _actions.Programs = [P("Adware A", flag: ProgramFlag.Pua)];
+        var locked = new ProgramsViewModel(_actions, _engine, dialogs, _shell, false, _gate);
+        await locked.RefreshCommand.ExecuteAsync(null);
+        Assert.True(locked.ShowUninstallUnwanted);
+        Assert.False(locked.UninstallUnwantedCommand.CanExecute(null));
+    }
 }

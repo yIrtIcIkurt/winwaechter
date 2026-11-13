@@ -1,5 +1,6 @@
 using WinWaechter.App.Services;
 using WinWaechter.App.ViewModels;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
@@ -746,6 +747,234 @@ public sealed class ViewModelTests : IDisposable
 
         Assert.Empty(dialogs.Asks);
         Assert.Equal(0, runs[0]);
+    }
+
+    // --- Kleinere Lücken (4.9) ---
+
+    const string EdgeExe = @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+
+    static Finding BlockedEdge() =>
+        new("cache|Browser-Cache Edge", FindingArea.Speicher, "Browser-Cache Edge", @"C:\Users\x\AppData\Local\Microsoft\Edge\User Data",
+            ["3 Dateien", "Edge läuft (auch im Hintergrund). Edge vollständig schließen und erneut prüfen."], Rating.Info, false, null,
+            SizeBytes: 300, Group: FindingGroups.BrowserCache, BlockingProcess: "msedge");
+
+    static Finding FreeEdge() =>
+        new("cache|Browser-Cache Edge", FindingArea.Speicher, "Browser-Cache Edge", @"C:\Users\x\AppData\Local\Microsoft\Edge\User Data",
+            ["3 Dateien"], Rating.Entbehrlich, true, new NoChange("edge"), SizeBytes: 300, Group: FindingGroups.BrowserCache);
+
+    // the guard context never protects anything by rule, so only the browser checks decide
+    static ProcessGuardContext BrowserGuard() =>
+        new(@"C:\Windows", 1, null, new HashSet<string>(), _ => true);
+
+    (OptimizeViewModel Vm, WinWaechter.Tests.Fakes.RecordingDialogs Dialogs, FakeProcessEnder Ender, List<TimeSpan> Waits)
+        BrowserVm(bool canChange = true)
+    {
+        var dialogs = new WinWaechter.Tests.Fakes.RecordingDialogs();
+        var ender = new FakeProcessEnder();
+        var waits = new List<TimeSpan>();
+        // the cache is free once the browser was ended
+        IReadOnlyList<Finding> Scan() => ender.Closed.Count > 0 && ender.Running.All(r => r.Pid != 100) ? [FreeEdge()] : [BlockedEdge()];
+        var engine = new OptimizerEngine([Scan], new SessionStore(_root), new ChangeFactory(), _ => new RestorePointResult(true, "ok"));
+        var vm = new OptimizeViewModel(engine, dialogs, canChange, _gate, new ActionRunner(dialogs, _gate), null,
+            ender, BrowserGuard, (t, _) => { waits.Add(t); return Task.CompletedTask; });
+        return (vm, dialogs, ender, waits);
+    }
+
+    [Fact]
+    public async Task Close_browser_waits_then_offers_force_and_rescans()
+    {
+        var (vm, dialogs, ender, waits) = BrowserVm();
+        var edge = new RunningProcess("msedge.exe", EdgeExe, 100);
+        var fake = new RunningProcess("msedge.exe", @"C:\Windows\System32\msedge.exe", 101);   // never ended: Windows folder
+        ender.Running.AddRange([edge, fake]);
+        await vm.ScanCommand.ExecuteAsync(null);
+        var row = vm.AllItems.Single();
+        Assert.True(row.CanCloseBrowser);
+        Assert.False(row.CanSelect);
+        Assert.True(vm.CloseBrowserCommand.CanExecute(row));
+
+        await vm.CloseBrowserCommand.ExecuteAsync(row);
+
+        var confirm = Assert.Single(dialogs.Confirms);
+        Assert.Equal("Browser schließen und leeren", confirm.Title);
+        Assert.Equal("WinWächter schließt Edge und prüft den Zwischenspeicher danach erneut.", confirm.Message);
+        Assert.False(confirm.Final);
+        Assert.Equal([edge], ender.Closed);
+        // gently first: up to 10 s for the windows to close
+        Assert.Equal(TimeSpan.FromSeconds(10), waits.Aggregate(TimeSpan.Zero, (a, b) => a + b));
+        var ask = Assert.Single(dialogs.Asks);
+        Assert.Equal("Erzwingen", ask.Button);
+        Assert.Contains("Offene Eingaben gehen verloren.", ask.Message);
+        Assert.Equal([edge], ender.Killed);
+        Assert.Contains(fake, ender.Running);
+        // scanned again: the cache row comes back with a change, preselected
+        var again = vm.AllItems.Single();
+        Assert.True(again.CanSelect);
+        Assert.True(again.IsSelected);
+        Assert.False(again.CanCloseBrowser);
+        Assert.Equal(1, vm.SelectedCount);
+        Assert.False(vm.IsBusy);
+        Assert.False(_gate.IsBusy);
+    }
+
+    [Fact]
+    public async Task Close_browser_stops_waiting_when_it_closed_and_needs_no_force()
+    {
+        var (vm, dialogs, ender, waits) = BrowserVm();
+        ender.CloseEndsProcess = true;
+        ender.Running.Add(new RunningProcess("msedge.exe", EdgeExe, 100));
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        await vm.CloseBrowserCommand.ExecuteAsync(vm.AllItems.Single());
+
+        Assert.Empty(dialogs.Asks);
+        Assert.Empty(ender.Killed);
+        Assert.True(waits.Aggregate(TimeSpan.Zero, (a, b) => a + b) < TimeSpan.FromSeconds(10));
+        Assert.True(vm.AllItems.Single().IsSelected);
+    }
+
+    [Fact]
+    public async Task Close_browser_refuses_before_asking_when_nothing_may_be_closed()
+    {
+        var (vm, dialogs, ender, _) = BrowserVm();
+        ender.Running.Add(new RunningProcess("msedge.exe", null, 100));   // unreadable path: never ended
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        await vm.CloseBrowserCommand.ExecuteAsync(vm.AllItems.Single());
+
+        Assert.Empty(dialogs.Confirms);
+        var inform = Assert.Single(dialogs.Informs);
+        Assert.Equal("Browser schließen und leeren", inform.Title);
+        Assert.Empty(ender.Closed);
+        Assert.Empty(ender.Killed);
+
+        var (locked, _, lockedEnder, _) = BrowserVm(canChange: false);
+        lockedEnder.Running.Add(new RunningProcess("msedge.exe", EdgeExe, 100));
+        await locked.ScanCommand.ExecuteAsync(null);
+        Assert.False(locked.CloseBrowserCommand.CanExecute(locked.AllItems.Single()));
+    }
+
+    // a kind whose FromRecord rebuilds the change from the retry data, like the whitelisted kinds
+    sealed class RetryChange(string target) : IChange
+    {
+        public string Kind => "retryable";
+        public string Target => target;
+        public string Description => "Wert " + target + " setzen";
+        public ChangeRecord Apply(SessionContext ctx) =>
+            new(Guid.NewGuid().ToString("N"), Kind, Target, Description, new(), new(), ChangeStatus.Applied, DateTimeOffset.Now);
+        public void Undo(ChangeRecord record, SessionContext ctx) { }
+        public DriftState CheckDrift(ChangeRecord record) => DriftState.Unchanged;
+    }
+
+    (HistoryViewModel History, WinWaechter.Tests.Fakes.RecordingDialogs Dialogs, SessionStore Store) RetryHistory(ChangeRecord failed)
+    {
+        var store = new SessionStore(_root);
+        store.Create("Leistung").Upsert(failed);
+        var factory = new ChangeFactory();
+        factory.Register("retryable", r => new RetryChange(r.Target));
+        var engine = new OptimizerEngine([], store, factory, _ => new RestorePointResult(true, "ok"));
+        var dialogs = new WinWaechter.Tests.Fakes.RecordingDialogs();
+        return (new HistoryViewModel(store, engine, new AblageJanitor(store), dialogs, true, _gate), dialogs, store);
+    }
+
+    [Fact]
+    public async Task Retry_failed_record_starts_new_session()
+    {
+        var failed = new ChangeRecord("1", "retryable", "Spielmodus", "Wert Spielmodus setzen", new(), new(), ChangeStatus.Failed,
+            DateTimeOffset.Now.AddMinutes(-5), "Zugriff verweigert", RetryBefore: new() { ["name"] = "Spielmodus" });
+        var (h, dialogs, store) = RetryHistory(failed);
+        await h.RefreshCommand.ExecuteAsync(null);
+        var row = h.Sessions.Single().Records.Single();
+        Assert.True(row.CanRetry);
+        Assert.True(h.RetryCommand.CanExecute(row));
+
+        await h.RetryCommand.ExecuteAsync(row);
+
+        var confirm = Assert.Single(dialogs.Confirms);
+        Assert.Equal("„Wert Spielmodus setzen“ noch einmal anwenden?", confirm.Message);
+        var sessions = store.List();
+        Assert.Equal(2, sessions.Count);
+        Assert.Equal("Erneut versuchen: Wert Spielmodus setzen", sessions[0].Title);
+        Assert.Equal(ChangeStatus.Applied, sessions[0].Records.Single().Status);
+        // the history shows the new session; the old failed record no longer offers a retry
+        Assert.Equal("Erneut versuchen: Wert Spielmodus setzen", h.SelectedSession!.Title);
+        var old = h.Sessions.Single(s => s.Title == "Leistung").Records.Single();
+        Assert.Equal(ChangeStatus.Failed, old.Record.Status);
+        Assert.False(old.CanRetry);
+        Assert.False(h.RetryCommand.CanExecute(old));
+        Assert.False(_gate.IsBusy);
+    }
+
+    [Fact]
+    public async Task Retry_not_offered_for_old_records_without_template()
+    {
+        var old = new ChangeRecord("1", "retryable", "Spielmodus", "Wert Spielmodus setzen", new(), new(), ChangeStatus.Failed,
+            DateTimeOffset.Now, "Zugriff verweigert");
+        var (h, dialogs, store) = RetryHistory(old);
+        await h.RefreshCommand.ExecuteAsync(null);
+        var row = h.Sessions.Single().Records.Single();
+
+        Assert.False(row.CanRetry);
+        Assert.False(h.RetryCommand.CanExecute(row));
+        await h.RetryCommand.ExecuteAsync(row);
+        Assert.Empty(dialogs.Confirms);
+        Assert.Single(store.List());
+
+        // without admin rights a retryable record shows the button, but it is locked
+        var withData = old with { RetryBefore = new() { ["name"] = "Spielmodus" } };
+        var noAdmin = new HistoryViewModel(store, Engine(), new AblageJanitor(store), dialogs, false, _gate);
+        var r = new RecordViewModel(withData, new SessionViewModel(store.List()[0]));
+        Assert.True(r.CanRetry);
+        Assert.False(noAdmin.RetryCommand.CanExecute(r));
+    }
+
+    (ProtectViewModel Vm, FakeDefender Defender, WinWaechter.Tests.Fakes.RecordingDialogs Dialogs, LinkShell Shell) RealTimeVm()
+    {
+        var d = new FakeDefender { RealTime = false };
+        var dialogs = new WinWaechter.Tests.Fakes.RecordingDialogs();
+        var shell = new LinkShell();
+        var set = WinWaechter.Core.Security.Checks.SecurityActionSet.Create(d, new FakeUpdateInstaller(), new FakeRestarter());
+        var vm = new ProtectViewModel(d, (_, _) => Task.FromResult<IReadOnlyList<Finding>>([]), Engine(), _ => 0, dialogs, true, _gate,
+            new ActionRunner(dialogs, _gate), set.EnableRealTime, shell);
+        return (vm, d, dialogs, shell);
+    }
+
+    [Fact]
+    public async Task Protect_realtime_off_offers_fix()
+    {
+        var (vm, d, dialogs, shell) = RealTimeVm();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.True(vm.ShowRealTimeFix);
+        Assert.True(vm.EnableRealTimeCommand.CanExecute(null));
+
+        await vm.EnableRealTimeCommand.ExecuteAsync(null);
+
+        var confirm = Assert.Single(dialogs.Confirms);
+        Assert.Equal("Echtzeitschutz einschalten", confirm.Title);
+        Assert.True(confirm.Final);
+        Assert.Contains("enable-realtime", d.Calls);
+        Assert.True(d.RealTime);
+        Assert.False(vm.ShowRealTimeFix);
+        Assert.Equal("Der Echtzeitschutz ist eingeschaltet.", vm.DefenderResult);
+        Assert.Empty(shell.Links);
+
+        // blocked by tamper protection: the outcome offers Windows-Sicherheit
+        var (blocked, bd, bDialogs, bShell) = RealTimeVm();
+        bd.EnableBlocked = true;
+        await blocked.RefreshCommand.ExecuteAsync(null);
+        await blocked.EnableRealTimeCommand.ExecuteAsync(null);
+        Assert.Equal(2, bDialogs.Confirms.Count);
+        Assert.Equal("Windows-Sicherheit öffnen", bDialogs.Confirms[1].Button);
+        Assert.Equal([SystemLinks.DefenderThreat], bShell.Links);
+        Assert.True(blocked.ShowRealTimeFix);
+        Assert.Equal(WinWaechter.Core.Security.Checks.SecurityActionSet.RealTimeBlocked, blocked.DefenderResult);
+
+        // on, or without the action wired: no fix
+        var on = new ProtectViewModel(new FakeDefender(), (_, _) => Task.FromResult<IReadOnlyList<Finding>>([]), Engine(), _ => 0,
+            dialogs, true, _gate);
+        await on.RefreshCommand.ExecuteAsync(null);
+        Assert.False(on.ShowRealTimeFix);
+        Assert.False(on.EnableRealTimeCommand.CanExecute(null));
     }
 
     sealed class CallbackChange(string target, Action onApply) : IChange

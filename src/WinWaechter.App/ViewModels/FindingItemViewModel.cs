@@ -28,6 +28,8 @@ public sealed partial class FindingItemViewModel : ObservableObject
     public string? SizeText => Finding.SizeBytes is { } b ? Labels.Size(b) : null;
     public bool CanSelect => Finding.Change is not null;
     public string? ChangeText => Finding.Change?.Description;
+    /// <summary>A browser cache blocked by the running browser: „Browser schließen und leeren“ is offered.</summary>
+    public bool CanCloseBrowser => Finding.BlockingProcess is not null && Finding.Change is null;
 
     [ObservableProperty]
     private bool _isSelected;

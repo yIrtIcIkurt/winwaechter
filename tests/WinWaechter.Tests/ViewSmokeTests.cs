@@ -104,6 +104,10 @@ public sealed class ViewSmokeTests : IDisposable
                 new NoChange("Temp"), SizeBytes: 123_456_789),
             new("d", FindingArea.Speicher, "OldTool", @"C:\Program Files\OldTool", ["Kein installiertes Programm gefunden"], Rating.Info, false,
                 new NoChange("OldTool"), SizeBytes: 45_678, Group: FindingGroups.OrphanFolders),
+            // 4.9: a cache blocked by the running browser offers „Browser schließen und leeren“
+            new("e", FindingArea.Speicher, "Browser-Cache Edge", @"C:\Users\x\AppData\Local\Microsoft\Edge\User Data",
+                ["3 Dateien", "Edge läuft (auch im Hintergrund). Edge vollständig schließen und erneut prüfen."], Rating.Info, false, null,
+                SizeBytes: 300, Group: FindingGroups.BrowserCache, BlockingProcess: "msedge"),
         };
         var store = new SessionStore(_root);
         var j = store.Create("Optimierung");
@@ -113,6 +117,9 @@ public sealed class ViewSmokeTests : IDisposable
         // 4.4: an app only the Store can bring back (button „Im Store öffnen“, no „Rückgängig“)
         j.Upsert(new ChangeRecord("4", "appx", "Microsoft.Copilot_8wekyb3d8bbwe", "„Copilot“ entfernen",
             new() { ["family"] = "Microsoft.Copilot_8wekyb3d8bbwe" }, new() { ["restorable"] = "false" }, ChangeStatus.Applied, DateTimeOffset.Now));
+        // 4.9: a failed change with retry data offers „Erneut versuchen“
+        j.Upsert(new ChangeRecord("5", "perfvalue", @"HKCU\Software\Microsoft\GameBar|AutoGameModeEnabled", "Spielmodus aus", new(), new(),
+            ChangeStatus.Failed, DateTimeOffset.Now, "Zugriff verweigert", RetryBefore: new() { ["name"] = "AutoGameModeEnabled" }));
 
         var engine = new OptimizerEngine([() => findings], store, new ChangeFactory(), _ => new RestorePointResult(true, "ok"));
         var dialogs = new Dialogs();
@@ -125,6 +132,11 @@ public sealed class ViewSmokeTests : IDisposable
         };
         var protect = new ProtectViewModel(new FakeDefender(), (_, _) => Task.FromResult<IReadOnlyList<Finding>>(heur),
             engine, _ => 0, dialogs, canChange: false, gate);
+        // 4.9: real-time protection off gets the fix of the Sicherheit page
+        var offDefender = new FakeDefender { RealTime = false };
+        var protectOff = new ProtectViewModel(offDefender, (_, _) => Task.FromResult<IReadOnlyList<Finding>>([]), engine, _ => 0, dialogs,
+            canChange: true, gate, new ActionRunner(dialogs, gate),
+            SecurityActionSet.Create(offDefender, new FakeUpdateInstaller(), new FakeRestarter()).EnableRealTime, new Shell());
         var reg = new FakeRegistry();
         var privacy = new PrivacyViewModel(_ => Task.FromResult(new PrivacyScanner(reg, RuleSet.Default).Scan(_ => true)),
             engine, dialogs, canChange: false, gate);
@@ -167,6 +179,7 @@ public sealed class ViewSmokeTests : IDisposable
         // fill the view models (no sync context here, so the commands finish inline or on the pool)
         optimize.ScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         protect.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        protectOff.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         protect.HeuristicScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         history.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         privacy.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
@@ -192,7 +205,7 @@ public sealed class ViewSmokeTests : IDisposable
             && performance.PendingCount == 1 && performance.BackgroundHeader == "Hintergrund-Apps (2 erlaubt)");
         // every link button on the page opens an allowed system link
         Assert.All(performance.Settings.Where(r => r.Link is not null), r => Assert.True(SystemLinks.IsAllowed(r.Link), r.Link));
-        Assert.True(optimize.FindingCount == 4 && protect.HeuristicCount == 1 && history.Sessions.Count == 1 && update.IsAvailable
+        Assert.True(optimize.FindingCount == 5 && protect.HeuristicCount == 1 && history.Sessions.Count == 1 && update.IsAvailable
             && privacy.Rows.Count > 0);
 
         foreach (var theme in new[] { "Light", "Dark" })
@@ -207,8 +220,15 @@ public sealed class ViewSmokeTests : IDisposable
             var overview = new OverviewView { DataContext = shell.Overview };
             Layout(overview);
             AssertFreeReadoutRightOfSuggestions(overview);
-            Layout(new OptimizeView { DataContext = optimize });
-            Layout(new ProtectView { DataContext = protect });
+            var optimizeView = new OptimizeView { DataContext = optimize };
+            Layout(optimizeView);
+            AssertCloseBrowserButton(optimizeView, optimize);
+            var protectView = new ProtectView { DataContext = protect };
+            Layout(protectView);
+            AssertLastScanTileRunsQuickScan(protectView, protect);
+            var protectOffView = new ProtectView { DataContext = protectOff };
+            Layout(protectOffView);
+            AssertRealTimeFix(protectOffView, protectOff);
             var securityView = new SecurityView { DataContext = security };
             Layout(securityView);
             AssertLightsDiffer(securityView, theme);
@@ -218,6 +238,7 @@ public sealed class ViewSmokeTests : IDisposable
             Layout(programsView);
             AssertComboShowsLabel(programsView, "ProgramSortOption");
             AssertAppsSection(programsView);
+            AssertShown(programsView, "Alle unerwünschten entfernen (1)", programs.UninstallUnwantedCommand);
             var performanceView = new PerformanceView { DataContext = performance };
             Layout(performanceView);
             AssertComboShowsLabel(performanceView, "PerfOption");
@@ -232,6 +253,7 @@ public sealed class ViewSmokeTests : IDisposable
             var historyView = new HistoryView { DataContext = history };
             Layout(historyView);
             AssertStoreButton(historyView);
+            AssertShown(historyView, "Erneut versuchen", history.RetryCommand);
             Layout(new SettingsView { DataContext = settings });
             var dialog = new MessageDialog("Titel", "Text", ["Eins", "Zwei"], "Anwenden", final: true);
             Layout(dialog.Content as FrameworkElement);
@@ -252,6 +274,35 @@ public sealed class ViewSmokeTests : IDisposable
         Assert.All(boxes, c => Assert.True(c.IsChecked != true && c.IsEnabled));
         var remove = FindAll<Button>(view).Single(b => b.Content as string == "Ausgewählte entfernen (0)");
         Assert.True(remove.Visibility == Visibility.Visible && remove.ActualWidth > 0);
+    }
+
+    // 4.9: exactly one visible button with this label, laid out and bound to the command
+    static Button AssertShown(FrameworkElement view, string label, System.Windows.Input.ICommand command)
+    {
+        var button = FindAll<Button>(view).Single(b => b.Content as string == label && b.Visibility == Visibility.Visible);
+        Assert.True(button.ActualWidth > 0, label);
+        Assert.Same(command, button.Command);
+        return button;
+    }
+
+    static void AssertCloseBrowserButton(FrameworkElement view, OptimizeViewModel vm)
+    {
+        var button = AssertShown(view, "Browser schließen und leeren", vm.CloseBrowserCommand);
+        Assert.Equal("Browser-Cache Edge", ((FindingItemViewModel)button.CommandParameter).Title);
+    }
+
+    // the „Letzter Scan“ tile starts the existing quick scan; real-time protection is on, so no fix is shown
+    static void AssertLastScanTileRunsQuickScan(FrameworkElement view, ProtectViewModel vm)
+    {
+        AssertShown(view, "Jetzt scannen", vm.QuickScanCommand);
+        Assert.DoesNotContain(FindAll<Button>(view), b => b.Content as string == "Einschalten" && b.Visibility == Visibility.Visible);
+    }
+
+    static void AssertRealTimeFix(FrameworkElement view, ProtectViewModel vm)
+    {
+        Assert.True(vm.ShowRealTimeFix);
+        var button = AssertShown(view, "Einschalten", vm.EnableRealTimeCommand);
+        Assert.True(button.IsEnabled);
     }
 
     // 4.4: a Store-only removal shows „Im Store öffnen“ and its hint instead of an undo button
@@ -315,9 +366,10 @@ public sealed class ViewSmokeTests : IDisposable
         var foo = P("Foo", ProgramFlag.Pua, 52_428_800);
         var tool = P("Spiel-Tool", ProgramFlag.None, null);
         var lexware = P("Lexware buchhalter", ProgramFlag.Protected, 1_048_576);
+        var toolbar = P("Such-Toolbar", ProgramFlag.Pua, null);
         var actions = new FakeProgramActions
         {
-            Programs = [foo, tool, lexware],
+            Programs = [foo, tool, lexware, toolbar],
             PlanFor = p => p == foo
                 ? new UninstallPlan(UninstallRoute.Launch, new UninstallCommand(@"C:\Program Files\Foo\unins000.exe", ""), "", false)
                 : new UninstallPlan(UninstallRoute.OpenSettings, null, UninstallPlanner.MissingReason, true),
@@ -337,10 +389,10 @@ public sealed class ViewSmokeTests : IDisposable
         var vm = new ProgramsViewModel(actions, engine, new YesDialogs(), new Shell(), canChange: true, gate,
             () => new BloatAppScanner(pkgs, RuleSet.Default).Scan());
         vm.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
-        actions.Programs = [tool, lexware];   // the launched uninstaller removed „Foo“
+        actions.Programs = [tool, lexware, toolbar];   // the launched uninstaller removed „Foo“
         vm.UninstallCommand.ExecuteAsync(vm.Items.Single(i => i.Name == "Foo")).GetAwaiter().GetResult();
         vm.UninstallCommand.ExecuteAsync(vm.Items.Single(i => i.Name == "Spiel-Tool")).GetAwaiter().GetResult();
-        Assert.True(vm.Items.Count == 2 && vm.Pending == tool && vm.ShowLeftovers && vm.Leftovers.Count == 2
+        Assert.True(vm.Items.Count == 3 && vm.UnwantedCount == 1 && vm.Pending == tool && vm.ShowLeftovers && vm.Leftovers.Count == 2
             && vm.Items.Single(i => i.Name == "Spiel-Tool").CanForceRemove && vm.Apps.Count == 2);
         return vm;
     }

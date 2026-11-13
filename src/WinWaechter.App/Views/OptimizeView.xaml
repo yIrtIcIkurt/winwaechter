@@ -92,6 +92,12 @@
                                                             <Expander Margin="0,6,0,0" Style="{StaticResource Reasons}" Header="{Binding ReasonSummary}">
                                                                 <ItemsControl ItemsSource="{Binding Reasons}" ItemTemplate="{StaticResource ReasonLine}" Focusable="False" />
                                                             </Expander>
+                                                            <!-- a cache blocked by the running browser (4.9) -->
+                                                            <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="Browser schließen und leeren"
+                                                                    Visibility="{Binding CanCloseBrowser, Converter={StaticResource Vis}}"
+                                                                    Command="{Binding DataContext.CloseBrowserCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    AutomationProperties.Name="{Binding Title, StringFormat={}{0}: Browser schließen und leeren}" />
                                                         </StackPanel>
                                                         <StackPanel Grid.Column="2" Margin="16,0,0,0" HorizontalAlignment="Right">
                                                             <ContentControl Style="{StaticResource Chip}" Tag="{Binding RatingTone}" Content="{Binding RatingText}"

@@ -2,10 +2,12 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Security.Defender;
+using WinWaechter.Core.Sys;
 
 namespace WinWaechter.App.ViewModels;
 
@@ -20,11 +22,20 @@ public sealed partial class ProtectViewModel : ObservableObject
     readonly Func<string, int> _killByPath;
     readonly IDialogService _dialogs;
     readonly ChangeGate _gate;
+    readonly ActionRunner? _actions;
+    readonly SystemAction? _enableRealTime;
+    readonly ISystemShell? _shell;
     CancellationTokenSource? _defenderCts;
 
+    /// <param name="enableRealTime">The same action as on the Sicherheit page (SecurityActionSet.EnableRealTime).</param>
+    /// <param name="shell">Opens Windows-Sicherheit when Windows blocked the switch.</param>
     public ProtectViewModel(IDefender defender, HeuristicScan heuristics, OptimizerEngine engine,
-        Func<string, int> killByPath, IDialogService dialogs, bool canChange, ChangeGate gate)
+        Func<string, int> killByPath, IDialogService dialogs, bool canChange, ChangeGate gate,
+        ActionRunner? actions = null, SystemAction? enableRealTime = null, ISystemShell? shell = null)
     {
+        _actions = actions;
+        _enableRealTime = enableRealTime;
+        _shell = shell;
         _defender = defender;
         _heuristics = heuristics;
         _engine = engine;
@@ -38,6 +49,7 @@ public sealed partial class ProtectViewModel : ObservableObject
             EnablePuaCommand.NotifyCanExecuteChanged();
             DisableCommand.NotifyCanExecuteChanged();
             KillProcessCommand.NotifyCanExecuteChanged();
+            EnableRealTimeCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(GateHint));
         };
     }
@@ -61,8 +73,8 @@ public sealed partial class ProtectViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsLoaded), nameof(IsAvailable), nameof(RealTimeText), nameof(RealTimeTone),
         nameof(SignatureAgeText), nameof(SignatureTone), nameof(LastScanText), nameof(TamperText),
-        nameof(PuaText), nameof(ShowPuaSuggestion), nameof(DefenderNote), nameof(ThreatSummary))]
-    [NotifyCanExecuteChangedFor(nameof(EnablePuaCommand))]
+        nameof(PuaText), nameof(ShowPuaSuggestion), nameof(DefenderNote), nameof(ThreatSummary), nameof(ShowRealTimeFix))]
+    [NotifyCanExecuteChangedFor(nameof(EnablePuaCommand), nameof(EnableRealTimeCommand))]
     private DefenderStatus? _status;
 
     public bool IsLoaded => Status is not null;
@@ -138,7 +150,8 @@ public sealed partial class ProtectViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsDefenderBusy))]
     [NotifyCanExecuteChangedFor(nameof(UpdateSignaturesCommand), nameof(QuickScanCommand), nameof(FullScanCommand),
-        nameof(CancelDefenderCommand), nameof(CleanCommand), nameof(CheckWithDefenderCommand), nameof(EnablePuaCommand))]
+        nameof(CancelDefenderCommand), nameof(CleanCommand), nameof(CheckWithDefenderCommand), nameof(EnablePuaCommand),
+        nameof(EnableRealTimeCommand))]
     private string? _defenderOperation;
 
     [ObservableProperty]
@@ -302,6 +315,46 @@ public sealed partial class ProtectViewModel : ObservableObject
             DefenderOperation = null;
         }
         await RefreshAsync();
+    }
+
+    // ---- real-time protection off: the same fix as on the Sicherheit page (Aktion, endgültig) ----
+
+    public bool ShowRealTimeFix => Status is { Available: true, RealTime: false } && _actions is not null && _enableRealTime is not null;
+
+    bool CanEnableRealTime() => CanRunDefender() && !_gate.IsBusy && ShowRealTimeFix;
+
+    // The runner confirms („endgültig“), takes the gate and logs; a blocked switch offers Windows-Sicherheit.
+    [RelayCommand(CanExecute = nameof(CanEnableRealTime))]
+    private async Task EnableRealTimeAsync()
+    {
+        if (!CanEnableRealTime()) return;
+        var act = _enableRealTime!;
+        // busy only once it really runs, i.e. after the confirmation and inside the gate
+        var run = act with
+        {
+            RunAsync = (p, ct) =>
+            {
+                DefenderOperation = "Echtzeitschutz wird eingeschaltet";
+                return act.RunAsync(p, ct);
+            },
+        };
+        ActionOutcome? outcome;
+        try
+        {
+            outcome = await _actions!.RunAsync(this, run, null);
+        }
+        finally
+        {
+            DefenderOperation = null;
+        }
+        if (outcome is null) return;
+        if (outcome.Link is { } link)
+        {
+            if (!SystemLinks.IsAllowed(link)) FileLog.Warn($"Link nicht erlaubt: {link}");
+            else if (_shell is not null && _dialogs.Confirm(act.Title, outcome.Message, SecurityViewModel.OpenSecurityText)) _shell.OpenLink(link);
+        }
+        await RefreshAsync();
+        DefenderResult = outcome.Message;
     }
 
     // ---- own heuristics ----

@@ -7,6 +7,7 @@ using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.Storage;
+using WinWaechter.Core.Sys;
 
 namespace WinWaechter.App.ViewModels;
 
@@ -39,10 +40,17 @@ public sealed partial class OptimizeViewModel : ObservableObject
     readonly ChangeGate _gate;
     readonly ActionRunner? _actions;
     readonly SystemAction? _restartExplorer;
+    readonly IProcessEnder? _ender;
+    readonly Func<ProcessGuardContext>? _guard;
+    readonly Func<TimeSpan, CancellationToken, Task> _delay;
 
     public OptimizeViewModel(OptimizerEngine engine, IDialogService dialogs, bool canChange, ChangeGate gate,
-        ActionRunner? actions = null, SystemAction? restartExplorer = null)
+        ActionRunner? actions = null, SystemAction? restartExplorer = null,
+        IProcessEnder? ender = null, Func<ProcessGuardContext>? guard = null, Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
+        _ender = ender;
+        _guard = guard;
+        _delay = delay ?? ((t, ct) => Task.Delay(t, ct));
         _engine = engine;
         _dialogs = dialogs;
         CanChange = canChange;
@@ -52,6 +60,7 @@ public sealed partial class OptimizeViewModel : ObservableObject
         gate.PropertyChanged += (_, _) =>
         {
             ApplyCommand.NotifyCanExecuteChanged();
+            CloseBrowserCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(GateHint));
         };
     }
@@ -76,6 +85,7 @@ public sealed partial class OptimizeViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsIdle))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CloseBrowserCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -227,6 +237,107 @@ public sealed partial class OptimizeViewModel : ObservableObject
     }
 
     bool CanApply() => CanChange && !IsBusy && !_gate.IsBusy && SelectedCount > 0;
+
+    // ---- close a browser so its cache can be cleaned (Aktion, 4.9) ----
+
+    public const string CloseBrowserTitle = "Browser schließen und leeren";
+    static readonly TimeSpan CloseWait = TimeSpan.FromSeconds(10);
+    static readonly TimeSpan CloseStep = TimeSpan.FromMilliseconds(500);
+
+    static string BrowserName(string process) => process.ToLowerInvariant() switch
+    {
+        "msedge" => "Edge",
+        "chrome" => "Chrome",
+        "opera" => "Opera",
+        "firefox" => "Firefox",
+        _ => process,
+    };
+
+    bool CanCloseBrowser(FindingItemViewModel? item) =>
+        CanChange && !IsBusy && !_gate.IsBusy && item is { CanCloseBrowser: true }
+        && _actions is not null && _ender is not null && _guard is not null;
+
+    // The guard decides before anything is asked: only the fixed browser list, never from the Windows folder,
+    // never a service or WinWächter itself. Nothing is deleted here; the new scan offers the cache preselected.
+    [RelayCommand(CanExecute = nameof(CanCloseBrowser))]
+    private async Task CloseBrowserAsync(FindingItemViewModel? item)
+    {
+        if (!CanCloseBrowser(item) || item!.Finding.BlockingProcess is not { } process) return;
+        var name = BrowserName(process);
+        if ((await AllowedBrowserAsync(process)).Count == 0)
+        {
+            LastSummary = $"{name} lässt sich von WinWächter nicht schließen.";
+            _dialogs.Inform(CloseBrowserTitle,
+                $"{name} lässt sich von WinWächter nicht schließen. Bitte schließen Sie {name} selbst und prüfen Sie danach erneut.");
+            return;
+        }
+
+        var action = new SystemAction("close-browser", CloseBrowserTitle, "Schließen",
+            $"WinWächter schließt {name} und prüft den Zwischenspeicher danach erneut.", false, (_, ct) =>
+            {
+                IsBusy = true;
+                ProgressText = $"{name} wird geschlossen …";
+                return RunCloseBrowserAsync(process, name, ct);
+            });
+        ActionOutcome? outcome;
+        try
+        {
+            outcome = await _actions!.RunAsync(this, action, null);
+        }
+        finally
+        {
+            ProgressText = "";
+            IsBusy = false;
+        }
+        if (outcome is null) return;
+        LastSummary = outcome.Message;
+        if (!outcome.Success) return;
+        await ScanCommand.ExecuteAsync(null);
+        LastSummary ??= outcome.Message;
+    }
+
+    // Fails closed: an unreadable process list or guard context allows nothing.
+    async Task<List<RunningProcess>> AllowedBrowserAsync(string process)
+    {
+        try
+        {
+            return await Task.Run(() =>
+            {
+                var guard = _guard!();
+                return _ender!.Find(process).Where(p => ProcessGuard.MayEndBrowser(p, guard)).ToList();
+            });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Warn($"Browser-Prozesse nicht prüfbar: {process}", ex);
+            return [];
+        }
+    }
+
+    async Task<ActionOutcome> RunCloseBrowserAsync(string process, string name, CancellationToken ct)
+    {
+        // asked again at run time: the browser may have opened or ended processes meanwhile
+        var allowed = await AllowedBrowserAsync(process);
+        if (allowed.Count == 0) return new ActionOutcome(true, $"{name} ist geschlossen.");
+
+        // gently first: ask the windows to close, then give the browser up to 10 s
+        await Task.Run(() => _ender!.CloseWindows(allowed), ct);
+        var waited = TimeSpan.Zero;
+        while (waited < CloseWait && await Task.Run(() => _ender!.AnyRunning(allowed), ct))
+        {
+            await _delay(CloseStep, ct);
+            waited += CloseStep;
+        }
+        if (!await Task.Run(() => _ender!.AnyRunning(allowed), ct)) return new ActionOutcome(true, $"{name} ist geschlossen.");
+
+        if (!_dialogs.Ask(CloseBrowserTitle,
+                $"{name} ist nach 10 Sekunden noch geöffnet. Jetzt erzwingen? Offene Eingaben gehen verloren.", "Erzwingen", "Abbrechen"))
+            return new ActionOutcome(false, $"{name} bleibt geöffnet.");
+        await Task.Run(() => _ender!.Kill(allowed), ct);
+        return await Task.Run(() => _ender!.AnyRunning(allowed), ct)
+            ? new ActionOutcome(false, $"{name} ließ sich nicht schließen.")
+            : new ActionOutcome(true, $"{name} ist geschlossen.");
+    }
 
     void SetFindings(IReadOnlyList<Finding> findings)
     {

@@ -112,6 +112,25 @@ public sealed class CacheScannerTests : IDisposable
     }
 
     [Fact]
+    public void Blocked_browser_cache_names_its_process()
+    {
+        SeedEdge();
+        Make(Path.Combine(Local(@"Google\Chrome\User Data"), @"Default\Cache\a"));
+        Make(Local(@"Mozilla\Firefox\Profiles\abc.default\cache2\x"));
+        _procs.List.Add(new RunningProcess("msedge.exe", Path.Combine(_paths.ProgramFilesX86, @"Microsoft\Edge\Application\msedge.exe")));
+        _procs.List.Add(new RunningProcess("chrome.exe", null));
+
+        var all = Scan();
+
+        Assert.Equal("msedge", Assert.Single(all, f => f.Title == "Browser-Cache Edge").BlockingProcess);
+        Assert.Equal("chrome", Assert.Single(all, f => f.Title == "Browser-Cache Chrome").BlockingProcess);
+        // a browser that is not running offers its cache and names no process
+        var firefox = Assert.Single(all, f => f.Title == "Browser-Cache Firefox");
+        Assert.NotNull(firefox.Change);
+        Assert.Null(firefox.BlockingProcess);
+    }
+
+    [Fact]
     public void Failing_process_snapshot_fails_closed_as_browser_running()
     {
         SeedEdge();

@@ -39,8 +39,13 @@
         <!-- Header -->
         <StackPanel DockPanel.Dock="Top" Margin="{StaticResource PagePadding}">
             <DockPanel>
-                <Button DockPanel.Dock="Right" VerticalAlignment="Center" Style="{StaticResource Button.Quiet}" Content="Neu laden"
-                        Command="{Binding RefreshCommand}" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- programs flagged „Unerwünscht“ or „Miner“, one after the other (4.9) -->
+                    <Button Margin="0,0,8,0" Style="{StaticResource Button.Final}" Content="{Binding UninstallUnwantedText}"
+                            Command="{Binding UninstallUnwantedCommand}"
+                            Visibility="{Binding ShowUninstallUnwanted, Converter={StaticResource Vis}}" />
+                    <Button Style="{StaticResource Button.Quiet}" Content="Neu laden" Command="{Binding RefreshCommand}" />
+                </StackPanel>
                 <TextBlock Style="{StaticResource Text.PageTitle}" Text="Programme" />
             </DockPanel>
             <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"

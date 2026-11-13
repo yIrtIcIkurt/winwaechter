@@ -14,8 +14,8 @@ using WinWaechter.Core.Sys;
 
 namespace WinWaechter.App.ViewModels;
 
-/// <summary>One journalled change inside a session.</summary>
-public sealed class RecordViewModel(ChangeRecord record, SessionViewModel session)
+/// <summary>One journalled change inside a session. retried: a newer Applied record of the same change exists.</summary>
+public sealed class RecordViewModel(ChangeRecord record, SessionViewModel session, bool retried = false)
 {
     public ChangeRecord Record { get; } = record;
     public SessionViewModel Session { get; } = session;
@@ -27,6 +27,8 @@ public sealed class RecordViewModel(ChangeRecord record, SessionViewModel sessio
     public bool IsPurged => Record.After.TryGetValue("purged", out var p) && p == "true";
     public bool MovedNothing => OptimizerEngine.MovedNothing(Record);
     public bool CanUndo => OptimizerEngine.IsUndoable(Record) && !IsPurged;
+    /// <summary>„Erneut versuchen“: a failed change with retry data that has not been applied since.</summary>
+    public bool CanRetry => OptimizerEngine.CanRetry(Record) && !retried;
     /// <summary>Store page of an app that only the Store can bring back (appx without image copy); otherwise null.</summary>
     public string? StoreLink =>
         Record.Kind == "appx" && Record.After.GetValueOrDefault("restorable") == "false"
@@ -48,10 +50,12 @@ public sealed class RecordViewModel(ChangeRecord record, SessionViewModel sessio
 /// <summary>One optimizer session with its records.</summary>
 public sealed class SessionViewModel
 {
-    public SessionViewModel(SessionJournal journal)
+    /// <param name="retried">True for a failed record whose change was applied later (no retry offered then).</param>
+    public SessionViewModel(SessionJournal journal, Func<ChangeRecord, bool>? retried = null)
     {
         Journal = journal;
-        Records = new(journal.Records.Select(r => new RecordViewModel(r, this)));
+        Records = new(journal.Records.Select(r => new RecordViewModel(r, this,
+            r.Status == ChangeStatus.Failed && retried?.Invoke(r) == true)));
     }
 
     public SessionJournal Journal { get; }
@@ -97,6 +101,7 @@ public sealed partial class HistoryViewModel : ObservableObject
             UndoAllCommand.NotifyCanExecuteChanged();
             UndoOneCommand.NotifyCanExecuteChanged();
             PurgeAblageCommand.NotifyCanExecuteChanged();
+            RetryCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(GateHint));
         };
     }
@@ -119,7 +124,7 @@ public sealed partial class HistoryViewModel : ObservableObject
     private SessionViewModel? _selectedSession;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(UndoAllCommand), nameof(UndoOneCommand), nameof(PurgeAblageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UndoAllCommand), nameof(UndoOneCommand), nameof(PurgeAblageCommand), nameof(RetryCommand))]
     private bool _isBusy;
 
     /// <summary>Current undo step while undoing ("(2/5) …"), empty otherwise.</summary>
@@ -188,7 +193,12 @@ public sealed partial class HistoryViewModel : ObservableObject
             return;
         }
         Sessions.Clear();
-        foreach (var j in journals) Sessions.Add(new SessionViewModel(j));
+        var applied = journals.SelectMany(j => j.Records).Where(r => r.Status == ChangeStatus.Applied).ToList();
+        // a retried (or otherwise re-applied) change: a newer Applied record with the same kind and target
+        bool Retried(ChangeRecord failed) => applied.Any(a => a.At > failed.At
+            && string.Equals(a.Kind, failed.Kind, StringComparison.Ordinal)
+            && string.Equals(a.Target, failed.Target, StringComparison.OrdinalIgnoreCase));
+        foreach (var j in journals) Sessions.Add(new SessionViewModel(j, Retried));
         SelectedSession = Sessions.FirstOrDefault(s => s.Journal.Context.SessionDir == selectedDir) ?? Sessions.FirstOrDefault();
         AblageBytes = preview.PurgeableBytes;
         AblageText = Labels.Size(preview.PurgeableBytes);
@@ -222,6 +232,41 @@ public sealed partial class HistoryViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanUndoOne))]
     private Task UndoOneAsync(RecordViewModel? r) =>
         r is null ? Task.CompletedTask : RunUndoAsync(p => _engine.UndoOne(r.Session.Journal, r.Record.Id, p));
+
+    bool CanRetry(RecordViewModel? r) => CanChange && !IsBusy && !_gate.IsBusy && r is { CanRetry: true };
+
+    /// <summary>A failed change once more, in a new session; the kind's FromRecord checks its whitelist again.</summary>
+    [RelayCommand(CanExecute = nameof(CanRetry))]
+    private async Task RetryAsync(RecordViewModel? r)
+    {
+        if (r is null || !CanRetry(r)) return;
+        if (!_dialogs.Confirm("Erneut versuchen", $"„{r.Description}“ noch einmal anwenden?", "Anwenden")) return;
+        if (!await _gate.RunAsync(this, () => RetryCoreAsync(r.Record))) _dialogs.Inform("Erneut versuchen", ChangeGate.BusyHint);
+    }
+
+    async Task RetryCoreAsync(ChangeRecord failed)
+    {
+        IsBusy = true;
+        ProgressText = $"{failed.Description} …";
+        try
+        {
+            var res = await _engine.RetryAsync(failed, null, CancellationToken.None);
+            _dialogs.Inform("Erneut versuchen",
+                res.Applied == 1 ? "Die Änderung ist angewendet und steht im Verlauf." : "Die Änderung ist erneut fehlgeschlagen. Details stehen im Verlauf.",
+                [res.RestorePoint.Message]);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Error($"Erneut versuchen fehlgeschlagen: {failed.Description}", ex);
+            _dialogs.Inform("Erneut versuchen fehlgeschlagen", ex.Message);
+        }
+        finally
+        {
+            ProgressText = "";
+            IsBusy = false;
+        }
+        await ShowNewestAsync();
+    }
 
     async Task RunUndoAsync(Func<IProgress<UndoProgress>, UndoResult> undo)
     {

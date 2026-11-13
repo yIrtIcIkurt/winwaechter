@@ -23,6 +23,10 @@
                         <Control Style="{StaticResource ToneMark}" Tag="{Binding RealTimeTone}" Margin="0,2,9,0" />
                         <TextBlock Style="{StaticResource Text.Readout}" FontSize="22" Text="{Binding RealTimeText}" />
                     </StackPanel>
+                    <!-- off: the same fix as on the Sicherheit page (4.9) -->
+                    <Button Margin="-8,4,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}" Content="Einschalten"
+                            Command="{Binding EnableRealTimeCommand}" AutomationProperties.Name="Echtzeitschutz einschalten"
+                            Visibility="{Binding ShowRealTimeFix, Converter={StaticResource Vis}}" />
                 </StackPanel>
                 <StackPanel Width="170" Margin="0,0,0,12">
                     <TextBlock Style="{StaticResource Text.Label}" Text="Signaturalter" />
@@ -34,6 +38,8 @@
                 <StackPanel Width="200" Margin="0,0,0,12">
                     <TextBlock Style="{StaticResource Text.Label}" Text="Letzter Scan" />
                     <TextBlock Margin="0,3,0,0" Style="{StaticResource Text.Readout}" FontSize="22" Text="{Binding LastScanText}" />
+                    <Button Margin="-8,4,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}" Content="Jetzt scannen"
+                            Command="{Binding QuickScanCommand}" AutomationProperties.Name="Jetzt scannen (Schnellscan)" />
                 </StackPanel>
                 <StackPanel Width="170" Margin="0,0,0,12">
                     <TextBlock Style="{StaticResource Text.Label}" Text="Manipulationsschutz" />

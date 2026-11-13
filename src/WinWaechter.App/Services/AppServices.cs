@@ -127,17 +127,31 @@ public sealed class AppServices : IDisposable
         var actions = new ActionRunner(dialogs, gate);
         // Windows restarts the shell itself after the kill; the elevated app never launches Explorer
         var restartExplorer = SystemActions.RestartExplorer(new WinProcessEnder(procs), windowsDir);
-        var optimize = new OptimizeViewModel(engine, dialogs, canChange, gate, actions, restartExplorer);
+        // „Beenden“ (Leistung) asks the guard at run time: never Windows, services, protected vendors (rules.json) or WinWächter
+        // itself. The guard takes the raw service image paths; a failing protection check counts as protected.
+        ProcessGuardContext PerfGuard()
+        {
+            var images = sc.List().Select(s => s.ImagePath).OfType<string>().Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return new ProcessGuardContext(windowsDir, Environment.ProcessId, Environment.ProcessPath, images,
+                p => rules.Classify(new ItemFacts(p.Name, p.ExePath, p.ExePath is { } exe ? sig.Verify(exe).Publisher : null, null))
+                     == RuleVerdict.Protected);
+        }
+        // „Browser schließen und leeren“: the same guard, but only for the fixed browser list (ProcessGuard.MayEndBrowser)
+        var optimize = new OptimizeViewModel(engine, dialogs, canChange, gate, actions, restartExplorer,
+            new WinProcessEnder(procs), PerfGuard);
+        // the same real-time switch on Schutz and Sicherheit
+        var securityActions = SecurityActionSet.Create(defender, new WuaUpdateInstaller(), new WinRestarter(new ProcessRunner(), windowsDir));
         // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
         var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),
-            engine, ProcessTools.KillByPath, dialogs, canChange, gate);
+            engine, ProcessTools.KillByPath, dialogs, canChange, gate, actions, securityActions.EnableRealTime, shell);
         // every source runs on the thread pool with its own timeout; the whole check stays off the UI thread
         // the browser's own extensions page opens with the signed-in user's normal rights, never elevated
         var extensionPages = new ExtensionPageOpener(reg, paths, new UserTokenLauncher(user.Sid));
         var securitySources = new SecuritySources(firewall, new WmiSecurityCenter(), defender, reg, new WmiVolumeEncryption(),
             new WuaUpdateSearch(), new TcpTableConnections(), procs, sig, new BrowserExtensionScanner(paths, reg), extensionPages,
             Policies: () => new JournalPolicyOwnership(store), FirewallRules: fwRules, Rules: rules, WindowsDir: windowsDir,
-            Actions: SecurityActionSet.Create(defender, new WuaUpdateInstaller(), new WinRestarter(new ProcessRunner(), windowsDir)),
+            Actions: securityActions,
             RestoreConfig: restoreConfig, Services: sc);
         var security = new SecurityViewModel(ct => Task.Run(() => new SecurityCheck(securitySources).RunAsync(ct), ct),
             engine, defender, dialogs, shell, canChange, gate, () => protect.IsDefenderBusy, extensionPages, actions: actions);
@@ -161,16 +175,6 @@ public sealed class AppServices : IDisposable
             () => new BloatAppScanner(pkgs, rules).Scan(), ownAccount);
         var perfScanner = new PerformanceScanner(reg, power, animation, hibernation, new WinAppDisplayNames(reg), ownAccount, broadcast,
             plans, () => new JournalPolicyOwnership(store));
-        // „Beenden“ asks the guard at run time: never Windows, services, protected vendors (rules.json) or WinWächter itself.
-        // The guard takes the raw service image paths; a failing protection check counts as protected.
-        ProcessGuardContext PerfGuard()
-        {
-            var images = sc.List().Select(s => s.ImagePath).OfType<string>().Where(p => !string.IsNullOrWhiteSpace(p))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            return new ProcessGuardContext(windowsDir, Environment.ProcessId, Environment.ProcessPath, images,
-                p => rules.Classify(new ItemFacts(p.Name, p.ExePath, p.ExePath is { } exe ? sig.Verify(exe).Publisher : null, null))
-                     == RuleVerdict.Protected);
-        }
         var perfTools = new PerformanceTools(TraceScan, rules, new WinProcessEnder(procs), PerfGuard, actions,
             new WinDiskSpace().SystemDrive, HibernationBytes: () => hibernation.FileBytes);
         var systemSources = new WinSystemSources();

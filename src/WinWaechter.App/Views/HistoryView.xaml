@@ -119,6 +119,10 @@
                                                         CommandParameter="{Binding}" AutomationProperties.HelpText="{Binding Description}" />
                                                 <Button Content="Rückgängig" IsEnabled="False" HorizontalAlignment="Right"
                                                         Visibility="{Binding ShowDisabledUndo, Converter={StaticResource Vis}}" />
+                                                <Button Content="Erneut versuchen" HorizontalAlignment="Right"
+                                                        Visibility="{Binding CanRetry, Converter={StaticResource Vis}}"
+                                                        Command="{Binding DataContext.RetryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}" AutomationProperties.HelpText="{Binding Description}" />
                                                 <Button Content="Im Store öffnen" HorizontalAlignment="Right"
                                                         Visibility="{Binding HasStoreLink, Converter={StaticResource Vis}}"
                                                         Command="{Binding DataContext.OpenStoreCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
