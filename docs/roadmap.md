@@ -60,18 +60,17 @@ Bekannte Kleinigkeiten (aus den Prüfungen): Liste wird nach Undo im Verlauf ers
 Neue Seite „Leistung“: Energiemodus (Netz/Akku), visuelle Effekte, Startzeit-Bericht, Live-Monitor (CPU/RAM/Datenträger/Top-Verbraucher), Hintergrund-Apps, Spielmodus + GPU-Planung, Ruhezustand-Datei (mit Hinweis), Speicheroptimierung. Alles einzeln, umkehrbar; keine „Tuning-Tricks“ (RAM-Booster, Prefetch löschen, Dienste massenhaft abschalten).
 
 ## 0.5.0 (gebaut, unveröffentlicht, Stand 2026-11-13)
-Design `docs/superpowers/specs/2026-11-12-winwaechter-0.5-design.md`, Plan `docs/superpowers/plans/2026-11-12-winwaechter-0.5.md`. 1039 Tests (vorher 783), Einzel- und Gesamtprüfung. Inhalt: „Rechner in Ordnung bringen“, Sicherheit behebt selbst, Leistungsbremsen, Werbe-Apps, Windows-Werbung, Computerschutz, Browser-Hintergrund, Rechtsklick-Menü, kleinere Lücken (siehe CHANGELOG).
+Design `docs/superpowers/specs/2026-11-12-winwaechter-0.5-design.md`, Plan `docs/superpowers/plans/2026-11-12-winwaechter-0.5.md`. 1050 Tests (vorher 783), Einzelprüfungen je Aufgabe und Gesamtprüfung (mit Nachbesserungen). Inhalt: „Rechner in Ordnung bringen“, Sicherheit behebt selbst, Leistungsbremsen, Werbe-Apps, Windows-Werbung, Computerschutz, Browser-Hintergrund, Rechtsklick-Menü, kleinere Lücken (siehe CHANGELOG).
 
 Nur lesende Prüfungen auf dem Rechner des Nutzers (Build 26200, nicht erhöht):
 - Computerschutz: `VSS` und `swprv` stehen beide auf Manuell/Gestoppt (keiner deaktiviert, die Ursache von 0x80070422 ist damit nicht sichtbar); `RPSessionInterval`=0 (`DiskPercent` 15); kein `DisableSR`, kein `SystemRestore`-Richtlinienschlüssel; die Liste der Wiederherstellungspunkte ist ohne Administrator nicht lesbar.
 - Werbe-Apps: alle 8 Kandidaten installiert, mit genau diesen Namen: `Clipchamp.Clipchamp`, `Microsoft.Copilot`, `Microsoft.OutlookForWindows`, `MSTeams`, `Microsoft.MicrosoftOfficeHub`, `Microsoft.Windows.DevHome`, `MicrosoftCorporationII.QuickAssist`, `Microsoft.MicrosoftStickyNotes`; keiner ist NonRemovable/System, keiner entfällt. `GamingApp`/`GamingServices` sind installiert und werden nie angeboten. `Get-AppxProvisionedPackage` braucht Administratorrechte. Die Store-Namen von TikTok, Spotify, Disney+, Facebook, Instagram, LinkedIn und WhatsApp sind bekannte Namen und auf diesem Rechner nicht prüfbar.
 - Windows-Werbung: alle 3 geprüften Schlüssel existieren, kein Kandidat entfällt. Vorhandene Werte: `SystemPaneSuggestionsEnabled`=1, `RotatingLockScreenOverlayEnabled`=0, `ShowSyncProviderNotifications`=0, `ScoobeSystemSettingEnabled`=0; `Start_AccountNotifications` fehlt (Schlüssel vorhanden), deshalb Vorher/Nachher-Vergleich in der Liste unten.
 - Browser-Hintergrund: Edge hat 11 fremde Richtlinien, darunter `StartupBoostEnabled`=0 → Zeile zeigt „Von einer Richtlinie festgelegt“; Edge `BackgroundModeEnabled` nicht gesetzt (wird angeboten); Chrome ohne Richtlinienschlüssel (wird angeboten, mit „verwaltet“-Hinweis); Opera: kein gleichwertiger Schalter.
-- „Rechner in Ordnung bringen“ wurde in der laufenden App noch nie angeklickt (Unteragenten können die Oberfläche nicht bedienen); Punkt 2 ist der erste echte Lauf.
 
 Offen, nur mit Zustimmung des Nutzers, nichts davon hat der Umsetzer allein gemacht:
 - [ ] 1. Computerschutz über WinWächter einschalten; danach klappt ein Wiederherstellungspunkt (kein 0x80070422 mehr). Vorher prüfen, ob `RPSessionInterval`=0 in Systemeigenschaften → Computerschutz „Aus“ entspricht (sonst bietet die Zeile „Einschalten“ an, obwohl der Schutz an ist)
-- [ ] 2. „Rechner in Ordnung bringen“ einmal komplett durchlaufen, Ergebnis ansehen, im Verlauf als Ganzes zurücknehmen
+- [ ] 2. „Rechner in Ordnung bringen“ einmal komplett durchlaufen, Ergebnis ansehen, im Verlauf als Ganzes zurücknehmen. Wurde im laufenden Programm noch nie geklickt (Unteragenten können die Oberfläche nicht bedienen); das ist der erste echte Lauf
 - [ ] 3. Windows-Werbung: je Kandidat Vorher/Nachher-Vergleich in den Windows-Einstellungen (Schalter umlegen, Wert lesen, zurücklegen); nicht passende Einträge vor dem Release entfernen; eine Werbe-Änderung anwenden und zurücknehmen
 - [ ] 4. Sicherheit: eine Behebung (z. B. Firewall-Regel für ein lauschendes Programm) anwenden und zurücknehmen
 - [ ] 5. Werbe-Apps: eine entfernen und zurücknehmen (bzw. Store-Knopf prüfen)
@@ -82,6 +81,8 @@ Offen, nur mit Zustimmung des Nutzers, nichts davon hat der Umsetzer allein gema
 - [ ] Vor dem Release: `rules/rules.json` hat sich geändert (`rulesVersion` 3, `bloatApps`, Werbe-Einträge) → `rules/rules.json.sig` muss beim Release neu signiert werden (`build-release.ps1`), vor dem Merge nach main, sonst lehnen Clients das Regel-Update ab
 - [ ] Vor dem Test des neuen Builds die installierte App schließen (lief beim Bauen erhöht, PID 1808)
 - [ ] Release und Veröffentlichung erst nach Freigabe des Nutzers
+
+Für 0.5.1 vorgemerkt: erneuter Schutz-Check bei „Erneut versuchen“ für Firewall-Regel und Rechtsklick-Einträge; Datenschutz-Richtlinien aus 0.4 ohne Besitz-Regel; „Virendefinitionen aktualisieren“ wartet nicht auf laufende Defender-Aktionen; Aufräumen in AppServices.
 
 ## 0.6.0 (Reihenfolge laut Nutzer)
 1. Programm-Updates (winget)
