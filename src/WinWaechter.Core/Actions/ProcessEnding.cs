@@ -48,10 +48,18 @@ public sealed class WinProcessEnder(IProcessList procs) : IProcessEnder
         return false;
     }
 
-    // A PID can be reused; compare the process name before acting.
+    // A PID can be reused: compare name and full image path now with what was listed.
+    // If either path is unreadable, the process is skipped.
     static bool SameProcess(Process proc, RunningProcess r)
     {
-        try { return string.Equals(proc.ProcessName, Bare(r.Name), StringComparison.OrdinalIgnoreCase); }
+        try
+        {
+            if (!string.Equals(proc.ProcessName, Bare(r.Name), StringComparison.OrdinalIgnoreCase)) return false;
+            var listed = ProcessGuard.NormalizePath(r.ExePath);
+            var live = ProcessGuard.NormalizePath(WinProcessList.PathOf(r.Pid));
+            return listed is not null && live is not null
+                   && string.Equals(listed, live, StringComparison.OrdinalIgnoreCase);
+        }
         catch (Exception) { return false; }
     }
 
@@ -79,7 +87,10 @@ public sealed class WinProcessEnder(IProcessList procs) : IProcessEnder
 public sealed record ProcessGuardContext(string WindowsDir, int SelfPid, string? SelfExe,
     IReadOnlySet<string> ServiceImages, Func<RunningProcess, bool> IsProtected);
 
-/// <summary>Decides which processes may be ended. Fails closed: anything unknown is not allowed.</summary>
+/// <summary>Decides which processes may be ended. Fails closed: anything unknown is not allowed.
+/// <see cref="ProcessGuardContext.ServiceImages"/> takes the raw service ImagePath values (quoted, with
+/// arguments, with %VARS%); the guard extracts the executable itself (CommandLineParser) when comparing.
+/// Non-fully-qualified paths never count as known.</summary>
 public static class ProcessGuard
 {
     public static readonly string[] Browsers = ["msedge", "chrome", "opera", "firefox"];
@@ -102,28 +113,33 @@ public static class ProcessGuard
 
     static bool PassesBase(RunningProcess p, ProcessGuardContext c)
     {
-        var exe = Normalize(p.ExePath);
-        var windows = Normalize(c.WindowsDir);
+        var exe = NormalizePath(p.ExePath);
+        var windows = NormalizePath(c.WindowsDir);
         if (exe is null || windows is null) return false;
         if (IsUnder(exe, windows)) return false;
         if (p.Pid != 0 && p.Pid == c.SelfPid) return false;
         if (c.SelfExe is not null)
         {
-            var self = Normalize(c.SelfExe);
+            var self = NormalizePath(c.SelfExe);
             if (self is null || string.Equals(self, exe, StringComparison.OrdinalIgnoreCase)) return false;
         }
         foreach (var image in c.ServiceImages)
         {
-            var n = Normalize(image);
+            var n = NormalizePath(CommandLineParser.ExtractExePath(image));
             if (n is not null && string.Equals(n, exe, StringComparison.OrdinalIgnoreCase)) return false;
         }
         return true;
     }
 
-    static string? Normalize(string? path)
+    /// <summary>Full path without trailing separator; null for empty or not fully qualified (relative) paths.</summary>
+    internal static string? NormalizePath(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
-        try { return Path.GetFullPath(path.Trim().Trim('"')).TrimEnd('\\', '/'); }
+        try
+        {
+            var t = path.Trim().Trim('"');
+            return Path.IsPathFullyQualified(t) ? Path.GetFullPath(t).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) : null;
+        }
         catch (Exception) { return null; }
     }
 

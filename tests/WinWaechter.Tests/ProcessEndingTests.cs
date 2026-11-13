@@ -87,4 +87,34 @@ public class ProcessEndingTests
         Assert.False(f.AnyRunning([a]));
         Assert.True(f.AnyRunning([b]));
     }
+
+    [Fact]
+    public void Service_images_are_matched_from_raw_image_paths()
+    {
+        var exe = @"C:\Program Files\X\svc.exe";
+        var raws = new[]
+        {
+            @"""C:\Program Files\X\svc.exe"" -k grp",
+            @"C:\Program Files\X\svc.exe /run",
+            @"""C:\Program Files\X\svc.exe""",
+        };
+        foreach (var raw in raws)
+            Assert.False(ProcessGuard.MayEnd(new("svc.exe", exe, 7), Ctx(services: [raw])), raw);
+
+        var sysRoot = Environment.GetEnvironmentVariable("SystemRoot")!;
+        Assert.False(ProcessGuard.MayEnd(new("svc.exe", sysRoot + @"\Tools\svc.exe", 8),
+            new(@"D:\Other", 1, null, new HashSet<string> { @"%SystemRoot%\Tools\svc.exe -x" }, _ => false)));
+
+        // an unrelated service entry does not block
+        Assert.True(ProcessGuard.MayEnd(new("helper.exe", App, 3), Ctx(services: [@"""C:\Z\z.exe"" -k a"])));
+    }
+
+    [Fact]
+    public void Relative_paths_fail_closed()
+    {
+        Assert.False(ProcessGuard.MayEnd(new("helper.exe", "helper.exe", 1), Ctx()));
+        Assert.False(ProcessGuard.MayEnd(new("helper.exe", @"..\helper.exe", 1), Ctx()));
+        Assert.False(ProcessGuard.MayEnd(new("helper.exe", App, 1),
+            new("Windows", 1, null, new HashSet<string>(), _ => false)));
+    }
 }
