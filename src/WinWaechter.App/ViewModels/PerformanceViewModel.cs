@@ -791,12 +791,18 @@ public sealed partial class PerformanceViewModel : ObservableObject
 
     // ---- end a program (Aktion, endgültig) ----
 
-    // The runner confirms („endgültig“), takes the gate and logs. The guard decides again at run time which of the
-    // processes with this name may be ended: never Windows, services, protected vendors or WinWächter itself.
+    // The guard decides before anything is asked (nothing allowed: only the refusal, no confirmation) and again at
+    // run time which of the processes with this name may be ended: never Windows, services, protected vendors or
+    // WinWächter itself. The runner confirms („endgültig“), takes the gate and logs.
     async Task EndAsync(ConsumerViewModel row)
     {
         if (_tools is not { } tools || !MayAct()) return;
         var name = row.ProcessName;
+        if ((await AllowedAsync(tools, name, CancellationToken.None)).Count == 0)
+        {
+            LastSummary = EndRefused;
+            return;
+        }
         var action = new SystemAction("end-process", $"„{name}“ beenden", "Beenden", EndConfirm, true, (_, ct) =>
         {
             IsBusy = true;
@@ -815,13 +821,28 @@ public sealed partial class PerformanceViewModel : ObservableObject
         }
     }
 
+    // Fails closed: an unreadable process list or guard context allows nothing.
+    static async Task<List<RunningProcess>> AllowedAsync(PerformanceTools tools, string name, CancellationToken ct)
+    {
+        try
+        {
+            return await Task.Run(() =>
+            {
+                var guard = tools.Guard();
+                return tools.Ender.Find(name).Where(p => ProcessGuard.MayEnd(p, guard)).ToList();
+            }, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            FileLog.Warn($"Prozesse nicht prüfbar: {name}", ex);
+            return [];
+        }
+    }
+
     async Task<ActionOutcome> RunEndAsync(PerformanceTools tools, string name, CancellationToken ct)
     {
-        var allowed = await Task.Run(() =>
-        {
-            var guard = tools.Guard();
-            return tools.Ender.Find(name).Where(p => ProcessGuard.MayEnd(p, guard)).ToList();
-        }, ct);
+        // asked again at run time: the program may have started or ended processes meanwhile
+        var allowed = await AllowedAsync(tools, name, ct);
         if (allowed.Count == 0) return new ActionOutcome(false, EndRefused);
 
         // gently first: ask the windows to close, then give the program 5 s

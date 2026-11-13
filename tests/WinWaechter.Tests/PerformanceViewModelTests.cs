@@ -671,6 +671,8 @@ public sealed class PerformanceViewModelTests : IDisposable
         Assert.Empty(_ender.Closed);
         Assert.Empty(_ender.Killed);
         Assert.Empty(_dialogs.Asks);
+        // refused before anything is asked: no „endgültig“ confirmation for what is never ended
+        Assert.Empty(_dialogs.Confirms);
     }
 
     [Fact]
@@ -686,6 +688,26 @@ public sealed class PerformanceViewModelTests : IDisposable
         // an error in the protection check counts as protected
         Assert.Equal("Dieses Programm beendet WinWächter nicht (Windows, Dienst oder geschützt).", vm.LastSummary);
         Assert.Empty(_ender.Closed);
+        Assert.Empty(_dialogs.Confirms);
+    }
+
+    [Fact]
+    public async Task End_checks_the_guard_again_at_run_time()
+    {
+        // allowed when clicked, protected by the time the action runs
+        var calls = 0;
+        var tools = Tools() with { Guard = () => calls++ == 0 ? Guard() : Guard() with { IsProtected = _ => true } };
+        var vm = Vm(tools: tools);
+        _ender.Running.Add(new RunningProcess("Heavy.exe", @"C:\Program Files\Heavy\Heavy.exe", 10));
+        var row = await Consumer(vm, "Heavy");
+
+        await row.EndCommand.ExecuteAsync(null);
+
+        Assert.True(Assert.Single(_dialogs.Confirms).Final);
+        Assert.Equal(PerformanceViewModel.EndRefused, vm.LastSummary);
+        Assert.Empty(_ender.Closed);
+        Assert.Empty(_ender.Killed);
+        Assert.Equal(2, calls);
     }
 
     [Fact]
