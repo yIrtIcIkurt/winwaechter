@@ -196,3 +196,12 @@ public sealed class FakeAppPackages : IAppPackages
     // Test helper: the user installed it again.
     public void Reinstall(AppPackage p) => _installed.Add(p);
 }
+
+// „Rechner in Ordnung bringen“ for shells in tests: an empty check, no admin rights.
+public static class FakeImproveVm
+{
+    public static WinWaechter.App.ViewModels.ImproveViewModel Idle(WinWaechter.Core.Optimizer.OptimizerEngine engine,
+        WinWaechter.App.Services.IDialogService dialogs, WinWaechter.App.Services.ChangeGate gate) =>
+        new((_, _) => Task.FromResult(new WinWaechter.Core.Improvements.ImprovementScan([], [], [], DateTimeOffset.Now)), engine, dialogs,
+            new WinWaechter.App.Services.ActionRunner(dialogs, gate), canChange: false, gate);
+}

@@ -557,14 +557,21 @@ public sealed class ViewModelTests : IDisposable
         Assert.Contains(nameof(OptimizeViewModel.SelectedBytes), raised);
     }
 
+    OverviewViewModel Overview(OptimizeViewModel optimize, ImproveViewModel? improve = null, Action<object>? navigate = null,
+        ProtectViewModel? protect = null, SecurityViewModel? security = null)
+    {
+        var update = new UpdateViewModel(new RecordingUpdates([], Path.Combine(_root, "x.exe")), new YesDialogs(), false, () => { }, _gate);
+        return new OverviewViewModel(optimize, protect ?? Protect(true, Engine()),
+            security ?? new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<WinWaechter.Core.Security.Checks.SecurityItem>>([]), Engine(),
+                new FakeDefender(), new YesDialogs(), new NoShell(), canChange: true, _gate), update,
+            improve ?? FakeImproveVm.Idle(Engine(), new YesDialogs(), _gate), navigate ?? (_ => { }));
+    }
+
     [Fact]
     public async Task Overview_free_text_dash_before_scan_then_size()
     {
         var optimize = Vm([F("five", true, FindingArea.Speicher, size: 5), F("seven", false, FindingArea.Speicher, size: 7)]);
-        var update = new UpdateViewModel(new RecordingUpdates([], Path.Combine(_root, "x.exe")), new YesDialogs(), false, () => { }, _gate);
-        var overview = new OverviewViewModel(optimize, Protect(true, Engine()),
-            new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<WinWaechter.Core.Security.Checks.SecurityItem>>([]), Engine(),
-                new FakeDefender(), new YesDialogs(), new NoShell(), canChange: true, _gate), update, () => { });
+        var overview = Overview(optimize);
         var raised = new List<string?>();
         overview.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
         Assert.Equal("–", overview.FreeText);
@@ -576,6 +583,64 @@ public sealed class ViewModelTests : IDisposable
         optimize.AllItems.Single(i => i.Title == "seven").IsSelected = true;
         Assert.Equal(Labels.Size(12), overview.FreeText);
         Assert.Contains(nameof(OverviewViewModel.FreeText), raised);
+    }
+
+    [Fact]
+    public void Overview_tiles_navigate()
+    {
+        var optimize = Vm([]);
+        var protect = Protect(true, Engine());
+        var security = new SecurityViewModel(_ => Task.FromResult<IReadOnlyList<WinWaechter.Core.Security.Checks.SecurityItem>>([]),
+            Engine(), new FakeDefender(), new YesDialogs(), new NoShell(), canChange: true, _gate);
+        var shown = new List<object>();
+        var overview = Overview(optimize, navigate: shown.Add, protect: protect, security: security);
+
+        overview.OpenProtectCommand.Execute(null);
+        overview.OpenSecurityCommand.Execute(null);
+        overview.OpenOptimizeCommand.Execute(null);
+        overview.OpenHistoryCommand.Execute(null);
+
+        Assert.Equal([protect, security, optimize, typeof(HistoryViewModel)], shown);
+    }
+
+    [Fact]
+    public async Task Open_suggestions_counts_all_areas()
+    {
+        static WinWaechter.Core.Improvements.ImprovementSource Source(string name,
+            params WinWaechter.Core.Improvements.Improvement[] items) =>
+            new(name, _ => Task.FromResult<(IReadOnlyList<WinWaechter.Core.Improvements.Improvement>,
+                IReadOnlyList<WinWaechter.Core.Improvements.ActionSuggestion>)>((items, [])));
+        static WinWaechter.Core.Improvements.Improvement Item(string id, WinWaechter.Core.Improvements.ImprovementArea area) =>
+            new(id, area, id, "weil", [new NoChange(id)]);
+        var restart = new SystemAction("restart", "Neustart", "Jetzt neu starten", "Der Rechner startet neu.", true,
+            (_, _) => Task.FromResult(new ActionOutcome(true, "ok")));
+        var collector = new WinWaechter.Core.Improvements.ImprovementCollector(
+        [
+            Source("Optimieren", Item("temp", WinWaechter.Core.Improvements.ImprovementArea.Aufraeumen)),
+            Source("Datenschutz", Item("werbung", WinWaechter.Core.Improvements.ImprovementArea.DatenschutzWerbung)),
+            Source("Leistung", Item("spiel", WinWaechter.Core.Improvements.ImprovementArea.Leistung)),
+            new("Sicherheit", _ => Task.FromResult<(IReadOnlyList<WinWaechter.Core.Improvements.Improvement>,
+                IReadOnlyList<WinWaechter.Core.Improvements.ActionSuggestion>)>(
+                ([Item("fw", WinWaechter.Core.Improvements.ImprovementArea.Sicherheit)],
+                    [new WinWaechter.Core.Improvements.ActionSuggestion("restart", "Neustart nötig", "Updates warten.", restart)]))),
+        ]);
+        var dialogs = new YesDialogs();
+        var improve = new ImproveViewModel(collector.CollectAsync, Engine(), dialogs, new ActionRunner(dialogs, _gate), true, _gate);
+        var protect = Protect(true, Engine());
+        await protect.RefreshCommand.ExecuteAsync(null);
+        var overview = Overview(Vm([]), improve, protect: protect);
+        var raised = new List<string?>();
+        overview.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        Assert.Equal("–", overview.OpenSuggestionsText);
+        Assert.EndsWith("Noch nicht geprüft.", overview.Statement);
+
+        await improve.CheckCommand.ExecuteAsync(null);
+
+        Assert.Equal(5, overview.OpenSuggestions);   // four areas plus „Außerdem empfohlen“
+        Assert.Equal("5", overview.OpenSuggestionsText);
+        Assert.EndsWith("5 Vorschläge sind offen.", overview.Statement);
+        Assert.Equal(Tone.Watch, overview.StatementTone);
+        Assert.Contains(nameof(OverviewViewModel.OpenSuggestionsText), raised);
     }
 
     [Theory]

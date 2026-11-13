@@ -2,99 +2,266 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
-    <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-        <StackPanel Margin="48,56,48,32" MaxWidth="900" HorizontalAlignment="Left">
+    <UserControl.Resources>
+        <!-- a readout tile that leads into its area: looks like the plain tile, plus hover wash and focus ring -->
+        <Style x:Key="Button.Tile" TargetType="Button" BasedOn="{StaticResource Button.Base}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontWeight" Value="Normal" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid Background="Transparent">
+                            <Border x:Name="Wash" Margin="-6,-4" CornerRadius="{StaticResource RadiusButton}"
+                                    Background="{DynamicResource Hover}" Opacity="0" />
+                            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Wash" Property="Opacity" Value="1" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Wash" Property="Opacity" Value="1" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
 
-            <!-- The one loud element: a plain sentence about the state -->
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Control Style="{StaticResource ToneMark}" Tag="{Binding StatementTone}" Width="14" Height="14"
-                         VerticalAlignment="Top" Margin="0,15,18,0" />
-                <TextBlock Grid.Column="1" Style="{StaticResource Text.Statement}" Text="{Binding Statement}" MaxWidth="720"
-                           HorizontalAlignment="Left" AutomationProperties.LiveSetting="Polite" />
-            </Grid>
+    <DockPanel>
+        <!-- Footer: the one apply for the whole list -->
+        <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Line}" Background="{DynamicResource Canvas}"
+                Padding="32,12,32,14" Visibility="{Binding Improve.HasItems, Converter={StaticResource Vis}}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Style="{StaticResource Button.Primary}" Content="{Binding Improve.ImproveText}"
+                        Command="{Binding Improve.ImproveCommand}" />
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding Improve.AdminNotice}"
+                               Visibility="{Binding Improve.ShowAdminNotice, Converter={StaticResource Vis}}" />
+                    <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding Improve.GateHint}"
+                               Visibility="{Binding Improve.GateHint, Converter={StaticResource Vis}}" />
+                    <TextBlock Style="{StaticResource Text.Small}"
+                               Text="Vorher legt WinWächter eine Sicherung an; alles steht danach im Verlauf." />
+                </StackPanel>
+            </DockPanel>
+        </Border>
 
-            <TextBlock Margin="32,16,0,0" Style="{StaticResource Text.Prose}"
-                       Text="„Prüfen“ untersucht Autostarts, Dienste, geplante Aufgaben, Temp-Dateien, Browser- und Windows-Caches, alte Installer, Deinstallationsreste und laufende Programme. Geändert wird erst, wenn Sie eine Vorschau bestätigen." />
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+            <StackPanel Margin="48,56,48,32" MaxWidth="900" HorizontalAlignment="Left">
 
-            <StackPanel Margin="32,28,0,0" Orientation="Horizontal">
-                <Button Style="{StaticResource Button.Large}" Content="Prüfen" Command="{Binding CheckCommand}" />
-                <TextBlock Margin="20,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}"
-                           Text="{Binding Optimize.ProgressText}" />
+                <!-- The one loud element: a plain sentence about the state -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Control Style="{StaticResource ToneMark}" Tag="{Binding StatementTone}" Width="14" Height="14"
+                             VerticalAlignment="Top" Margin="0,15,18,0" />
+                    <TextBlock Grid.Column="1" Style="{StaticResource Text.Statement}" Text="{Binding Statement}" MaxWidth="720"
+                               HorizontalAlignment="Left" AutomationProperties.LiveSetting="Polite" />
+                </Grid>
+
+                <TextBlock Margin="32,16,0,0" Style="{StaticResource Text.Prose}"
+                           Text="„Rechner in Ordnung bringen“ prüft alle Bereiche: Aufräumen, Autostart und Hintergrund, Datenschutz und Werbung, Sicherheit, Leistung und vorinstallierte Apps. Geändert wird erst, wenn Sie die Liste bestätigen." />
+
+                <StackPanel Margin="32,28,0,0" Orientation="Horizontal">
+                    <Button Style="{StaticResource Button.Large}" Content="Rechner in Ordnung bringen" Command="{Binding Improve.CheckCommand}" />
+                    <TextBlock Margin="20,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}"
+                               Text="{Binding Improve.ProgressText}" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+                <ProgressBar Margin="32,14,0,0" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Stretch" Style="{StaticResource Scale}"
+                             IsIndeterminate="True" Visibility="{Binding Improve.IsBusy, Converter={StaticResource Vis}}" />
+
+                <!-- Readouts on a tick scale; each tile leads into its area -->
+                <Rectangle Margin="0,56,0,0" Style="{StaticResource ScaleRule}" />
+                <Grid Margin="0,18,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button Margin="0,0,16,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenProtectCommand}"
+                            AutomationProperties.Name="Echtzeitschutz: Schutz öffnen">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Text.Label}" Text="Echtzeitschutz" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Control Style="{StaticResource ToneMark}" Tag="{Binding Protect.RealTimeTone}" Margin="0,4,10,0" />
+                                <TextBlock Style="{StaticResource Text.Readout}" Text="{Binding Protect.RealTimeText}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Button>
+                    <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource Line}" />
+
+                    <Button Grid.Column="2" Margin="20,0,16,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenProtectCommand}"
+                            AutomationProperties.Name="Signaturalter: Schutz öffnen">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Text.Label}" Text="Signaturalter" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Control Style="{StaticResource ToneMark}" Tag="{Binding Protect.SignatureTone}" Margin="0,4,10,0" />
+                                <TextBlock Style="{StaticResource Text.Readout}" Text="{Binding Protect.SignatureAgeText}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Button>
+                    <Rectangle Grid.Column="3" Width="1" Fill="{DynamicResource Line}" />
+
+                    <Button Grid.Column="4" Margin="20,0,16,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenProtectCommand}"
+                            AutomationProperties.Name="Letzter Defender-Scan: Schutz öffnen">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Text.Label}" Text="Letzter Defender-Scan" />
+                            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.ReadoutText}"
+                                       Text="{Binding Protect.LastScanText}" />
+                        </StackPanel>
+                    </Button>
+                    <Rectangle Grid.Column="5" Width="1" Fill="{DynamicResource Line}" />
+
+                    <!-- the open suggestions are listed below on this page -->
+                    <StackPanel Grid.Column="6" Margin="20,0,16,0">
+                        <TextBlock Style="{StaticResource Text.Label}" Text="Offene Vorschläge" />
+                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding OpenSuggestionsText}" />
+                    </StackPanel>
+                    <Rectangle Grid.Column="7" Width="1" Fill="{DynamicResource Line}" />
+
+                    <Button Grid.Column="8" Margin="20,0,16,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenSecurityCommand}"
+                            AutomationProperties.Name="Sicherheit öffnen">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Text.Label}" Text="Sicherheit" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Control Style="{StaticResource ToneMark}" Tag="{Binding SecurityTone}" Margin="0,4,10,0" />
+                                <TextBlock Style="{StaticResource Text.ReadoutText}" TextWrapping="Wrap"
+                                           Text="{Binding SecurityText}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Button>
+                    <Rectangle Grid.Column="9" Width="1" Fill="{DynamicResource Line}" />
+
+                    <Button Grid.Column="10" Margin="20,0,0,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenOptimizeCommand}"
+                            AutomationProperties.Name="Wird frei: Optimieren öffnen">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Text.Label}" Text="Wird frei" />
+                            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding FreeText}" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <TextBlock Margin="0,22,0,0" Style="{StaticResource Text.Small}" Text="{x:Static vm:OverviewViewModel.FreeNote}"
+                           Visibility="{Binding Optimize.HasScanned, Converter={StaticResource Vis}}" />
+
+                <TextBlock Margin="0,22,0,0" Style="{StaticResource Text.Small}" Text="{Binding Protect.DefenderNote}"
+                           Visibility="{Binding Protect.DefenderNote, Converter={StaticResource Vis}}" />
+
+                <!-- system drive nearly full: what frees the most, and the check that lists it -->
+                <Border Margin="0,32,0,0" Style="{StaticResource Notice}" Visibility="{Binding Improve.LowDiskText, Converter={StaticResource Vis}}">
+                    <StackPanel>
+                        <TextBlock Foreground="{DynamicResource Ink}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                   MaxWidth="{StaticResource ProseWidth}" Text="{Binding Improve.LowDiskText}" />
+                        <TextBlock Margin="0,4,0,2" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Ink}"
+                                   Text="Am meisten Platz bringen:" />
+                        <ItemsControl ItemsSource="{x:Static vm:ImproveViewModel.LowDiskLines}" ItemTemplate="{StaticResource ReasonLine}"
+                                      Focusable="False" />
+                        <Button Margin="0,10,0,0" HorizontalAlignment="Left" Content="Platz schaffen" Command="{Binding Improve.MakeSpaceCommand}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- result of the last run: n verbessert, m übersprungen (warum) -->
+                <StackPanel Margin="0,32,0,0" Visibility="{Binding Improve.ResultText, Converter={StaticResource Vis}}">
+                    <TextBlock FontWeight="SemiBold" Foreground="{DynamicResource Ink}" TextWrapping="Wrap" Text="{Binding Improve.ResultText}"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <ItemsControl Margin="0,4,0,0" ItemsSource="{Binding Improve.SkippedReasons}" ItemTemplate="{StaticResource ReasonLine}"
+                                  Focusable="False" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" />
+                    <Button Margin="-8,4,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}" Content="Im Verlauf ansehen"
+                            Command="{Binding OpenHistoryCommand}" />
+                </StackPanel>
+
+                <!-- nothing to do -->
+                <StackPanel Margin="0,32,0,0" Orientation="Horizontal" Visibility="{Binding Improve.IsAllGood, Converter={StaticResource Vis}}">
+                    <Control Style="{StaticResource ToneMark}" Tag="{x:Static vm:Tone.Good}" Margin="0,5,10,0" VerticalAlignment="Top" />
+                    <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Improve.AllGoodText}" />
+                </StackPanel>
+
+                <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Small}" Text="{Binding Improve.UncheckedText}"
+                           Visibility="{Binding Improve.UncheckedText, Converter={StaticResource Vis}}" />
+
+                <!-- one list, grouped by area, everything preselected -->
+                <StackPanel Margin="0,32,0,0" Visibility="{Binding Improve.HasItems, Converter={StaticResource Vis}}">
+                    <TextBlock Margin="2,0,0,8" Style="{StaticResource Text.Section}" Text="Empfohlene Verbesserungen" />
+                    <Border Style="{StaticResource SurfaceBox}">
+                        <ItemsControl ItemsSource="{Binding Improve.Groups}" Focusable="False" Margin="0,0,0,-1">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <TextBlock Margin="16,14,16,4" Style="{StaticResource Text.Label}" Text="{Binding Title}" />
+                                        <ItemsControl ItemsSource="{Binding Items}" Focusable="False">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Style="{StaticResource RowDivider}" Padding="16,10,16,12">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <CheckBox VerticalAlignment="Top" Margin="0,1,14,0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                                      IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding Title}" />
+                                                            <StackPanel Grid.Column="1">
+                                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}"
+                                                                           HorizontalAlignment="Left" Text="{Binding Why}" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
+
+                <!-- one-off actions: own button each, never part of „Jetzt verbessern“ -->
+                <StackPanel Margin="0,28,0,0" Visibility="{Binding Improve.HasSuggestions, Converter={StaticResource Vis}}">
+                    <TextBlock Margin="2,0,0,8" Style="{StaticResource Text.Section}" Text="Außerdem empfohlen" />
+                    <Border Style="{StaticResource SurfaceBox}">
+                        <ItemsControl ItemsSource="{Binding Improve.Suggestions}" Focusable="False" Margin="0,0,0,-1">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource RowDivider}" Padding="16,12,16,12">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}"
+                                                           HorizontalAlignment="Left" Text="{Binding Why}" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" Content="{Binding ButtonText}"
+                                                    Command="{Binding RunCommand}"
+                                                    AutomationProperties.Name="{Binding Title, StringFormat={}{0}: Aktion ausführen}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
             </StackPanel>
-
-            <!-- Readouts on a tick scale -->
-            <Rectangle Margin="0,56,0,0" Style="{StaticResource ScaleRule}" />
-            <Grid Margin="0,18,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Margin="0,0,16,0">
-                    <TextBlock Style="{StaticResource Text.Label}" Text="Echtzeitschutz" />
-                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                        <Control Style="{StaticResource ToneMark}" Tag="{Binding Protect.RealTimeTone}" Margin="0,4,10,0" />
-                        <TextBlock Style="{StaticResource Text.Readout}" Text="{Binding Protect.RealTimeText}" />
-                    </StackPanel>
-                </StackPanel>
-                <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource Line}" />
-
-                <StackPanel Grid.Column="2" Margin="20,0,16,0">
-                    <TextBlock Style="{StaticResource Text.Label}" Text="Signaturalter" />
-                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                        <Control Style="{StaticResource ToneMark}" Tag="{Binding Protect.SignatureTone}" Margin="0,4,10,0" />
-                        <TextBlock Style="{StaticResource Text.Readout}" Text="{Binding Protect.SignatureAgeText}" />
-                    </StackPanel>
-                </StackPanel>
-                <Rectangle Grid.Column="3" Width="1" Fill="{DynamicResource Line}" />
-
-                <StackPanel Grid.Column="4" Margin="20,0,16,0">
-                    <TextBlock Style="{StaticResource Text.Label}" Text="Letzter Defender-Scan" />
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.ReadoutText}"
-                               Text="{Binding Protect.LastScanText}" />
-                </StackPanel>
-                <Rectangle Grid.Column="5" Width="1" Fill="{DynamicResource Line}" />
-
-                <StackPanel Grid.Column="6" Margin="20,0,16,0">
-                    <TextBlock Style="{StaticResource Text.Label}" Text="Offene Vorschläge" />
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding OpenSuggestionsText}" />
-                </StackPanel>
-                <Rectangle Grid.Column="7" Width="1" Fill="{DynamicResource Line}" />
-
-                <StackPanel Grid.Column="8" Margin="20,0,16,0">
-                    <TextBlock Style="{StaticResource Text.Label}" Text="Sicherheit" />
-                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                        <Control Style="{StaticResource ToneMark}" Tag="{Binding SecurityTone}" Margin="0,4,10,0" />
-                        <TextBlock Style="{StaticResource Text.ReadoutText}" TextWrapping="Wrap"
-                                   Text="{Binding SecurityText}" />
-                    </StackPanel>
-                </StackPanel>
-                <Rectangle Grid.Column="9" Width="1" Fill="{DynamicResource Line}" />
-
-                <StackPanel Grid.Column="10" Margin="20,0,0,0">
-                    <TextBlock Style="{StaticResource Text.Label}" Text="Wird frei" />
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding FreeText}" />
-                </StackPanel>
-            </Grid>
-
-            <TextBlock Margin="0,22,0,0" Style="{StaticResource Text.Small}" Text="{x:Static vm:OverviewViewModel.FreeNote}"
-                       Visibility="{Binding Optimize.HasScanned, Converter={StaticResource Vis}}" />
-
-            <TextBlock Margin="0,22,0,0" Style="{StaticResource Text.Small}" Text="{Binding Protect.DefenderNote}"
-                       Visibility="{Binding Protect.DefenderNote, Converter={StaticResource Vis}}" />
-        </StackPanel>
-    </ScrollViewer>
+        </ScrollViewer>
+    </DockPanel>
 </UserControl>

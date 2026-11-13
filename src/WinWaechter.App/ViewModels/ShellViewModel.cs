@@ -25,7 +25,7 @@ public sealed partial class ShellViewModel : ObservableObject
 {
     public ShellViewModel(OptimizeViewModel optimize, PerformanceViewModel performance, ProtectViewModel protect,
         SecurityViewModel security, PrivacyViewModel privacy, ProgramsViewModel programs, HistoryViewModel history,
-        SettingsViewModel settings, UpdateViewModel update, bool isElevated)
+        SettingsViewModel settings, UpdateViewModel update, ImproveViewModel improve, bool isElevated)
     {
         Optimize = optimize;
         Performance = performance;
@@ -37,7 +37,7 @@ public sealed partial class ShellViewModel : ObservableObject
         Settings = settings;
         Update = update;
         IsElevated = isElevated;
-        Overview = new OverviewViewModel(optimize, protect, security, update, () => Navigate(optimize));
+        Overview = new OverviewViewModel(optimize, protect, security, update, improve, Navigate);
 
         PrimaryNav =
         [
@@ -57,6 +57,7 @@ public sealed partial class ShellViewModel : ObservableObject
         optimize.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         protect.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         security.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
+        improve.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         // the Defender scan on the Sicherheit page waits while the Schutz page runs a Defender operation
         protect.PropertyChanged += (_, e) =>
         {
@@ -111,9 +112,10 @@ public sealed partial class ShellViewModel : ObservableObject
             Programs.RefreshCommand.Execute(null);
     }
 
+    /// <summary>Shows a page: its view model, or its type (the overview leads to the history without holding it).</summary>
     public void Navigate(object page)
     {
-        var item = Nav.FirstOrDefault(n => ReferenceEquals(n.Page, page));
+        var item = Nav.FirstOrDefault(n => ReferenceEquals(n.Page, page) || (page is Type t && t.IsInstanceOfType(n.Page)));
         if (item is not null) item.IsSelected = true;
     }
 

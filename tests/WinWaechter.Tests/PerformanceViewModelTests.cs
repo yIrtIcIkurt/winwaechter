@@ -508,7 +508,8 @@ public sealed class PerformanceViewModelTests : IDisposable
         var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new WinWaechter.Core.Update.SemVer(0, 4, 0)),
             update, _shell, new RulesInfo(1, false, null),
             _ => Task.FromResult(new WinWaechter.Core.Update.RulesUpdateResult(null, "")));
-        return new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, isElevated: false);
+        return new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update,
+            FakeImproveVm.Idle(_engine, _dialogs, _gate), isElevated: false);
     }
 
     [Fact]

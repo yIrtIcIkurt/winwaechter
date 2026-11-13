@@ -742,7 +742,8 @@ public sealed class ProgramsViewModelTests : IDisposable
         var settings = new SettingsViewModel(new AppSettings(), new AppEnvironment(false, _root, new SemVer(0, 3, 0)), update, _shell,
             new RulesInfo(1, false, null), _ => Task.FromResult(new RulesUpdateResult(null, "")));
         var performance = FakePerformanceVm.Create(_engine, _dialogs, _shell, _gate);
-        var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, isElevated: false);
+        var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update,
+            FakeImproveVm.Idle(_engine, _dialogs, _gate), isElevated: false);
 
         Assert.Same(privacy, shell.PrimaryNav[5].Page);
         var nav = shell.PrimaryNav[6];

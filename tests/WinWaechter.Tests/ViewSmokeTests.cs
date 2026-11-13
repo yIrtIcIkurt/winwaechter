@@ -6,6 +6,7 @@ using WinWaechter.App.ViewModels;
 using WinWaechter.App.Views;
 using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
+using WinWaechter.Core.Improvements;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
@@ -174,7 +175,23 @@ public sealed class ViewSmokeTests : IDisposable
             () => new DriveSpace(@"C:\", 8L << 30, 500L << 30), (_, _) => Task.CompletedTask, () => 13L << 30);
         var performance = FakePerformanceVm.Create(engine, dialogs, new Shell(), gate, perfTicks, canChange: true, sources: perfSources,
             registry: perfReg, names: perfNames, tools: perfTools, boot: perfBoot);
-        var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, isElevated: false);
+        // 4.1: two areas, one suggestion, a nearly full system drive; and a second overview where all is fine
+        var improve = Improve(engine, gate,
+            new ImprovementScan(
+            [
+                new("temp", ImprovementArea.Aufraeumen, "Temp-Dateien", "Alte temporäre Dateien belegen Platz.", [new NoChange("Temp")]),
+                new("sec:sysprotect", ImprovementArea.Sicherheit, "Computerschutz", "Ohne Computerschutz gibt es keine Wiederherstellungspunkte.",
+                    [new NoChange("C:")], RunFirst: true),
+            ],
+            [new ActionSuggestion("defender", "Microsoft Defender", "Aktuelle Definitionen erkennen neue Schadprogramme besser.",
+                new SystemAction("update-signatures", "Virendefinitionen aktualisieren", "Jetzt aktualisieren", null, false,
+                    (_, _) => Task.FromResult(new ActionOutcome(true, "ok"))))],
+            ["Leistung: nicht prüfbar"], DateTimeOffset.Now),
+            () => new DriveSpace(@"C:\", 8L << 30, 500L << 30));
+        var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, improve,
+            isElevated: false);
+        var allGood = new OverviewViewModel(optimize, protect, security, update,
+            Improve(engine, gate, new ImprovementScan([], [], [], new DateTimeOffset(2026, 11, 13, 9, 5, 0, TimeSpan.FromHours(1)))), _ => { });
 
         // fill the view models (no sync context here, so the commands finish inline or on the pool)
         optimize.ScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
@@ -186,6 +203,9 @@ public sealed class ViewSmokeTests : IDisposable
         security.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         privacy.SelectRecommendedCommand.Execute(null);
         update.CheckCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        improve.CheckCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        allGood.Improve.CheckCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        Assert.True(improve.Groups.Count == 2 && improve.Suggestions.Count == 1 && improve.LowDiskText is not null && allGood.Improve.IsAllGood);
         performance.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         // two samples: showing the page primes the baseline, the next tick has CPU differences for the consumer rows
         performance.OnShown();
@@ -220,6 +240,10 @@ public sealed class ViewSmokeTests : IDisposable
             var overview = new OverviewView { DataContext = shell.Overview };
             Layout(overview);
             AssertFreeReadoutRightOfSuggestions(overview);
+            AssertImproveList(overview, shell.Overview);
+            var allGoodView = new OverviewView { DataContext = allGood };
+            Layout(allGoodView);
+            AssertAllGood(allGoodView, allGood);
             var optimizeView = new OptimizeView { DataContext = optimize };
             Layout(optimizeView);
             AssertCloseBrowserButton(optimizeView, optimize);
@@ -247,6 +271,9 @@ public sealed class ViewSmokeTests : IDisposable
             shell.Navigate(performance);
             Layout(shellContent);
             Assert.NotEmpty(FindAll<PerformanceView>(shellContent!));
+            // the overview leads to the history without holding it
+            shell.Overview.OpenHistoryCommand.Execute(null);
+            Assert.Same(history, shell.CurrentPage);
             shell.Navigate(shell.Overview);
             Layout(new MessageDialog("Deinstallation", "Ist die Deinstallation abgeschlossen?", null, "Ja", false, "Noch nicht").Content
                 as FrameworkElement);
@@ -259,6 +286,55 @@ public sealed class ViewSmokeTests : IDisposable
             Layout(dialog.Content as FrameworkElement);
         }
         app.Shutdown();
+    }
+
+    static ImproveViewModel Improve(OptimizerEngine engine, ChangeGate gate, ImprovementScan scan, Func<DriveSpace?>? disk = null)
+    {
+        var dialogs = new Dialogs();
+        return new ImproveViewModel((_, _) => Task.FromResult(scan), engine, dialogs, new ActionRunner(dialogs, gate), canChange: true, gate,
+            disk);
+    }
+
+    // 4.1: the big button checks; one list with area headings and ticked rows, „Außerdem empfohlen“ with its own button,
+    // the low-disk band and the fixed footer button
+    static void AssertImproveList(FrameworkElement view, OverviewViewModel vm)
+    {
+        AssertShown(view, "Rechner in Ordnung bringen", vm.Improve.CheckCommand);
+        Assert.DoesNotContain(FindAll<Button>(view), b => b.Content as string == "Prüfen");
+        var texts = FindAll<TextBlock>(view).Where(Shown).Select(t => t.Text).ToList();
+        Assert.Contains("Empfohlene Verbesserungen", texts);
+        Assert.Contains("Aufräumen", texts);
+        Assert.Contains("Sicherheit", texts);
+        Assert.Contains("Alte temporäre Dateien belegen Platz.", texts);
+        Assert.Contains("Außerdem empfohlen", texts);
+        Assert.Contains(vm.Improve.LowDiskText, texts);
+        Assert.Contains(vm.Improve.UncheckedText, texts);
+        var boxes = FindAll<CheckBox>(view).Where(c => AutomationProperties.GetName(c) is "Temp-Dateien" or "Computerschutz").ToList();
+        Assert.Equal(2, boxes.Count);
+        Assert.All(boxes, c => Assert.True(c.IsChecked == true && Shown(c)));
+        AssertShown(view, "Jetzt aktualisieren", vm.Improve.Suggestions[0].RunCommand);
+        AssertShown(view, "Platz schaffen", vm.Improve.MakeSpaceCommand);
+        AssertShown(view, "Jetzt verbessern (2)", vm.Improve.ImproveCommand);
+        AssertShown(view, "Sicherheit öffnen", vm.OpenSecurityCommand, byName: true);
+        Assert.DoesNotContain(texts, t => t == vm.Improve.AllGoodText);
+    }
+
+    // laid out without a window, so IsVisible stays false: the element and all its parents are visible and it has a size
+    static bool Shown(FrameworkElement e)
+    {
+        for (DependencyObject? d = e; d is not null; d = System.Windows.Media.VisualTreeHelper.GetParent(d))
+            if (d is UIElement u && u.Visibility != Visibility.Visible) return false;
+        return e.ActualWidth > 0;
+    }
+
+    static void AssertAllGood(FrameworkElement view, OverviewViewModel vm)
+    {
+        var texts = FindAll<TextBlock>(view).Where(Shown).Select(t => t.Text).ToList();
+        Assert.Contains("Ihr Rechner ist in Ordnung (geprüft am 13.11.2026 09:05).", texts);
+        Assert.DoesNotContain("Empfohlene Verbesserungen", texts);
+        Assert.DoesNotContain("Außerdem empfohlen", texts);
+        // no list, no footer button
+        Assert.DoesNotContain(FindAll<Button>(view), b => b.Command == vm.Improve.ImproveCommand && Shown(b));
     }
 
     // 4.4: the preinstalled-apps section shows its title, one unticked box per app, the undo text and the remove button
@@ -277,9 +353,10 @@ public sealed class ViewSmokeTests : IDisposable
     }
 
     // 4.9: exactly one visible button with this label, laid out and bound to the command
-    static Button AssertShown(FrameworkElement view, string label, System.Windows.Input.ICommand command)
+    static Button AssertShown(FrameworkElement view, string label, System.Windows.Input.ICommand command, bool byName = false)
     {
-        var button = FindAll<Button>(view).Single(b => b.Content as string == label && b.Visibility == Visibility.Visible);
+        var button = FindAll<Button>(view).Single(b => (byName ? AutomationProperties.GetName(b) : b.Content as string) == label
+            && b.Visibility == Visibility.Visible);
         Assert.True(button.ActualWidth > 0, label);
         Assert.Same(command, button.Command);
         return button;

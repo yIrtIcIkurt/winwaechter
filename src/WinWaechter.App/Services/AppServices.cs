@@ -4,6 +4,7 @@ using System.Security.Principal;
 using WinWaechter.App.ViewModels;
 using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
+using WinWaechter.Core.Improvements;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
@@ -143,7 +144,9 @@ public sealed class AppServices : IDisposable
         // the same real-time switch on Schutz and Sicherheit
         var securityActions = SecurityActionSet.Create(defender, new WuaUpdateInstaller(), new WinRestarter(new ProcessRunner(), windowsDir));
         // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
-        var protect = new ProtectViewModel(defender, (p, ct) => Task.Run(() => heuristics.ScanAsync(p, ct), ct),
+        Task<IReadOnlyList<Finding>> HeuristicScan(IProgress<string>? p, CancellationToken ct) =>
+            Task.Run(() => heuristics.ScanAsync(p, ct), ct);
+        var protect = new ProtectViewModel(defender, HeuristicScan,
             engine, ProcessTools.KillByPath, dialogs, canChange, gate, actions, securityActions.EnableRealTime, shell);
         // every source runs on the thread pool with its own timeout; the whole check stays off the UI thread
         // the browser's own extensions page opens with the signed-in user's normal rights, never elevated
@@ -153,14 +156,17 @@ public sealed class AppServices : IDisposable
             Policies: () => new JournalPolicyOwnership(store), FirewallRules: fwRules, Rules: rules, WindowsDir: windowsDir,
             Actions: securityActions,
             RestoreConfig: restoreConfig, Services: sc);
-        var security = new SecurityViewModel(ct => Task.Run(() => new SecurityCheck(securitySources).RunAsync(ct), ct),
+        Task<IReadOnlyList<SecurityItem>> SecurityRun(CancellationToken ct) =>
+            Task.Run(() => new SecurityCheck(securitySources).RunAsync(ct), ct);
+        var security = new SecurityViewModel(SecurityRun,
             engine, defender, dialogs, shell, canChange, gate, () => protect.IsDefenderBusy, extensionPages, actions: actions);
         // the DISM probe and the registry reads stay off the UI thread
-        var privacy = new PrivacyViewModel(ct => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
+        Task<IReadOnlyList<PrivacyRow>> PrivacyScan(CancellationToken ct) => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
         {
             var recall = await RecallProbe.IsPresentAsync(new ProcessRunner(), ct);
             return new PrivacyScanner(reg, rules).Scan(r => r == "recall" && recall);
-        }, ct), engine, dialogs, canChange, gate);
+        }, ct);
+        var privacy = new PrivacyViewModel(PrivacyScan, engine, dialogs, canChange, gate);
         // traces (services, tasks, autostarts) for the leftover search and the forced removal
         IReadOnlyList<Finding> TraceScan() => [.. autostart.Scan(), .. services.Scan(), .. tasks.Scan()];
         var programService = new ProgramService(new ProgramInventory(reg, rules), reg, fo, sig, new JobUninstallLauncher(user.Sid),
@@ -171,12 +177,13 @@ public sealed class AppServices : IDisposable
         using var identity = WindowsIdentity.GetCurrent();
         var ownAccount = string.Equals(identity.User?.Value, user.Sid, StringComparison.OrdinalIgnoreCase);
         // the view model runs every read of the service (and the app scan) on the thread pool
-        var programs = new ProgramsViewModel(programService, engine, dialogs, shell, canChange, gate,
-            () => new BloatAppScanner(pkgs, rules).Scan(), ownAccount);
+        IReadOnlyList<BloatAppRow> BloatScan() => new BloatAppScanner(pkgs, rules).Scan();
+        var programs = new ProgramsViewModel(programService, engine, dialogs, shell, canChange, gate, BloatScan, ownAccount);
         var perfScanner = new PerformanceScanner(reg, power, animation, hibernation, new WinAppDisplayNames(reg), ownAccount, broadcast,
             plans, () => new JournalPolicyOwnership(store));
+        var disk = new WinDiskSpace();
         var perfTools = new PerformanceTools(TraceScan, rules, new WinProcessEnder(procs), PerfGuard, actions,
-            new WinDiskSpace().SystemDrive, HibernationBytes: () => hibernation.FileBytes);
+            disk.SystemDrive, HibernationBytes: () => hibernation.FileBytes);
         var systemSources = new WinSystemSources();
         var bootSource = new WinBootEventSource();
         ShellViewModel? shellVm = null;
@@ -197,8 +204,23 @@ public sealed class AppServices : IDisposable
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
         var settingsVm = new SettingsViewModel(settings, env, update, shell, rulesInfo, updateRules);
 
+        // „Rechner in Ordnung bringen“: the same scanners as the area pages, in this order (the first source wins a shared change)
+        static ImprovementSource Source(string name, Func<CancellationToken, Task<IReadOnlyList<Improvement>>> read) =>
+            new(name, async ct => (await read(ct), []));
+        var collector = new ImprovementCollector(
+        [
+            Source("Optimieren", async ct => ImprovementMap.FromFindings(await engine.ScanAsync(null, ct))),
+            Source("Schutz", async ct => ImprovementMap.FromFindings(await HeuristicScan(null, ct))),
+            Source("Datenschutz", async ct => ImprovementMap.FromPrivacy(await PrivacyScan(ct))),
+            Source("Leistung", ct => Task.Run(() => ImprovementMap.FromPerformance(perfScanner.Scan(), perfScanner.ChangesFor), ct)),
+            new("Sicherheit", async ct => ImprovementMap.FromSecurity(await SecurityRun(ct))),
+            Source("Vorinstallierte Apps", ct => Task.Run(() => ImprovementMap.FromBloatApps(BloatScan(), canChange && ownAccount), ct)),
+        ]);
+        var improve = new ImproveViewModel((p, ct) => Task.Run(() => collector.CollectAsync(p, ct), ct), engine, dialogs, actions,
+            canChange, gate, disk.SystemDrive);
+
         shellVm = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settingsVm, update,
-            env.IsElevated);
+            improve, env.IsElevated);
         return new AppServices(env, settings, janitor, gate, shellVm, systemSources);
     }
 

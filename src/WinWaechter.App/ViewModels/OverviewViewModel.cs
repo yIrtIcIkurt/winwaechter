@@ -3,29 +3,34 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace WinWaechter.App.ViewModels;
 
-/// <summary>"Übersicht": state at a glance and the big "Prüfen" button.</summary>
+/// <summary>"Übersicht": state at a glance, the big „Rechner in Ordnung bringen“ and readout tiles that lead into the areas.</summary>
 public sealed partial class OverviewViewModel : ObservableObject
 {
-    readonly Action _showResults;
+    readonly Action<object> _navigate;
 
-    public OverviewViewModel(OptimizeViewModel optimize, ProtectViewModel protect, SecurityViewModel security, UpdateViewModel update, Action showResults)
+    /// <param name="navigate">Shows a page: a page view model, or the type of one the overview does not hold (the history).</param>
+    public OverviewViewModel(OptimizeViewModel optimize, ProtectViewModel protect, SecurityViewModel security, UpdateViewModel update,
+        ImproveViewModel improve, Action<object> navigate)
     {
         Optimize = optimize;
         Protect = protect;
         Security = security;
         Update = update;
-        _showResults = showResults;
-        optimize.FindingsChanged += (_, _) => Recompute();
+        Improve = improve;
+        _navigate = navigate;
         protect.StateChanged += (_, _) => Recompute();
         security.StateChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(SecurityText));
             OnPropertyChanged(nameof(SecurityTone));
         };
+        improve.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(ImproveViewModel.OpenCount) or nameof(ImproveViewModel.IsChecking)) Recompute();
+        };
         optimize.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(OptimizeViewModel.IsBusy)) { Recompute(); CheckCommand.NotifyCanExecuteChanged(); }
-            else if (e.PropertyName is nameof(OptimizeViewModel.SelectedBytes) or nameof(OptimizeViewModel.HasScanned))
+            if (e.PropertyName is nameof(OptimizeViewModel.SelectedBytes) or nameof(OptimizeViewModel.HasScanned))
                 OnPropertyChanged(nameof(FreeText));
         };
     }
@@ -34,12 +39,13 @@ public sealed partial class OverviewViewModel : ObservableObject
     public ProtectViewModel Protect { get; }
     public SecurityViewModel Security { get; }
     public UpdateViewModel Update { get; }
+    public ImproveViewModel Improve { get; }
 
     /// <summary>„Sicherheit“ readout: counts of red and yellow rows.</summary>
     public string SecurityText => Security.TileText;
     public Tone SecurityTone => Security.TileTone;
 
-    /// <summary>The one big sentence: Defender state, then the optimizer state.</summary>
+    /// <summary>The one big sentence: Defender state, then the state of the last check.</summary>
     public string Statement
     {
         get
@@ -53,10 +59,10 @@ public sealed partial class OverviewViewModel : ObservableObject
         }
     }
 
-    string SuggestionSentence => Optimize.IsBusy ? "Prüfung läuft."
-        : !Optimize.HasScanned ? "Noch nicht geprüft."
-        : OpenSuggestions == 0 ? "Keine offenen Vorschläge."
-        : OpenSuggestions == 1 ? "Ein Vorschlag ist offen." : $"{OpenSuggestions} Vorschläge sind offen.";
+    string SuggestionSentence => Improve.IsChecking ? "Prüfung läuft."
+        : Improve.OpenCount is not { } open ? "Noch nicht geprüft."
+        : open == 0 ? "Keine offenen Vorschläge."
+        : open == 1 ? "Ein Vorschlag ist offen." : $"{open} Vorschläge sind offen.";
 
     public Tone StatementTone =>
         !Protect.IsLoaded ? Tone.Neutral
@@ -64,12 +70,13 @@ public sealed partial class OverviewViewModel : ObservableObject
         : OpenSuggestions > 0 || Protect.HeuristicItems.Any(h => h.RatingTone == Tone.Alarm) ? Tone.Watch
         : Tone.Good;
 
-    public int OpenSuggestions => Optimize.FindingCount + Protect.HeuristicCount;
-    public string OpenSuggestionsText => Optimize.HasScanned || Protect.HeuristicScanned ? OpenSuggestions.ToString(Labels.De) : "–";
+    /// <summary>Recommendations of every area plus „Außerdem empfohlen“ from the last check.</summary>
+    public int OpenSuggestions => Improve.OpenCount ?? 0;
+    public string OpenSuggestionsText => Improve.OpenCount is { } n ? n.ToString(Labels.De) : "–";
 
     public const string FreeNote = "Caches werden nach 1 Tag endgültig entfernt, oder sofort über Verlauf → Ablage jetzt leeren.";
 
-    /// <summary>„Wird frei“: size of the selected findings, "–" before a scan.</summary>
+    /// <summary>„Wird frei“: size of the selected findings on Optimieren, "–" before a scan there.</summary>
     public string FreeText => Optimize.HasScanned ? Labels.Size(Optimize.SelectedBytes) : "–";
 
     void Recompute()
@@ -78,18 +85,18 @@ public sealed partial class OverviewViewModel : ObservableObject
         OnPropertyChanged(nameof(StatementTone));
         OnPropertyChanged(nameof(OpenSuggestions));
         OnPropertyChanged(nameof(OpenSuggestionsText));
-        OnPropertyChanged(nameof(FreeText));
     }
 
-    bool CanCheck() => !Optimize.IsBusy;
+    // the readout tiles lead into their area
+    [RelayCommand]
+    private void OpenProtect() => _navigate(Protect);
 
-    /// <summary>Runs the optimizer scan and the heuristics together and shows the results.</summary>
-    [RelayCommand(CanExecute = nameof(CanCheck))]
-    private async Task CheckAsync()
-    {
-        _showResults();
-        var scan = Optimize.ScanCommand.CanExecute(null) ? Optimize.ScanCommand.ExecuteAsync(null) : Task.CompletedTask;
-        var heur = Protect.HeuristicScanCommand.IsRunning ? Task.CompletedTask : Protect.HeuristicScanCommand.ExecuteAsync(null);
-        await Task.WhenAll(scan, heur);
-    }
+    [RelayCommand]
+    private void OpenSecurity() => _navigate(Security);
+
+    [RelayCommand]
+    private void OpenOptimize() => _navigate(Optimize);
+
+    [RelayCommand]
+    private void OpenHistory() => _navigate(typeof(HistoryViewModel));
 }
