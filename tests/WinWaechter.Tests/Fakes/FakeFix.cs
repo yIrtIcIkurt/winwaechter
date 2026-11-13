@@ -1,3 +1,4 @@
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Security.Checks;
 using WinWaechter.Core.Sys;
 
@@ -56,4 +57,23 @@ public sealed class FakeFirewallRules : IFirewallRules
     public void Clear(string name) => _rules.RemoveAll(r => Same(r.Name, name));
 
     static bool Same(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+}
+
+public sealed class FakeUpdateInstaller : IWindowsUpdateInstaller
+{
+    public UpdateInstallResult Result { get; set; } = new(0, 0, 0, false);
+    public int Calls { get; private set; }
+
+    public Task<UpdateInstallResult> InstallAsync(IProgress<string>? p, CancellationToken ct)
+    {
+        Calls++;
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(Result);
+    }
+}
+
+public sealed class FakeRestarter : IRestarter
+{
+    public int Restarts { get; private set; }
+    public void Restart() => Restarts++;
 }

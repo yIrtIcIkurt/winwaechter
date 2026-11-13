@@ -1,4 +1,5 @@
 using System.Net;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Defender;
@@ -44,7 +45,7 @@ public static class SecurityChecks
         return items;
     }
 
-    public static SecurityItem Defender(DefenderStatus s, IReadOnlyList<SecurityProduct> antiVirus)
+    public static SecurityItem Defender(DefenderStatus s, IReadOnlyList<SecurityProduct> antiVirus, SecurityActionSet? actions = null)
     {
         const string title = SecurityTitles.Defender;
         var other = antiVirus.FirstOrDefault(a => a.Enabled && !a.IsMicrosoft);
@@ -56,9 +57,13 @@ public static class SecurityChecks
             new(SecurityIds.Defender, title, l, finding, why, SecurityActionKind.Link, "Windows-Sicherheit öffnen", SystemLinks.DefenderThreat);
 
         if (!s.Available) return Row(Light.Grey, "Nicht aktiv oder nicht lesbar", "Der Defender-Status konnte nicht gelesen werden. Prüfen Sie ihn in der Windows-Sicherheit.");
-        if (!s.RealTime) return Row(Light.Red, "Echtzeitschutz ist aus", "Ohne Echtzeitschutz werden Schadprogramme nicht beim Öffnen erkannt.");
-        if (!s.TamperProtected) return Row(Light.Red, "Manipulationsschutz ist aus", "Der Manipulationsschutz verhindert, dass Schadsoftware Defender abschaltet.");
-        if (s.SignatureAgeDays > 3) return Row(Light.Yellow, $"Virendefinitionen sind {s.SignatureAgeDays} Tage alt", "Aktuelle Definitionen erkennen neue Schadprogramme besser. Eine Aktualisierung ist ratsam.");
+        SecurityItem Act(Light l, string finding, string why, SystemAction? act, string label) =>
+            act is null ? Row(l, finding, why)
+                : new(SecurityIds.Defender, title, l, finding, why, SecurityActionKind.Action, label, Act: act);
+
+        if (!s.RealTime) return Act(Light.Red, "Echtzeitschutz ist aus", "Ohne Echtzeitschutz werden Schadprogramme nicht beim Öffnen erkannt.", actions?.EnableRealTime, "Einschalten");
+        if (!s.TamperProtected) return Row(Light.Red, "Manipulationsschutz ist aus", "Der Manipulationsschutz verhindert, dass Schadsoftware Defender abschaltet. Den Manipulationsschutz lassen Programme absichtlich nicht einschalten – nur Sie selbst in der Windows-Sicherheit.");
+        if (s.SignatureAgeDays > 3) return Act(Light.Yellow, $"Virendefinitionen sind {s.SignatureAgeDays} Tage alt", "Aktuelle Definitionen erkennen neue Schadprogramme besser. Eine Aktualisierung ist ratsam.", actions?.UpdateSignatures, "Jetzt aktualisieren");
         return Row(Light.Green, "Echtzeit- und Manipulationsschutz an", "Defender schützt Ihren Rechner und ist aktuell.");
     }
 
@@ -119,6 +124,8 @@ public static class SecurityChecks
             SecurityActionKind.Link, "Einstellungen öffnen", SystemLinks.RemoteDesktop);
     }
 
+    const string EncryptionHint = "Einschalten nur in Windows: Den Wiederherstellungsschlüssel müssen Sie selbst sichern.";
+
     public static SecurityItem Encryption(VolumeEncryptionState? s)
     {
         const string title = SecurityTitles.Encryption;
@@ -131,24 +138,27 @@ public static class SecurityChecks
         if (s.ConversionStatus != 0)
             return Row(Light.Yellow, "Verschlüsselt, Schutz derzeit nicht aktiv (z. B. angehalten oder wartet auf Aktivierung)",
                 "Das Laufwerk ist verschlüsselt, der Schutz ist aber derzeit nicht aktiv.");
-        return Row(Light.Yellow, "Systemlaufwerk nicht verschlüsselt", "Bei Verlust des Geräts könnten Dritte Ihre Daten auslesen.");
+        return Row(Light.Yellow, "Systemlaufwerk nicht verschlüsselt", "Bei Verlust des Geräts könnten Dritte Ihre Daten auslesen. " + EncryptionHint);
     }
 
     public const string RebootRequiredKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired";
 
-    public static SecurityItem Updates(bool rebootRequired, WindowsUpdateState? s)
+    public static SecurityItem Updates(bool rebootRequired, WindowsUpdateState? s, SecurityActionSet? actions = null)
     {
         var stamp = s?.LastSearchUtc is { } t ? $" (Stand der letzten Windows-Suche: {t.ToLocalTime():dd.MM.yyyy HH:mm})" : "";
         SecurityItem Row(Light l, string finding, string why) =>
             new(SecurityIds.Updates, SecurityTitles.Updates, l, finding, why, SecurityActionKind.Link, "Windows Update öffnen", SystemLinks.WindowsUpdate);
+        SecurityItem Act(Light l, string finding, string why, SystemAction? act, string label) =>
+            act is null ? Row(l, finding, why)
+                : new(SecurityIds.Updates, SecurityTitles.Updates, l, finding, why, SecurityActionKind.Action, label, Act: act);
 
         if (rebootRequired)
-            return Row(Light.Yellow, "Neustart nötig" + stamp, "Installierte Updates werden erst nach einem Neustart wirksam.");
+            return Act(Light.Yellow, "Neustart nötig" + stamp, "Installierte Updates werden erst nach einem Neustart wirksam.", actions?.Restart, "Jetzt neu starten");
         if (s is null || s.TimedOut || s.Pending is null)
             return Row(Light.Grey, "Nicht prüfbar" + stamp, "Die Anzahl ausstehender Updates ließ sich nicht ermitteln. Prüfen Sie sie in Windows Update.");
         if (s.Pending > 0)
-            return Row(Light.Yellow, (s.Pending == 1 ? "1 Update ausstehend" : $"{s.Pending} Updates ausstehend") + stamp,
-                "Updates schließen Sicherheitslücken. Installieren Sie sie bald.");
+            return Act(Light.Yellow, (s.Pending == 1 ? "1 Update ausstehend" : $"{s.Pending} Updates ausstehend") + stamp,
+                "Updates schließen Sicherheitslücken. Installieren Sie sie bald.", actions?.InstallUpdates, "Updates installieren");
         return Row(Light.Green, "Keine ausstehenden Updates" + stamp, "Windows hat bei der letzten Suche keine fehlenden Updates gefunden.");
     }
 

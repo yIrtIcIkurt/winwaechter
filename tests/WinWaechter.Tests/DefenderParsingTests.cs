@@ -207,6 +207,7 @@ public sealed class DefenderParsingTests
         public Task<int> ScanAsync(ScanKind kind, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> ScanPathAsync(string path, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> RemoveActiveThreatsAsync() => throw new NotSupportedException();
+        public Task EnableRealTimeAsync() => throw new NotSupportedException();
         public Task SetPuaModeAsync(int mode) { SetPuaCalls.Add(mode); return Task.CompletedTask; }
     }
 

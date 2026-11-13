@@ -17,4 +17,5 @@ public interface IDefender
     Task<int> ScanPathAsync(string path, CancellationToken ct);
     Task<int> RemoveActiveThreatsAsync();
     Task SetPuaModeAsync(int mode);
+    Task EnableRealTimeAsync();   // switching on only; WinWächter never switches protection off
 }

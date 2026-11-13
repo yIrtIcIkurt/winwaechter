@@ -178,6 +178,8 @@ public sealed class DefenderClient(IProcessRunner runner, IRegistry reg, Func<st
         return RunPs($"Set-MpPreference -PUAProtection {mode}");
     }
 
+    public Task EnableRealTimeAsync() => RunPs("Set-MpPreference -DisableRealtimeMonitoring $false");
+
     async Task RunPs(string command)
     {
         var (exit, _, err) = await runner.RunAsync(PowerShell,

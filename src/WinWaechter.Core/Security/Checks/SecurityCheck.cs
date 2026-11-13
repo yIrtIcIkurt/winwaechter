@@ -9,7 +9,8 @@ namespace WinWaechter.Core.Security.Checks;
 public sealed record SecuritySources(IFirewall Firewall, ISecurityCenter Center, IDefender Defender, IRegistry Registry,
     IVolumeEncryption Encryption, IWindowsUpdateSearch Updates, IListenerSource Listeners, IProcessList Processes,
     ISignatureVerifier Signatures, BrowserExtensionScanner Extensions, ExtensionPageOpener? ExtensionPages = null, Func<IPolicyOwnership>? Policies = null,
-    IFirewallRules? FirewallRules = null, RuleSet? Rules = null, string? WindowsDir = null);
+    IFirewallRules? FirewallRules = null, RuleSet? Rules = null, string? WindowsDir = null,
+    SecurityActionSet? Actions = null);
 
 /// <summary>
 /// Runs every check off the calling thread, each with its own timeout. A failing or hanging source only
@@ -37,7 +38,7 @@ public sealed class SecurityCheck(SecuritySources s, TimeSpan? sourceTimeout = n
         var rdp = One(SecurityIds.RemoteDesktop, SecurityTitles.RemoteDesktop, () => SecurityChecks.RemoteDesktop(s.Registry), ct);
         var encryption = One(SecurityIds.Encryption, SecurityTitles.Encryption, () => SecurityChecks.Encryption(s.Encryption.SystemDrive()), ct);
         var updates = One(SecurityIds.Updates, SecurityTitles.Updates, () => SecurityChecks.Updates(
-            s.Registry.KeyExists(Hive.LocalMachine, SecurityChecks.RebootRequiredKey), s.Updates.Search(UpdateSearchTimeout)), ct);
+            s.Registry.KeyExists(Hive.LocalMachine, SecurityChecks.RebootRequiredKey), s.Updates.Search(UpdateSearchTimeout), s.Actions), ct);
         var listeners = One(SecurityIds.Listeners, SecurityTitles.Listeners,
             () => SecurityChecks.Listeners(s.Listeners.Listening(), s.Processes.Snapshot(), s.Signatures,
                 s.FirewallRules, s.Rules, s.WindowsDir), ct);
@@ -52,7 +53,7 @@ public sealed class SecurityCheck(SecuritySources s, TimeSpan? sourceTimeout = n
         var av = await antiVirus.ConfigureAwait(false);
         var status = await defenderRead.ConfigureAwait(false);
         var defender = status.Ok
-            ? SecurityChecks.Defender(status.Value!, av)
+            ? SecurityChecks.Defender(status.Value!, av, s.Actions)
             : SecurityChecks.Unavailable(SecurityIds.Defender, SecurityTitles.Defender, status.Detail);
 
         var fwProducts = await firewalls.ConfigureAwait(false);

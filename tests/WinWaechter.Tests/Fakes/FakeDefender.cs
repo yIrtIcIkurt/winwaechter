@@ -5,6 +5,13 @@ namespace WinWaechter.Tests.Fakes;
 public sealed class FakeDefender : IDefender
 {
     public int PuaMode { get; set; }
+    public bool RealTime { get; set; } = true;
+    public bool TamperProtected { get; set; } = true;
+    public int SignatureAgeDays { get; set; }
+
+    /// <summary>EnableRealTimeAsync leaves the protection off, like a blocking tamper protection.</summary>
+    public bool EnableBlocked { get; set; }
+    public int UpdateExit { get; set; }
     public List<int> SetPuaCalls { get; } = [];
 
     /// <summary>When set, GetStatusAsync fails with it.</summary>
@@ -17,7 +24,7 @@ public sealed class FakeDefender : IDefender
     {
         if (StatusDelay > TimeSpan.Zero) await Task.Delay(StatusDelay);
         if (StatusError is { } e) throw e;
-        return new DefenderStatus(true, true, true, PuaMode, null, 0, null, null, null);
+        return new DefenderStatus(true, RealTime, TamperProtected, PuaMode, null, SignatureAgeDays, null, null, null);
     }
 
     /// <summary>Order of operations, e.g. "update", "scan:Quick", "remove".</summary>
@@ -31,7 +38,14 @@ public sealed class FakeDefender : IDefender
     public Task<int> UpdateSignaturesAsync(CancellationToken ct)
     {
         Calls.Add("update");
-        return UpdateError is { } e ? Task.FromException<int>(e) : Task.FromResult(0);
+        return UpdateError is { } e ? Task.FromException<int>(e) : Task.FromResult(UpdateExit);
+    }
+
+    public Task EnableRealTimeAsync()
+    {
+        Calls.Add("enable-realtime");
+        if (!EnableBlocked) RealTime = true;
+        return Task.CompletedTask;
     }
 
     public Task<int> ScanAsync(ScanKind kind, CancellationToken ct)
