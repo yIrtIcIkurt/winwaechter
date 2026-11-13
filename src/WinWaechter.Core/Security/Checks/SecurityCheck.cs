@@ -10,7 +10,7 @@ public sealed record SecuritySources(IFirewall Firewall, ISecurityCenter Center,
     IVolumeEncryption Encryption, IWindowsUpdateSearch Updates, IListenerSource Listeners, IProcessList Processes,
     ISignatureVerifier Signatures, BrowserExtensionScanner Extensions, ExtensionPageOpener? ExtensionPages = null, Func<IPolicyOwnership>? Policies = null,
     IFirewallRules? FirewallRules = null, RuleSet? Rules = null, string? WindowsDir = null,
-    SecurityActionSet? Actions = null);
+    SecurityActionSet? Actions = null, ISystemRestoreConfig? RestoreConfig = null, IServiceControl? Services = null);
 
 /// <summary>
 /// Runs every check off the calling thread, each with its own timeout. A failing or hanging source only
@@ -39,6 +39,10 @@ public sealed class SecurityCheck(SecuritySources s, TimeSpan? sourceTimeout = n
         var encryption = One(SecurityIds.Encryption, SecurityTitles.Encryption, () => SecurityChecks.Encryption(s.Encryption.SystemDrive()), ct);
         var updates = One(SecurityIds.Updates, SecurityTitles.Updates, () => SecurityChecks.Updates(
             s.Registry.KeyExists(Hive.LocalMachine, SecurityChecks.RebootRequiredKey), s.Updates.Search(UpdateSearchTimeout), s.Actions), ct);
+        var sysProtect = s.RestoreConfig is { } restore && s.Services is { } services
+            ? One(SecurityIds.SystemProtection, SecurityTitles.SystemProtection, () => SystemProtection.Check(services, restore, s.Registry,
+                s.Policies?.Invoke() ?? SecurityChecks.NoPolicies.Instance, SystemDrive()), ct)
+            : null;
         var listeners = One(SecurityIds.Listeners, SecurityTitles.Listeners,
             () => SecurityChecks.Listeners(s.Listeners.Listening(), s.Processes.Snapshot(), s.Signatures,
                 s.FirewallRules, s.Rules, s.WindowsDir), ct);
@@ -65,10 +69,13 @@ public sealed class SecurityCheck(SecuritySources s, TimeSpan? sourceTimeout = n
             : Profiles.Select((p, i) => SecurityChecks.Unavailable(FirewallIds[i], SecurityTitles.Firewall(p), states.Detail)).ToList();
 
         var rows = new List<SecurityItem>(firewall) { defender };
-        foreach (var t in new[] { smartScreen, uac, rdp, encryption, updates, listeners, extensions })
-            rows.Add(await t.ConfigureAwait(false));
+        foreach (var t in new[] { smartScreen, uac, rdp, encryption, updates, sysProtect, listeners, extensions })
+            if (t is not null) rows.Add(await t.ConfigureAwait(false));
         return rows;
     }
+
+    // Root of the Windows folder, e.g. "C:\"; one that does not fit the pattern turns the row grey (the change refuses it).
+    string SystemDrive() => (Path.GetPathRoot(s.WindowsDir ?? Environment.SystemDirectory) ?? "").ToUpperInvariant();
 
     Task<SecurityItem> One(string id, string title, Func<SecurityItem> work, CancellationToken ct) =>
         Guard(title, work, d => SecurityChecks.Unavailable(id, title, d), ct);

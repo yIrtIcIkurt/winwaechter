@@ -77,3 +77,21 @@ public sealed class FakeRestarter : IRestarter
     public int Restarts { get; private set; }
     public void Restart() => Restarts++;
 }
+
+// In-memory Computerschutz; Enable is recorded and switches it on. There is deliberately no way to switch it off.
+public sealed class FakeRestoreConfig : ISystemRestoreConfig
+{
+    public bool? State { get; set; }
+    public Exception? EnableError { get; set; }
+    public Exception? ReadError { get; set; }
+    public List<string> EnableCalls { get; } = [];
+
+    public bool? IsEnabled(string drive) => ReadError is { } e ? throw e : State;
+
+    public void Enable(string drive)
+    {
+        EnableCalls.Add(drive);
+        if (EnableError is { } e) throw e;
+        State = true;
+    }
+}

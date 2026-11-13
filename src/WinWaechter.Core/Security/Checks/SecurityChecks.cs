@@ -83,7 +83,7 @@ public static class SecurityChecks
     }
 
     // No journal known: every present policy value counts as foreign.
-    sealed class NoPolicies : IPolicyOwnership
+    internal sealed class NoPolicies : IPolicyOwnership
     {
         public static readonly NoPolicies Instance = new();
         public bool IsOurs(Hive h, string key, string name) => false;
