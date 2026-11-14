@@ -47,6 +47,16 @@ public sealed class WinTaskStore : ITaskStore
         using var _ = folder.RegisterTaskDefinition(name, td);
     }
 
+    public void Delete(string path)
+    {
+        var cut = path.LastIndexOf('\\');
+        var folderPath = cut <= 0 ? @"\" : path[..cut];
+        using (var t = Service.GetTask(path))
+            if (t is null) return;
+        using var folder = Service.GetFolder(folderPath);
+        folder?.DeleteTask(path[(cut + 1)..], exceptionOnNotExists: false);
+    }
+
     static Microsoft.Win32.TaskScheduler.Task Find(string path) =>
         Service.GetTask(path) ?? throw new InvalidOperationException($"Aufgabe {path} nicht gefunden.");
 

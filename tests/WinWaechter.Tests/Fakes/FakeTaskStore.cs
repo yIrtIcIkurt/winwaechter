@@ -12,6 +12,13 @@ public sealed class FakeTaskStore : ITaskStore
     public List<(string Path, string Xml)> RegisterXmlCalls { get; } = [];
     public List<string> ExportXmlCalls { get; } = [];
     public Exception? RegisterXmlThrows { get; set; }
+    public List<string> DeleteCalls { get; } = [];
+
+    public void Delete(string path)
+    {
+        DeleteCalls.Add(path);
+        _tasks.Remove(path);
+    }
 
     public FakeTaskStore Add(TaskInfo t)
     {

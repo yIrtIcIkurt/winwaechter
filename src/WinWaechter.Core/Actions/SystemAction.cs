@@ -39,4 +39,14 @@ public sealed record SystemAction
 
     /// <summary>Runs a Defender job: waits while another Defender job runs (on any page).</summary>
     public bool UsesDefender { get; init; }
+
+    /// <summary>A long action that must not block other pages: runs outside the app-wide change gate,
+    /// guarded by its own lock (<see cref="LockKey"/> is then required).</summary>
+    public bool SkipGate { get; init; }
+
+    /// <summary>Which activity lock guards this action ("updates", "repair", "disk"); null = none.</summary>
+    public string? LockKey { get; init; }
+
+    /// <summary>The outcome is recorded as „zuletzt ausgeführt“ (<see cref="ActionStampStore"/>).</summary>
+    public bool Stamp { get; init; }
 }

@@ -11,4 +11,7 @@ public interface ITaskStore
     string ExportXml(string path);
     void SetEnabled(string path, bool enabled);
     void RegisterXml(string path, string xml);
+
+    /// <summary>Deletes the task; does nothing when it does not exist.</summary>
+    void Delete(string path);
 }

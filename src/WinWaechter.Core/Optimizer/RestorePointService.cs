@@ -3,7 +3,8 @@ using WinWaechter.Core.Logging;
 
 namespace WinWaechter.Core.Optimizer;
 
-public sealed record RestorePointResult(bool Created, string Message);
+/// <summary>RecentExists: no new point because Windows keeps one per 24 hours and one is younger (RecentAt).</summary>
+public sealed record RestorePointResult(bool Created, string Message, bool RecentExists = false, DateTimeOffset? RecentAt = null);
 
 // Creates a Windows restore point via WMI. Never throws.
 public sealed class RestorePointService
@@ -31,8 +32,9 @@ public sealed class RestorePointService
             }
 
             var after = Sequences(scope);
-            return after.Any(n => !before.Contains(n))
-                ? new RestorePointResult(true, "Wiederherstellungspunkt erstellt.")
+            if (after.Any(n => !before.Contains(n))) return new RestorePointResult(true, "Wiederherstellungspunkt erstellt.");
+            return Newest(scope) is { } at && DateTimeOffset.Now - at < TimeSpan.FromHours(24)
+                ? new RestorePointResult(false, $"Ein Wiederherstellungspunkt von {at:HH:mm} besteht schon.", true, at)
                 : new RestorePointResult(false, NotCreated);
         }
         catch (Exception ex)
@@ -49,5 +51,25 @@ public sealed class RestorePointService
         foreach (ManagementBaseObject o in s.Get())
             using (o) set.Add(Convert.ToUInt32(o["SequenceNumber"]));
         return set;
+    }
+
+    // CreationTime is a CIM datetime ("yyyyMMddHHmmss.ffffff+ooo"); null when none or unreadable.
+    static DateTimeOffset? Newest(ManagementScope scope)
+    {
+        DateTimeOffset? newest = null;
+        using var s = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT CreationTime FROM SystemRestore"));
+        foreach (ManagementBaseObject o in s.Get())
+        {
+            using (o)
+            {
+                try
+                {
+                    var at = new DateTimeOffset(ManagementDateTimeConverter.ToDateTime(o["CreationTime"]?.ToString()));
+                    if (newest is null || at > newest) newest = at;
+                }
+                catch (Exception ex) when (ex is ArgumentException or FormatException) { }
+            }
+        }
+        return newest;
     }
 }
