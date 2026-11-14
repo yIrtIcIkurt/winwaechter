@@ -53,6 +53,32 @@
                 </StackPanel>
             </CheckBox>
 
+            <!-- ===== Weekly check (0.6) ===== -->
+            <StackPanel DataContext="{Binding Maintenance}"
+                        Visibility="{Binding DataContext.ShowMaintenance, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Vis}}">
+                <TextBlock Margin="0,34,0,0" Style="{StaticResource Text.Section}" Text="Automatische Prüfung" />
+                <CheckBox Margin="0,12,0,0" Style="{StaticResource Toggle}" IsChecked="{Binding Enabled, Mode=TwoWay}" IsEnabled="{Binding CanEdit}"
+                          MaxWidth="560" HorizontalAlignment="Left">
+                    <StackPanel>
+                        <TextBlock Text="Einmal pro Woche prüfen und melden" />
+                        <TextBlock Style="{StaticResource Text.Small}" TextWrapping="Wrap"
+                                   Text="Windows startet WinWächter dafür unsichtbar. Gibt es etwas zu tun, erscheint eine Meldung; geändert wird dabei nichts." />
+                    </StackPanel>
+                </CheckBox>
+                <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center" Margin="0,0,8,0" Style="{StaticResource Text.Small}" Text="Tag" />
+                    <ComboBox MinWidth="140" ItemsSource="{Binding Days}" DisplayMemberPath="Name" SelectedItem="{Binding SelectedDay, Mode=TwoWay}"
+                              IsEnabled="{Binding CanEdit}" AutomationProperties.Name="Tag der Prüfung" />
+                    <TextBlock VerticalAlignment="Center" Margin="20,0,8,0" Style="{StaticResource Text.Small}" Text="Uhrzeit" />
+                    <ComboBox MinWidth="90" ItemsSource="{Binding Times}" SelectedItem="{Binding SelectedTime, Mode=TwoWay}"
+                              IsEnabled="{Binding CanEdit}" AutomationProperties.Name="Uhrzeit der Prüfung" />
+                </StackPanel>
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" TextWrapping="Wrap"
+                           Text="{Binding LockText}" Visibility="{Binding LockText, Converter={StaticResource Vis}}" />
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding LastCheckText}"
+                           Visibility="{Binding LastCheckText, Converter={StaticResource Vis}}" />
+            </StackPanel>
+
             <!-- ===== Rules ===== -->
             <TextBlock Margin="0,34,0,0" Style="{StaticResource Text.Section}" Text="Regeln" />
             <Border Margin="0,12,0,0" Style="{StaticResource SurfaceBox}" Padding="18,12">

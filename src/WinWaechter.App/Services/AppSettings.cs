@@ -15,6 +15,20 @@ public sealed class AppSettings
     public bool CheckUpdatesOnStart { get; set; } = true;
     public int AblageDays { get; set; } = 14;
 
+    /// <summary>The weekly check (scheduled task) is switched on. Off until the user switches it on.</summary>
+    public bool MaintenanceEnabled { get; set; }
+    public DayOfWeek MaintenanceDay { get; set; } = DayOfWeek.Sunday;
+    /// <summary>„HH:mm“, a full hour from the settings list.</summary>
+    public string MaintenanceTime { get; set; } = DefaultMaintenanceTime;
+    /// <summary>The one-time hint on the overview was answered with „Nein danke“.</summary>
+    public bool MaintenanceHintDismissed { get; set; }
+
+    public const string DefaultMaintenanceTime = "11:00";
+
+    public TimeOnly MaintenanceTimeOfDay =>
+        TimeOnly.TryParseExact(MaintenanceTime, "HH:mm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None,
+            out var t) ? t : new TimeOnly(11, 0);
+
     public static AppSettings Load(string path)
     {
         try
@@ -23,6 +37,10 @@ public sealed class AppSettings
             {
                 var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), Json) ?? new AppSettings();
                 s.AblageDays = Math.Clamp(s.AblageDays, MinAblageDays, MaxAblageDays);
+                if (!Enum.IsDefined(s.MaintenanceDay)) s.MaintenanceDay = DayOfWeek.Sunday;
+                if (!TimeOnly.TryParseExact(s.MaintenanceTime, "HH:mm", System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out _))
+                    s.MaintenanceTime = DefaultMaintenanceTime;
                 return s;
             }
         }

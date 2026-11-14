@@ -35,6 +35,19 @@ public sealed partial class OverviewViewModel : ObservableObject
         };
     }
 
+    /// <summary>Line „Letzte automatische Prüfung“ and the one-time hint (0.6); null when not wired.</summary>
+    public MaintenanceSettingsViewModel? Maintenance
+    {
+        get => _maintenance;
+        set
+        {
+            if (SetProperty(ref _maintenance, value)) OnPropertyChanged(nameof(ShowMaintenance));
+        }
+    }
+
+    MaintenanceSettingsViewModel? _maintenance;
+    public bool ShowMaintenance => Maintenance is not null;
+
     public OptimizeViewModel Optimize { get; }
     public ProtectViewModel Protect { get; }
     public SecurityViewModel Security { get; }

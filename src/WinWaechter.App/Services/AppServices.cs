@@ -19,6 +19,7 @@ using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Repair;
 using WinWaechter.Core.Device;
 using WinWaechter.Core.Storage.Map;
+using WinWaechter.Core.Maintenance;
 using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Checks;
@@ -64,6 +65,18 @@ public sealed class AppServices : IDisposable
     public ChangeGate Gate { get; }
 
     public ShellViewModel Shell { get; }
+
+    /// <summary>The sources of „Rechner in Ordnung bringen“ (also read by the weekly check).</summary>
+    public ImprovementCollector Collector { get; init; } = new([]);
+
+    /// <summary>Offered winget updates; 0 when winget is missing or failed.</summary>
+    public Func<CancellationToken, Task<int>> UpdateCount { get; init; } = _ => Task.FromResult(0);
+
+    /// <summary>A newer WinWächter on GitHub (only when „Beim Start nach Updates suchen“ is on).</summary>
+    public Func<CancellationToken, Task<bool>> AppUpdateAvailable { get; init; } = _ => Task.FromResult(false);
+
+    /// <summary>SID of the signed-in user (owner of the desktop session).</summary>
+    public string? UserSid { get; init; }
 
     public static AppServices Create(AppEnvironment env, AppSettings settings, IDialogService dialogs, ISystemShell shell, Action shutdown)
     {
@@ -242,7 +255,12 @@ public sealed class AppServices : IDisposable
         var janitor = new AblageJanitor(store);
         var history = new HistoryViewModel(store, engine, janitor, dialogs, canChange, gate, shell);
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
-        var settingsVm = new SettingsViewModel(settings, env, update, shell, rulesInfo, updateRules);
+        // weekly check (only reports): the task runs this exe with --pruefen for the signed-in user
+        var checkResultPath = Path.Combine(env.DataRoot, "wartung", "letzte-pruefung.json");
+        var maintenance = new MaintenanceSettingsViewModel(settings, () => settings.Save(env.SettingsPath), ts,
+            Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "WinWaechter.App.exe"), user.Sid, canChange, ownAccount,
+            () => CheckResultStore.Load(checkResultPath), dialogs, () => DateTime.Now);
+        var settingsVm = new SettingsViewModel(settings, env, update, shell, rulesInfo, updateRules) { Maintenance = maintenance };
 
         // Reparatur: fixed System32 tools; the restore point before the final ones asks only on a real failure
         var systemDrive = char.ToUpperInvariant((Path.GetPathRoot(windowsDir) ?? "C")[0]);
@@ -343,8 +361,19 @@ public sealed class AppServices : IDisposable
             canChange, gate, disk.SystemDrive, shell, OpenOptimizeAndScan, defenderActivity);
 
         shellVm = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settingsVm, update,
-            improve, env.IsElevated, new ShellPages(Repair: repair, Device: device, Storage: storage));
-        return new AppServices(env, settings, janitor, gate, shellVm, systemSources);
+            improve, env.IsElevated, new ShellPages(Repair: repair, Device: device, Storage: storage, Maintenance: maintenance));
+        var updateService2 = new UpdateService(env);
+        return new AppServices(env, settings, janitor, gate, shellVm, systemSources)
+        {
+            Collector = collector,
+            UpdateCount = async ct =>
+            {
+                var (list, offered, _) = await updateService.LoadAsync(false, ct);
+                return list.Status == WingetListStatus.Ok ? offered.Count : 0;
+            },
+            AppUpdateAvailable = async ct => settings.CheckUpdatesOnStart && (await updateService2.CheckAsync(ct)).Available is not null,
+            UserSid = user.Sid,
+        };
     }
 
     // Downloaded rules live in <data>\Regeln. Elevated, that folder is secured before the store reads from it.

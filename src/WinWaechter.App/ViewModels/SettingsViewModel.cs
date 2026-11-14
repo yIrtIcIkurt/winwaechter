@@ -41,6 +41,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     public UpdateViewModel Update { get; }
     public string VersionText => $"Version {_env.Version}";
 
+    /// <summary>„Automatische Prüfung“ (0.6); null when the page runs without it.</summary>
+    public MaintenanceSettingsViewModel? Maintenance { get; init; }
+    public bool ShowMaintenance => Maintenance is not null;
+
     /// <summary>The rules in effect, e.g. „Regeln: Version 2 vom 10.11.2026“.</summary>
     public string RulesText { get; }
 

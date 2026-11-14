@@ -328,6 +328,16 @@ public sealed class ViewSmokeTests : IDisposable
             shell.Navigate(shell.Device!);
             Layout(shellContent);
             Assert.NotEmpty(FindAll<DeviceView>(shellContent!));
+            // 0.6 weekly check: the one-time hint on the overview with its two buttons
+            var maintenance = new MaintenanceSettingsViewModel(new AppSettings(), () => { }, new FakeTaskStore(), @"C:\x.exe", "S-1-5-21-1", true, true,
+                () => null, new YesDialogs(), () => new DateTime(2026, 11, 14));
+            shell.Overview.Maintenance = maintenance;
+            var overviewWithHint = new OverviewView { DataContext = shell.Overview };
+            Layout(overviewWithHint);
+            Assert.Contains(FindAll<TextBlock>(overviewWithHint), t => t.Text == "Wöchentliche Prüfung einschalten" && Shown(t));
+            AssertShown(overviewWithHint, "Einschalten", maintenance.EnableCommand);
+            AssertShown(overviewWithHint, "Nein danke", maintenance.DismissHintCommand);
+            shell.Overview.Maintenance = null;
             var storageView = new StorageMapView { DataContext = shell.Storage };
             Layout(storageView);
             AssertStorageMap(storageView, shell.Storage!);

@@ -78,6 +78,27 @@
                 <ProgressBar Margin="32,14,0,0" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Stretch" Style="{StaticResource Scale}"
                              IsIndeterminate="True" Visibility="{Binding Improve.IsBusy, Converter={StaticResource Vis}}" />
 
+                <!-- weekly check (0.6): last result, and once the offer to switch it on -->
+                <StackPanel Margin="32,14,0,0" DataContext="{Binding Maintenance}"
+                            Visibility="{Binding DataContext.ShowMaintenance, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Vis}}">
+                    <TextBlock Style="{StaticResource Text.Small}" Text="{Binding LastCheckText}"
+                               Visibility="{Binding LastCheckText, Converter={StaticResource Vis}}" />
+                    <Border Margin="0,10,0,0" Style="{StaticResource Notice}" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left"
+                            Visibility="{Binding ShowHint, Converter={StaticResource Vis}}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                                <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,0" Content="Nein danke" Command="{Binding DismissHintCommand}" />
+                                <Button Style="{StaticResource Button.Primary}" Content="Einschalten" Command="{Binding EnableCommand}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Text="Wöchentliche Prüfung einschalten" />
+                                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap"
+                                           Text="WinWächter prüft dann einmal pro Woche und meldet sich nur, wenn etwas zu tun ist. Geändert wird nichts ohne Ihren Klick." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+
                 <!-- Readouts on a tick scale; each tile leads into its area -->
                 <Rectangle Margin="0,56,0,0" Style="{StaticResource ScaleRule}" />
                 <Grid Margin="0,18,0,0">

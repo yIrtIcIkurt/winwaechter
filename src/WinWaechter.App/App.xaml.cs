@@ -19,13 +19,27 @@ public partial class App
     bool _ownsMutex;
     AppServices? _services;
 
+    const string CheckMutexName = @"Local\WinWaechter.Check";
+    IDisposable? _activation;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        var mode = StartupArgs.Parse(e.Args);
+        if (mode == StartupMode.Check)
+        {
+            // the weekly check: no window, its own single-instance lock, never the app's
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _ = RunCheckAsync();
+            return;
+        }
 
         _instance = new Mutex(true, MutexName, out _ownsMutex);
         if (!_ownsMutex)
         {
+            // „Ansehen“ on the notification while WinWächter is open: the running window takes over
+            if (mode == StartupMode.Improve)
+                ActivationPipe.Send(ActivationPipe.NameFor(System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value), ActivationPipe.Verb);
             BringExistingToFront();
             Shutdown();
             return;
@@ -64,6 +78,10 @@ public partial class App
             var window = new ShellWindow { DataContext = _services.Shell };
             MainWindow = window;
             window.Show();
+            var services = _services;
+            _activation = ActivationPipe.Listen(ActivationPipe.NameFor(System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value),
+                _ => Dispatcher.BeginInvoke(() => ShowImprove(services)));
+            if (mode == StartupMode.Improve) ShowImprove(services);
         }
         catch (Exception ex)
         {
@@ -116,6 +134,67 @@ public partial class App
         catch (Exception ex) { FileLog.Warn("Startaufgaben fehlgeschlagen", ex); }
     }
 
+    // „Rechner in Ordnung bringen“: the overview in front, the check started
+    void ShowImprove(AppServices s)
+    {
+        if (MainWindow is { } w)
+        {
+            if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
+            w.Activate();
+        }
+        s.Shell.Navigate(s.Shell.Overview);
+        if (s.Shell.Overview.Improve.CheckCommand.CanExecute(null)) s.Shell.Overview.Improve.CheckCommand.Execute(null);
+    }
+
+    // --pruefen: read everything, save the result, notify through the unelevated helper; changes nothing
+    async Task RunCheckAsync()
+    {
+        using var mutex = new Mutex(true, CheckMutexName, out var owns);
+        if (!owns)
+        {
+            Shutdown(0);
+            return;
+        }
+        var code = 0;
+        try
+        {
+            var env = AppEnvironment.Detect();
+            if (env.IsElevated) SecureDataDir.Ensure(env.DataRoot);
+            else Directory.CreateDirectory(env.DataRoot);
+            FileLog.Init(env.LogDir);
+            FileLog.Info($"WinWächter {env.Version}: wöchentliche Prüfung startet");
+            var settings = AppSettings.Load(env.SettingsPath);
+            var services = AppServices.Create(env, settings, new SilentDialogs(), new ExplorerShell(), () => { });
+            var notifyExe = Path.Combine(AppContext.BaseDirectory, "WinWaechter.Notify.exe");
+            var launcher = new Core.Programs.UserTokenLauncher(services.UserSid);
+            var check = new Core.Maintenance.MaintenanceCheck(services.Collector, services.UpdateCount, services.AppUpdateAvailable, env.DataRoot,
+                (title, text) => launcher.StartAsUser(notifyExe,
+                    $"--title {Core.Maintenance.CommandLineArgs.Quote(title)} --text {Core.Maintenance.CommandLineArgs.Quote(text)}"),
+                () => DateTimeOffset.Now);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(25));
+            await check.RunAsync(timeout.Token);
+            services.Dispose();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Error("Wöchentliche Prüfung abgebrochen", ex);
+            code = 1;
+        }
+        finally
+        {
+            try { mutex.ReleaseMutex(); } catch (ApplicationException) { }
+        }
+        Shutdown(code);
+    }
+
+    /// <summary>The weekly check never shows a dialog: questions are answered „no“, messages only logged.</summary>
+    sealed class SilentDialogs : IDialogService
+    {
+        public bool Confirm(string title, string message, string confirmText, IReadOnlyList<string>? items = null, bool final = false) => false;
+        public bool Ask(string title, string message, string yesText, string noText) => false;
+        public void Inform(string title, string message, IReadOnlyList<string>? items = null) => FileLog.Info($"{title}: {message}");
+    }
+
     void OnDispatcherException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         e.Handled = true;
@@ -140,6 +219,7 @@ public partial class App
     protected override void OnExit(ExitEventArgs e)
     {
         FileLog.Info("WinWächter wird beendet");
+        _activation?.Dispose();
         _services?.Dispose();
         if (_instance is not null)
         {

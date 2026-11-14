@@ -21,7 +21,8 @@ public sealed partial class NavItem(string title, string glyph, object page, Act
 }
 
 /// <summary>The pages added in 0.6 (null = not shown, e.g. in tests that do not need them).</summary>
-public sealed record ShellPages(RepairViewModel? Repair = null, DeviceViewModel? Device = null, StorageMapViewModel? Storage = null);
+public sealed record ShellPages(RepairViewModel? Repair = null, DeviceViewModel? Device = null, StorageMapViewModel? Storage = null,
+    MaintenanceSettingsViewModel? Maintenance = null);
 
 /// <summary>Window-level state: navigation, update banner, admin notice.</summary>
 public sealed partial class ShellViewModel : ObservableObject
@@ -43,7 +44,7 @@ public sealed partial class ShellViewModel : ObservableObject
         Settings = settings;
         Update = update;
         IsElevated = isElevated;
-        Overview = new OverviewViewModel(optimize, protect, security, update, improve, Navigate);
+        Overview = new OverviewViewModel(optimize, protect, security, update, improve, Navigate) { Maintenance = pages?.Maintenance };
 
         PrimaryNav =
         [
