@@ -126,6 +126,18 @@ public class SystemSamplerTests
         Assert.Equal(70, DiskMath.Max([10, null, 70, 30]));
     }
 
+}
+
+/// <summary>
+/// Real PDH/process readings. Run alone: overlapping with the heavy real-file undo test (PolishTests) crashed the
+/// test host now and then (access violation in coreclr / fail-fast in ucrtbase, 2026-11-14); cause not found yet.
+/// </summary>
+[CollectionDefinition(nameof(RealSamplerCollection), DisableParallelization = true)]
+public sealed class RealSamplerCollection;
+
+[Collection(nameof(RealSamplerCollection))]
+public class RealSystemSamplerTests
+{
     [Fact]
     public void Real_sources_smoke()
     {
