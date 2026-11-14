@@ -82,7 +82,7 @@ Offen, nur mit Zustimmung des Nutzers, nichts davon hat der Umsetzer allein gema
 - [ ] Vor dem Test des neuen Builds die installierte App schließen (lief beim Bauen erhöht, PID 1808)
 - [ ] Release und Veröffentlichung erst nach Freigabe des Nutzers
 
-## 0.5.1 (gebaut, unveröffentlicht, Stand 2026-11-14)
+## 0.5.1 (veröffentlicht 2026-11-14)
 Branch `feature/v0.5.1`, 1066 Tests, Prüfung mit Nachbesserung. Inhalt siehe CHANGELOG: die vier für 0.5.1 vorgemerkten Punkte (Schutzprüfung bei „Erneut versuchen“ für Firewall-Regel, Rechtsklick und Richtlinienwerte; Besitz-Regel im Datenschutz; ein Defender-Vorgang zugleich über alle Seiten; Aufräumen in AppServices) und der vom Nutzer gemeldete Fehler, dass die Programmliste in einem niedrigen Fenster nicht erreichbar war (Seite scrollt jetzt als Ganzes, Liste ohne Virtualisierung, Suche mit 200 ms Verzögerung).
 
 Offen, nur mit Zustimmung des Nutzers:
@@ -92,6 +92,7 @@ Offen, nur mit Zustimmung des Nutzers:
 Bekannt, nicht behoben: Eine abgelehnte Wiederholung erscheint im Protokoll als Fehler mit dem Titel „Erneut versuchen fehlgeschlagen“ (nur Wortwahl).
 
 ## 0.6.0 (Reihenfolge laut Nutzer)
+Design `docs/superpowers/specs/2026-11-14-winwaechter-0.6-design.md`. Nutzer-Entscheidung 2026-11-14: Die automatische Wartung prüft und meldet nur, sie ändert nichts.
 1. Programm-Updates (winget)
 2. Gerätezustand (Akku, SSD)
 3. Reparatur-Seite (SFC/DISM, Update-Reparatur, Netzwerk-Reset, Druckerwarteschlange, Symbol-Cache, Datenträgerprüfung)
