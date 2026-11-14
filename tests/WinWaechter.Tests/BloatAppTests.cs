@@ -133,7 +133,7 @@ public sealed class BloatAppTests : IDisposable
         Assert.Equal("Candy Crush (King)", Rules.FindBloatApp("king.com.CandyCrushSodaSaga")!.Title);
         Assert.True(Rules.FindBloatApp("Microsoft.BingNews")!.Recommended);
         Assert.False(Rules.FindBloatApp("Microsoft.Copilot")!.Recommended);
-        Assert.Equal(3, Rules.RulesVersion);
+        Assert.Equal(4, Rules.RulesVersion);   // 4 since 0.6.0 (updateBlock)
     }
 
     [Fact]
