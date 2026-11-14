@@ -163,7 +163,8 @@ public static class NotifyRule
     {
         if (now.Failed || (now.Total == 0 && !now.AppUpdate)) return false;
         if (lastNotified is null) return true;
-        return Signature(now) != Signature(lastNotified) || nowTime - lastNotified.At >= TimeSpan.FromDays(7);
+        // weekly runs end a few minutes (or a catch-up day) apart: six days apart counts as „a week later“
+        return Signature(now) != Signature(lastNotified) || nowTime - lastNotified.At >= TimeSpan.FromDays(6);
     }
 }
 
@@ -229,9 +230,10 @@ public sealed class MaintenanceCheck(ImprovementCollector collector, Func<Cancel
             result = new CheckResult(now(), false, scan.Items.Count, actions.Count, updates, app,
                 [.. scan.Items.Select(i => i.Title), .. actions.Select(a => a.Title)]);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        catch (Exception ex)
         {
-            FileLog.Error("Wöchentliche Prüfung fehlgeschlagen", ex);
+            // also when the time limit stopped it: the overview then says „fehlgeschlagen“, not the old result
+            FileLog.Error(ex is OperationCanceledException ? "Wöchentliche Prüfung: Zeit überschritten" : "Wöchentliche Prüfung fehlgeschlagen", ex);
             result = new CheckResult(now(), true, 0, 0, 0, false, []);
         }
         CheckResultStore.Save(ResultPath, result);

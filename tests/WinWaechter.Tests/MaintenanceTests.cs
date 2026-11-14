@@ -75,8 +75,10 @@ public sealed class MaintenanceTests : IDisposable
         Assert.False(NotifyRule.ShouldNotify(R(0, 0, 0), null, now));                          // nothing to do
         Assert.True(NotifyRule.ShouldNotify(R(0, 0, 0, app: true), null, now));                // only an app update
         Assert.True(NotifyRule.ShouldNotify(R(), null, now));                                  // first time
-        Assert.False(NotifyRule.ShouldNotify(R(), R(at: now.AddDays(-6)), now));               // same result within 7 days
+        Assert.False(NotifyRule.ShouldNotify(R(), R(at: now.AddDays(-5)), now));               // same result within the week
         Assert.True(NotifyRule.ShouldNotify(R(), R(at: now.AddDays(-7)), now));                // same result after 7 days
+        // review: weekly runs end a few minutes apart – a run that ends a little earlier still reminds
+        Assert.True(NotifyRule.ShouldNotify(R(), R(at: now.AddDays(-7).AddMinutes(3)), now));
         Assert.True(NotifyRule.ShouldNotify(R(updates: 4), R(at: now.AddDays(-1)), now));      // changed counts
         Assert.True(NotifyRule.ShouldNotify(R(titles: ["Neu"]), R(at: now.AddDays(-1)), now)); // changed titles
         Assert.False(NotifyRule.ShouldNotify(R(failed: true), null, now));                     // failed check
@@ -156,6 +158,24 @@ public sealed class MaintenanceTests : IDisposable
         Assert.True(r.Failed);
         Assert.Empty(notified);
         Assert.True(CheckResultStore.Load(Path.Combine(_dir, "wartung", "letzte-pruefung.json"))!.Failed);
+    }
+
+    // review: a check stopped by the time limit still leaves „fehlgeschlagen“ instead of the old result
+    [Fact]
+    public async Task Timed_out_check_saves_a_failed_result()
+    {
+        var notified = new List<(string, string)>();
+        using var cts = new CancellationTokenSource();
+        var check = Check(new ImprovementCollector([]), notified, updates: async ct =>
+        {
+            cts.Cancel();
+            ct.ThrowIfCancellationRequested();
+            return await Task.FromResult(0);
+        });
+        var r = await check.RunAsync(cts.Token);
+        Assert.True(r.Failed);
+        Assert.True(CheckResultStore.Load(Path.Combine(_dir, "wartung", "letzte-pruefung.json"))!.Failed);
+        Assert.Empty(notified);
     }
 
     [Fact]
