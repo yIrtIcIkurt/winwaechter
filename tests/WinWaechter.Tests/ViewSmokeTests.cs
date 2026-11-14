@@ -199,8 +199,22 @@ public sealed class ViewSmokeTests : IDisposable
             new Core.Repair.RepairChecks(repairRun, @"C:\Windows"), new ActionRunner(new YesDialogs(), gate, locks: ActivityLock.CreateDefaults()),
             new ActionStampStore(Path.Combine(Path.GetTempPath(), "ww-smoke-" + Guid.NewGuid().ToString("N"), "aktionen.json")), true, 'C');
         repair.LoadCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        // 0.6 Gerät: a worn battery, a healthy SSD and a drive not optimized for long
+        var device = new DeviceViewModel(_ => Task.FromResult<IReadOnlyList<Core.Device.DeviceRow>>(
+            [
+                new("battery", Core.Device.DeviceScanner.GroupBattery, "Akku",
+                    "Kapazität heute 42.818 mWh von ursprünglich 54.000 mWh (21 % Verschleiß), 278 Ladezyklen", Core.Device.DeviceLevel.Attention,
+                    "Der Akku ist gealtert.", null, new SystemAction("battery-report", "Ausführlichen Akkubericht speichern", "Bericht", null, false,
+                        (_, _) => Task.FromResult(new ActionOutcome(true, "ok")))),
+                new("disk:Micron", Core.Device.DeviceScanner.GroupDisks, "2650 Micron 1024GB (SSD)", "Verschleiß 3 %, 38 °C",
+                    Core.Device.DeviceLevel.Good, "Windows meldet das Laufwerk als gesund.", null),
+                new("volume:C", Core.Device.DeviceScanner.GroupVolumes, "Laufwerk C:", "Noch nie optimiert", Core.Device.DeviceLevel.Attention,
+                    "über 30 Tage", new SystemAction("optimize-C", "Laufwerk C: optimieren", "Optimieren", null, false,
+                        (_, _) => Task.FromResult(new ActionOutcome(true, "ok"))) { SkipGate = true, LockKey = "disk" }),
+            ]), new ActionRunner(new YesDialogs(), gate, locks: ActivityLock.CreateDefaults()), true);
+        device.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, improve,
-            isElevated: false, new ShellPages(Repair: repair));
+            isElevated: false, new ShellPages(Repair: repair, Device: device));
         var allGood = new OverviewViewModel(optimize, protect, security, update,
             Improve(engine, gate, new ImprovementScan([], [], [], new DateTimeOffset(2026, 11, 13, 9, 5, 0, TimeSpan.FromHours(1)))), _ => { });
 
@@ -284,6 +298,19 @@ public sealed class ViewSmokeTests : IDisposable
             Assert.NotEmpty(FindAll<RepairView>(shellContent!));
             Assert.Contains(shell.PrimaryNav, n => n.Title == "Reparatur");
             Assert.Equal("Verlauf", shell.PrimaryNav[^1].Title);
+            var deviceView = new DeviceView { DataContext = shell.Device };
+            Layout(deviceView);
+            var deviceTexts = FindAll<TextBlock>(deviceView).Where(Shown).Select(t => t.Text).ToList();
+            Assert.Contains("Akku", deviceTexts);
+            Assert.Contains("Laufwerke (Hardware)", deviceTexts);
+            Assert.Contains("Kapazität heute 42.818 mWh von ursprünglich 54.000 mWh (21 % Verschleiß), 278 Ladezyklen", deviceTexts);
+            AssertShown(deviceView, "Optimieren", shell.Device!.Groups[2].Rows[0].FixCommand);
+            Assert.Contains(FindAll<ContentControl>(deviceView), c => c.Content as string == "Achtung" && Shown(c));
+            var nav = shell.PrimaryNav.Select(n => n.Title).ToList();
+            Assert.Equal(nav.IndexOf("Leistung") + 1, nav.IndexOf("Gerät"));
+            shell.Navigate(shell.Device!);
+            Layout(shellContent);
+            Assert.NotEmpty(FindAll<DeviceView>(shellContent!));
             var performanceView = new PerformanceView { DataContext = performance };
             Layout(performanceView);
             AssertComboShowsLabel(performanceView, "PerfOption");

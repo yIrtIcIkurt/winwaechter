@@ -1,0 +1,77 @@
+<UserControl x:Class="WinWaechter.App.Views.DeviceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
+    <DockPanel>
+        <!-- Footer -->
+        <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Line}" Background="{DynamicResource Canvas}"
+                Padding="32,12,32,14">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding AdminNotice}"
+                           Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}" />
+                <TextBlock Style="{StaticResource Text.Small}" TextWrapping="Wrap" Text="{Binding ResultText}"
+                           Visibility="{Binding ResultText, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+            <StackPanel Margin="{StaticResource PagePadding}">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" VerticalAlignment="Center" Style="{StaticResource Button.Quiet}" Content="Neu lesen"
+                            Command="{Binding RefreshCommand}" />
+                    <TextBlock Style="{StaticResource Text.PageTitle}" Text="Gerät" />
+                </DockPanel>
+                <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
+                           Text="Zustand von Akku, SSD und Festplatten, wie Windows ihn meldet. Wo sich etwas beheben lässt, steht der Knopf daneben; Verschleiß an Akku oder SSD lässt sich nicht beheben." />
+                <StackPanel Margin="0,18,0,0" Visibility="{Binding ProgressText, Converter={StaticResource Vis}}">
+                    <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
+                    <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding ProgressText}" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+
+                <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding Groups}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:DeviceGroupViewModel}">
+                            <StackPanel Margin="0,10,0,8">
+                                <TextBlock Margin="2,0,0,8" Style="{StaticResource Text.Section}" Text="{Binding Title}" />
+                                <Border Style="{StaticResource SurfaceBox}">
+                                    <ItemsControl ItemsSource="{Binding Rows}" Focusable="False" Margin="0,0,0,-1">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:DeviceRowViewModel}">
+                                                <Border Style="{StaticResource RowDivider}" Padding="16,12,16,12">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel>
+                                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                            <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Typography.NumeralAlignment="Tabular"
+                                                                       TextWrapping="Wrap" Text="{Binding Detail}" />
+                                                            <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap"
+                                                                       MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding Why}" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Margin="16,0,0,0" HorizontalAlignment="Right">
+                                                            <ContentControl Style="{StaticResource Chip}" Tag="{Binding Tone}" Content="{Binding LevelText}"
+                                                                            HorizontalAlignment="Right" />
+                                                            <Button Margin="0,8,0,0" Style="{StaticResource Button.Quiet}" Content="{Binding FixText}"
+                                                                    Command="{Binding FixCommand}" HorizontalAlignment="Right"
+                                                                    AutomationProperties.Name="{Binding Title, StringFormat={}{0}: beheben}"
+                                                                    Visibility="{Binding HasFix, Converter={StaticResource Vis}}" />
+                                                            <Button Margin="0,8,0,0" Style="{StaticResource Button.Quiet}" Content="{Binding ExtraText}"
+                                                                    Command="{Binding ExtraCommand}" HorizontalAlignment="Right"
+                                                                    Visibility="{Binding HasExtra, Converter={StaticResource Vis}}" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

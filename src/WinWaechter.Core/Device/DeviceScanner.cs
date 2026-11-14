@@ -7,6 +7,15 @@ namespace WinWaechter.Core.Device;
 
 public enum DeviceLevel { Good, Attention, Bad, Unknown }
 
+/// <summary>Rows that need attention and have a fix become „Außerdem empfohlen“ in „Rechner in Ordnung bringen“.</summary>
+public static class DeviceSuggestions
+{
+    public static IReadOnlyList<Improvements.ActionSuggestion> From(IEnumerable<DeviceRow> rows) =>
+        rows.Where(r => r.Level is DeviceLevel.Attention or DeviceLevel.Bad && r.Fix is not null)
+            .Select(r => new Improvements.ActionSuggestion("device:" + r.Id, r.Title, r.Why, r.Fix!))
+            .ToList();
+}
+
 /// <summary>One line of the Gerät page. Fix: what repairs it (null when nothing can); Extra: an additional action.</summary>
 public sealed record DeviceRow(string Id, string Group, string Title, string Detail, DeviceLevel Level, string Why, SystemAction? Fix,
     SystemAction? Extra = null);

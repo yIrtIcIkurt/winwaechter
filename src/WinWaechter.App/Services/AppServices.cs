@@ -17,6 +17,7 @@ using WinWaechter.Core.Optimizer.Tasks;
 using WinWaechter.Core.Performance;
 using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Repair;
+using WinWaechter.Core.Device;
 using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Checks;
@@ -248,6 +249,14 @@ public sealed class AppServices : IDisposable
             () => RestorePointGate.EnsureAsync(restore.TryCreate, "Reparatur", dialogs), ender, windowsDir, localAppData, DateTime.Today);
         var repairChecks = new RepairChecks(runner, windowsDir);
         var repair = new RepairViewModel(repairActions, repairChecks, actions, stamps, canChange, systemDrive, ownAccount);
+        // Gerät: battery, disks and drives (WMI/CIM off the UI thread)
+        var battery = new WmiBatteryInfo(() => power.HasBattery, runner, windowsDir, Path.GetTempPath());
+        var volumes = new WinVolumeInfo(repairChecks, new WinDiskErrorEvents(), systemDrive);
+        // a new scanner per scan: „now“ and the Downloads folder are current even after days of running
+        Task<IReadOnlyList<DeviceRow>> DeviceScan(CancellationToken ct) => Task.Run(() =>
+            new DeviceScanner(battery, new CimDiskHealth(), volumes, repairActions, runner, DownloadsFolder.Resolve(reg, user), DateTime.Now,
+                windowsDir).Scan(), ct);
+        var device = new DeviceViewModel(DeviceScan, actions, canChange);
         async Task<IReadOnlyList<ActionSuggestion>> RepairSuggestions(CancellationToken ct)
         {
             var list = new List<ActionSuggestion>();
@@ -277,6 +286,7 @@ public sealed class AppServices : IDisposable
                     "winget schickt sonst Nutzungsdaten an Microsoft.", [c])]
                 : [], ct)),
             new("Programm-Updates", async ct => ([], UpdateSuggestions(await updateService.LoadAsync(false, ct)))),
+            new("Gerät", async ct => ([], DeviceSuggestions.From(await DeviceScan(ct)))),
             new("Reparatur", async ct => ([], await RepairSuggestions(ct))),
         ]);
         // „n Programm-Updates verfügbar“ only switches to Programme (updates never join the collect button)
@@ -297,7 +307,7 @@ public sealed class AppServices : IDisposable
             canChange, gate, disk.SystemDrive, shell, OpenOptimizeAndScan, defenderActivity);
 
         shellVm = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settingsVm, update,
-            improve, env.IsElevated, new ShellPages(Repair: repair));
+            improve, env.IsElevated, new ShellPages(Repair: repair, Device: device));
         return new AppServices(env, settings, janitor, gate, shellVm, systemSources);
     }
 
