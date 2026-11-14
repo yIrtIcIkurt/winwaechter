@@ -59,7 +59,7 @@ Bekannte Kleinigkeiten (aus den Prüfungen): Liste wird nach Undo im Verlauf ers
 ## 0.4.0 Plan (Entscheidung Nutzer 2026-11-10)
 Neue Seite „Leistung“: Energiemodus (Netz/Akku), visuelle Effekte, Startzeit-Bericht, Live-Monitor (CPU/RAM/Datenträger/Top-Verbraucher), Hintergrund-Apps, Spielmodus + GPU-Planung, Ruhezustand-Datei (mit Hinweis), Speicheroptimierung. Alles einzeln, umkehrbar; keine „Tuning-Tricks“ (RAM-Booster, Prefetch löschen, Dienste massenhaft abschalten).
 
-## 0.5.0 (gebaut, unveröffentlicht, Stand 2026-11-13)
+## 0.5.0 (veröffentlicht 2026-11-14)
 Design `docs/superpowers/specs/2026-11-12-winwaechter-0.5-design.md`, Plan `docs/superpowers/plans/2026-11-12-winwaechter-0.5.md`. 1050 Tests (vorher 783), Einzelprüfungen je Aufgabe und Gesamtprüfung (mit Nachbesserungen). Inhalt: „Rechner in Ordnung bringen“, Sicherheit behebt selbst, Leistungsbremsen, Werbe-Apps, Windows-Werbung, Computerschutz, Browser-Hintergrund, Rechtsklick-Menü, kleinere Lücken (siehe CHANGELOG).
 
 Nur lesende Prüfungen auf dem Rechner des Nutzers (Build 26200, nicht erhöht):
@@ -82,7 +82,14 @@ Offen, nur mit Zustimmung des Nutzers, nichts davon hat der Umsetzer allein gema
 - [ ] Vor dem Test des neuen Builds die installierte App schließen (lief beim Bauen erhöht, PID 1808)
 - [ ] Release und Veröffentlichung erst nach Freigabe des Nutzers
 
-Für 0.5.1 vorgemerkt: erneuter Schutz-Check bei „Erneut versuchen“ für Firewall-Regel und Rechtsklick-Einträge; Datenschutz-Richtlinien aus 0.4 ohne Besitz-Regel; „Virendefinitionen aktualisieren“ wartet nicht auf laufende Defender-Aktionen; Aufräumen in AppServices.
+## 0.5.1 (gebaut, unveröffentlicht, Stand 2026-11-14)
+Branch `feature/v0.5.1`, 1066 Tests, Prüfung mit Nachbesserung. Inhalt siehe CHANGELOG: die vier für 0.5.1 vorgemerkten Punkte (Schutzprüfung bei „Erneut versuchen“ für Firewall-Regel, Rechtsklick und Richtlinienwerte; Besitz-Regel im Datenschutz; ein Defender-Vorgang zugleich über alle Seiten; Aufräumen in AppServices) und der vom Nutzer gemeldete Fehler, dass die Programmliste in einem niedrigen Fenster nicht erreichbar war (Seite scrollt jetzt als Ganzes, Liste ohne Virtualisierung, Suche mit 200 ms Verzögerung).
+
+Offen, nur mit Zustimmung des Nutzers:
+- [ ] Programme-Seite im echten Fenster ansehen (niedriges Fenster, 150 %, Mausrad über Apps-Kasten und Liste, Tastatur)
+- [ ] Release erst nach Freigabe des Nutzers (`rules.json` unverändert seit 0.5.0, die Signatur passt)
+
+Bekannt, nicht behoben: Eine abgelehnte Wiederholung erscheint im Protokoll als Fehler mit dem Titel „Erneut versuchen fehlgeschlagen“ (nur Wortwahl).
 
 ## 0.6.0 (Reihenfolge laut Nutzer)
 1. Programm-Updates (winget)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+- Programme: Die Liste der installierten Programme war in einem niedrigen Fenster nicht erreichbar, weil „Vorinstallierte Apps“ und die Suche den ganzen Platz belegten. Jetzt scrollt die ganze Seite in einem Stück; die Suche filtert kurz nach dem Tippen.
+- Verlauf, „Erneut versuchen“: Vor dem neuen Versuch läuft dieselbe Schutzprüfung wie beim ersten Angebot. Eine Firewall-Regel wird nie für Microsoft-Programme, WinWächter selbst oder geschützte Hersteller angelegt. Ein Rechtsklick-Eintrag wird nur abgeschaltet, solange er noch angeboten wird. Ein Registry-Wert wird nicht überschrieben, wenn inzwischen eine fremde Richtlinie ihn festlegt.
+- Datenschutz: Einstellungen, die eine Richtlinie festlegt, die nicht von WinWächter stammt, werden nicht mehr überschrieben. Die Zeile zeigt dann „Von einer Richtlinie festgelegt“; dieselbe Regel gilt seit 0.5.0 schon für Leistung und Sicherheit.
+- Defender: Es läuft immer nur ein Defender-Vorgang zugleich, auch über die Seiten „Schutz“, „Sicherheit“ und „Rechner in Ordnung bringen“ hinweg. Läuft gerade ein Scan oder eine Aktualisierung, warten die anderen Defender-Knöpfe.
+
 ## 0.5.0
 - Übersicht: Neuer Hauptknopf „Rechner in Ordnung bringen“. Er prüft alle Bereiche und zeigt eine einzige Liste „Empfohlene Verbesserungen“, nach Bereich gruppiert, jede Zeile mit Begründung und Häkchen. Ein Klick auf „Jetzt verbessern“ wendet die gewählten Änderungen als eine Sitzung an; im Verlauf lässt sie sich als Ganzes oder einzeln zurücknehmen. Scheitert eine Änderung, geht es mit den übrigen weiter, am Ende steht „n verbessert, m übersprungen“ mit Gründen. Die Kacheln der Übersicht führen jetzt in ihren Bereich, „Offene Vorschläge“ zählt alle Bereiche, und bei fast vollem Systemlaufwerk erscheint ein Hinweisband mit „Platz schaffen“.
 - Sicherheit behebt jetzt selbst, statt nur die Windows-Einstellungen zu öffnen:
