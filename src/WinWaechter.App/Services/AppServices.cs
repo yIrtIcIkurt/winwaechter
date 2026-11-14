@@ -70,6 +70,9 @@ public sealed class AppServices : IDisposable
         var fo = new WinFileOps();
         var sig = new WinTrustVerifier();
         var lnk = new WinShortcutResolver();
+        // stateless helpers, one instance each
+        var runner = new ProcessRunner();
+        var tcp = new TcpTableConnections();
         var (rules, rulesInfo, updateRules) = LoadRules(CreateRulesStore(env, d => SecureDataDir.Ensure(d)), env.Version,
             UpdateHttp.CreateHandler());
 
@@ -77,13 +80,13 @@ public sealed class AppServices : IDisposable
         var store = new SessionStore(env.DataRoot,
             env.IsElevated ? FileOwner.IsAdminOrSystem : null,
             env.IsElevated ? FileOwner.SetAdmins : null);
-        var defender = new DefenderClient(new ProcessRunner(), reg);
+        var defender = new DefenderClient(runner, reg);
         var firewall = new FwPolicy2Firewall();
         var factory = ChangeFactory.CreateDefault(reg, sc, ts, fo, rules);
         FirewallChange.Register(factory, firewall);
         DefenderRegistration.Register(factory, defender);
         // Programme: preinstalled apps (Windows PowerShell Appx cmdlets for the signed-in user's packages)
-        var pkgs = new WinAppPackages(new ProcessRunner(), user.Sid, Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+        var pkgs = new WinAppPackages(runner, user.Sid, Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
         AppxChange.Register(factory, pkgs, rules);
         var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows) is { Length: > 0 } w ? w : @"C:\Windows";
         // Sicherheit: secvalue, fwrule and sysprotect fixes (undo from the Verlauf needs them registered)
@@ -94,7 +97,7 @@ public sealed class AppServices : IDisposable
         SystemProtectChange.Register(factory, sc, restoreConfig);
         var power = new WinPowerModes();
         var animation = new WinAnimationSetting();
-        var hibernation = new WinHibernation(reg, new ProcessRunner(), windowsDir, Path.GetPathRoot(windowsDir) ?? @"C:\");
+        var hibernation = new WinHibernation(reg, runner, windowsDir, Path.GetPathRoot(windowsDir) ?? @"C:\");
         var broadcast = new WinSettingBroadcast();
         // one plan source for the undo registration and the scanner's „Energiesparplan“ row
         var plans = new WinPowerPlans();
@@ -107,6 +110,7 @@ public sealed class AppServices : IDisposable
         var temp = new TempScanner(fo, user);
         var paths = CleanerPaths.For(user);
         var procs = new WinProcessList();
+        var ender = new WinProcessEnder(procs);
         var cache = new CacheScanner(fo, paths, procs, sc, reg);
         var leftovers = new LeftoverFolderScanner(fo, reg, rules, procs, sc, ts, user, lnk, LeftoverFolderScanner.DefaultRoots(paths));
         var restore = new RestorePointService();
@@ -121,7 +125,7 @@ public sealed class AppServices : IDisposable
             // „Erneut versuchen“ (Verlauf): the protection check of the first offer runs again
             RetryGuards.Create(shellExt, sig, rules, AppContext.BaseDirectory));
 
-        var heuristics = new HeuristicScanner(new WmiProcessSource(), new TcpTableConnections(), sig, rules,
+        var heuristics = new HeuristicScanner(new WmiProcessSource(), tcp, sig, rules,
             user, fo, autostart, tasks, services);
 
         var canChange = env.IsElevated;
@@ -131,7 +135,7 @@ public sealed class AppServices : IDisposable
         // one runner for every one-off action, on every page
         var actions = new ActionRunner(dialogs, gate, defenderActivity);
         // Windows restarts the shell itself after the kill; the elevated app never launches Explorer
-        var restartExplorer = SystemActions.RestartExplorer(new WinProcessEnder(procs), windowsDir);
+        var restartExplorer = SystemActions.RestartExplorer(ender, windowsDir);
         // „Beenden“ (Leistung) asks the guard at run time: never Windows, services, protected vendors (rules.json) or WinWächter
         // itself. The guard takes the raw service image paths; a failing protection check counts as protected.
         ProcessGuardContext PerfGuard()
@@ -144,9 +148,9 @@ public sealed class AppServices : IDisposable
         }
         // „Browser schließen und leeren“: the same guard, but only for the fixed browser list (ProcessGuard.MayEndBrowser)
         var optimize = new OptimizeViewModel(engine, dialogs, canChange, gate, actions, restartExplorer,
-            new WinProcessEnder(procs), PerfGuard);
+            ender, PerfGuard);
         // the same real-time switch on Schutz and Sicherheit
-        var securityActions = SecurityActionSet.Create(defender, new WuaUpdateInstaller(), new WinRestarter(new ProcessRunner(), windowsDir));
+        var securityActions = SecurityActionSet.Create(defender, new WuaUpdateInstaller(), new WinRestarter(runner, windowsDir));
         // the heuristic scanner continues synchronously after its first await, so keep it off the UI thread
         Task<IReadOnlyList<Finding>> HeuristicScan(IProgress<string>? p, CancellationToken ct) =>
             Task.Run(() => heuristics.ScanAsync(p, ct), ct);
@@ -157,7 +161,7 @@ public sealed class AppServices : IDisposable
         // the browser's own extensions page opens with the signed-in user's normal rights, never elevated
         var extensionPages = new ExtensionPageOpener(reg, paths, new UserTokenLauncher(user.Sid));
         var securitySources = new SecuritySources(firewall, new WmiSecurityCenter(), defender, reg, new WmiVolumeEncryption(),
-            new WuaUpdateSearch(), new TcpTableConnections(), procs, sig, new BrowserExtensionScanner(paths, reg), extensionPages,
+            new WuaUpdateSearch(), tcp, procs, sig, new BrowserExtensionScanner(paths, reg), extensionPages,
             Policies: () => new JournalPolicyOwnership(store), FirewallRules: fwRules, Rules: rules, WindowsDir: windowsDir,
             Actions: securityActions,
             RestoreConfig: restoreConfig, Services: sc);
@@ -169,7 +173,7 @@ public sealed class AppServices : IDisposable
         // the DISM probe and the registry reads stay off the UI thread
         Task<IReadOnlyList<PrivacyRow>> PrivacyScan(CancellationToken ct) => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
         {
-            var recall = await RecallProbe.IsPresentAsync(new ProcessRunner(), ct);
+            var recall = await RecallProbe.IsPresentAsync(runner, ct);
             // a policy value someone else set is left alone (the journal tells which ones WinWächter set)
             return new PrivacyScanner(reg, rules, new JournalPolicyOwnership(store)).Scan(r => r == "recall" && recall);
         }, ct);
@@ -189,7 +193,7 @@ public sealed class AppServices : IDisposable
         var perfScanner = new PerformanceScanner(reg, power, animation, hibernation, new WinAppDisplayNames(reg), ownAccount, broadcast,
             plans, () => new JournalPolicyOwnership(store));
         var disk = new WinDiskSpace();
-        var perfTools = new PerformanceTools(TraceScan, rules, new WinProcessEnder(procs), PerfGuard, actions,
+        var perfTools = new PerformanceTools(TraceScan, rules, ender, PerfGuard, actions,
             disk.SystemDrive, HibernationBytes: () => hibernation.FileBytes);
         var systemSources = new WinSystemSources();
         var bootSource = new WinBootEventSource();
