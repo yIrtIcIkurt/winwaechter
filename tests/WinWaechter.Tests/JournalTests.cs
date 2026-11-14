@@ -75,6 +75,8 @@ public sealed class JournalTests : IDisposable
         FileLog.Error("fehler", new InvalidOperationException("boom"));
         Assert.False(File.Exists(old));
         var log = Assert.Single(Directory.GetFiles(dir));
-        Assert.Contains("hallo", File.ReadAllText(log));
+        // other tests log in parallel through the same static FileLog: read without blocking their writes
+        using var stream = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        Assert.Contains("hallo", new StreamReader(stream).ReadToEnd());
     }
 }
