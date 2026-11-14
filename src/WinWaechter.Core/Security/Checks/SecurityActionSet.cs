@@ -26,7 +26,7 @@ public sealed record SecurityActionSet(SystemAction EnableRealTime, SystemAction
                 return status.RealTime
                     ? new ActionOutcome(true, "Der Echtzeitschutz ist eingeschaltet.")
                     : new ActionOutcome(false, RealTimeBlocked, SystemLinks.DefenderThreat);
-            }),
+            }) { UsesDefender = true },
         new SystemAction("update-signatures", "Virendefinitionen aktualisieren", "Jetzt aktualisieren", null, false,
             async (p, ct) =>
             {
@@ -35,7 +35,7 @@ public sealed record SecurityActionSet(SystemAction EnableRealTime, SystemAction
                 return exit == 0
                     ? new ActionOutcome(true, "Die Virendefinitionen sind aktuell.")
                     : new ActionOutcome(false, $"Die Virendefinitionen ließen sich nicht aktualisieren (Code {exit}).");
-            }),
+            }) { UsesDefender = true },
         new SystemAction("install-updates", "Windows-Updates installieren", "Updates installieren",
             "Updates lassen sich nicht über WinWächter zurücknehmen; einzelne können Sie in Windows unter Updateverlauf deinstallieren.", true,
             async (p, ct) =>

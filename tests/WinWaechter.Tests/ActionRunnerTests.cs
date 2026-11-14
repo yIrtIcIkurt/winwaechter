@@ -101,6 +101,56 @@ public class ActionRunnerTests
     }
 
     [Fact]
+    public async Task Defender_action_waits_while_Defender_is_busy_elsewhere()
+    {
+        var dialogs = new RecordingDialogs();
+        var activity = new DefenderActivity { Others = () => true };   // e.g. a scan on the Schutz page
+        var ran = false;
+        var act = Make(() => { ran = true; return Task.FromResult(new ActionOutcome(true, "ok")); }, "Sicher?") with { UsesDefender = true };
+
+        var r = await new ActionRunner(dialogs, new ChangeGate(), activity).RunAsync(this, act, null);
+
+        Assert.False(ran);
+        Assert.Empty(dialogs.Confirms);   // refused before the confirmation
+        Assert.False(r!.Success);
+        Assert.Equal(DefenderActivity.BusyText, r.Message);
+
+        // other actions do not care
+        var plain = await new ActionRunner(dialogs, new ChangeGate(), activity).RunAsync(this, act with { UsesDefender = false }, null);
+        Assert.True(plain!.Success);
+    }
+
+    [Fact]
+    public async Task Running_Defender_action_marks_Defender_busy_until_it_ends()
+    {
+        var activity = new DefenderActivity();
+        var release = new TaskCompletionSource();
+        var seen = new List<bool>();
+        activity.PropertyChanged += (_, _) => seen.Add(activity.IsRunning);
+        var act = Make(async () => { await release.Task; return new ActionOutcome(true, "ok"); }) with { UsesDefender = true };
+
+        var running = new ActionRunner(new RecordingDialogs(), new ChangeGate(), activity).RunAsync(this, act, null);
+        Assert.True(activity.IsRunning);
+        Assert.True(activity.IsBusy);
+        Assert.False(activity.TryBegin());   // a second Defender job is refused meanwhile
+        release.SetResult();
+        await running;
+
+        Assert.False(activity.IsRunning);
+        Assert.Equal([true, false], seen);
+    }
+
+    [Fact]
+    public void Defender_actions_of_the_security_rows_are_marked()
+    {
+        var set = WinWaechter.Core.Security.Checks.SecurityActionSet.Create(new FakeDefender(), new FakeUpdateInstaller(), new FakeRestarter());
+        Assert.True(set.EnableRealTime.UsesDefender);
+        Assert.True(set.UpdateSignatures.UsesDefender);
+        Assert.False(set.InstallUpdates.UsesDefender);
+        Assert.False(set.Restart.UsesDefender);
+    }
+
+    [Fact]
     public void Final_without_confirm_text_throws() =>
         Assert.Throws<ArgumentException>(() => Make(() => Task.FromResult(new ActionOutcome(true, "ok")), null, true));
 }

@@ -126,8 +126,10 @@ public sealed class AppServices : IDisposable
 
         var canChange = env.IsElevated;
         var gate = new ChangeGate();
+        // one Defender job at a time across Schutz, Sicherheit and „Rechner in Ordnung bringen“ (Schutz is wired in below)
+        var defenderActivity = new DefenderActivity();
         // one runner for every one-off action, on every page
-        var actions = new ActionRunner(dialogs, gate);
+        var actions = new ActionRunner(dialogs, gate, defenderActivity);
         // Windows restarts the shell itself after the kill; the elevated app never launches Explorer
         var restartExplorer = SystemActions.RestartExplorer(new WinProcessEnder(procs), windowsDir);
         // „Beenden“ (Leistung) asks the guard at run time: never Windows, services, protected vendors (rules.json) or WinWächter
@@ -149,7 +151,8 @@ public sealed class AppServices : IDisposable
         Task<IReadOnlyList<Finding>> HeuristicScan(IProgress<string>? p, CancellationToken ct) =>
             Task.Run(() => heuristics.ScanAsync(p, ct), ct);
         var protect = new ProtectViewModel(defender, HeuristicScan,
-            engine, ProcessTools.KillByPath, dialogs, canChange, gate, actions, securityActions.EnableRealTime, shell);
+            engine, ProcessTools.KillByPath, dialogs, canChange, gate, actions, securityActions.EnableRealTime, shell, defenderActivity);
+        defenderActivity.Others = () => protect.IsDefenderBusy;
         // every source runs on the thread pool with its own timeout; the whole check stays off the UI thread
         // the browser's own extensions page opens with the signed-in user's normal rights, never elevated
         var extensionPages = new ExtensionPageOpener(reg, paths, new UserTokenLauncher(user.Sid));
@@ -161,7 +164,8 @@ public sealed class AppServices : IDisposable
         Task<IReadOnlyList<SecurityItem>> SecurityRun(CancellationToken ct) =>
             Task.Run(() => new SecurityCheck(securitySources).RunAsync(ct), ct);
         var security = new SecurityViewModel(SecurityRun,
-            engine, defender, dialogs, shell, canChange, gate, () => protect.IsDefenderBusy, extensionPages, actions: actions);
+            engine, defender, dialogs, shell, canChange, gate, extensionPages: extensionPages, actions: actions,
+            defenderActivity: defenderActivity);
         // the DISM probe and the registry reads stay off the UI thread
         Task<IReadOnlyList<PrivacyRow>> PrivacyScan(CancellationToken ct) => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
         {

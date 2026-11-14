@@ -36,4 +36,7 @@ public sealed record SystemAction
     public bool Final { get; init; }
     public Func<IProgress<string>?, CancellationToken, Task<ActionOutcome>> RunAsync { get; init; }
     public IReadOnlyList<string>? Items { get; init; }
+
+    /// <summary>Runs a Defender job: waits while another Defender job runs (on any page).</summary>
+    public bool UsesDefender { get; init; }
 }

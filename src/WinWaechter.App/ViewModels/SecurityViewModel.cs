@@ -69,16 +69,23 @@ public sealed partial class SecurityViewModel : ObservableObject
     readonly IExtensionPages? _extensionPages;
     readonly Action<string> _copyText;
     readonly ActionRunner? _actions;
+    readonly DefenderActivity? _activity;
 
     /// <param name="actions">The app's shared runner for one-off actions; without it action rows offer no button.</param>
+    /// <param name="defenderBusy">Whether Defender is busy elsewhere; defaults to <paramref name="defenderActivity"/>.</param>
+    /// <param name="defenderActivity">One Defender job at a time across pages; the file check registers here.</param>
     public SecurityViewModel(Func<CancellationToken, Task<IReadOnlyList<SecurityItem>>> check, OptimizerEngine engine,
         IDefender defender, IDialogService dialogs, ISystemShell shell, bool canChange, ChangeGate gate, Func<bool>? defenderBusy = null,
-        IExtensionPages? extensionPages = null, Action<string>? copyText = null, ActionRunner? actions = null)
+        IExtensionPages? extensionPages = null, Action<string>? copyText = null, ActionRunner? actions = null,
+        DefenderActivity? defenderActivity = null)
     {
         _actions = actions;
+        _activity = defenderActivity;
         _extensionPages = extensionPages;
         _copyText = copyText ?? System.Windows.Clipboard.SetText;
-        _defenderBusy = defenderBusy ?? (() => false);
+        _defenderBusy = defenderBusy ?? (defenderActivity is { } a ? () => a.IsBusy : () => false);
+        if (defenderActivity is not null)
+            defenderActivity.PropertyChanged += (_, _) => RunActionCommand.NotifyCanExecuteChanged();
         _check = check;
         _engine = engine;
         _defender = defender;
@@ -227,7 +234,9 @@ public sealed partial class SecurityViewModel : ObservableObject
         // opening the browser's page changes nothing itself; the user removes the extension there
         SecurityActionKind.ExtensionPage => row.Item.Extension is not null && _extensionPages is not null && !IsBusy,
         // one-off actions change the system: admin rights, the shared runner and a free gate
-        SecurityActionKind.Action => row.Item.Act is not null && _actions is not null && CanChange && !IsBusy && !_gate.IsBusy,
+        // a Defender action (Virendefinitionen, Echtzeitschutz) also waits for a running Defender job
+        SecurityActionKind.Action => row.Item.Act is { } act && _actions is not null && CanChange && !IsBusy && !_gate.IsBusy
+                                     && !(act.UsesDefender && _defenderBusy()),
         _ => false,
     };
 
@@ -367,6 +376,12 @@ public sealed partial class SecurityViewModel : ObservableObject
         var path = item.ScanPath!;
         if (!_dialogs.Confirm("Von Defender prüfen lassen", "Defender prüft diese Datei. Das kann einen Moment dauern.", "Prüfen", [path]))
             return;
+        // something may have started while the confirmation was open
+        if (_activity is not null ? !_activity.TryBegin() : _defenderBusy())
+        {
+            LastSummary = DefenderActivity.BusyText;
+            return;
+        }
         IsBusy = true;
         ProgressText = $"Defender prüft {path} …";
         try
@@ -383,6 +398,7 @@ public sealed partial class SecurityViewModel : ObservableObject
         {
             ProgressText = "";
             IsBusy = false;
+            _activity?.End();
         }
     }
 }

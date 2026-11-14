@@ -25,14 +25,29 @@ public sealed partial class ProtectViewModel : ObservableObject
     readonly ActionRunner? _actions;
     readonly SystemAction? _enableRealTime;
     readonly ISystemShell? _shell;
+    readonly DefenderActivity? _activity;
     CancellationTokenSource? _defenderCts;
 
     /// <param name="enableRealTime">The same action as on the Sicherheit page (SecurityActionSet.EnableRealTime).</param>
     /// <param name="shell">Opens Windows-Sicherheit when Windows blocked the switch.</param>
+    /// <param name="defenderActivity">Defender jobs of the other pages; while one runs, this page starts none.</param>
     public ProtectViewModel(IDefender defender, HeuristicScan heuristics, OptimizerEngine engine,
         Func<string, int> killByPath, IDialogService dialogs, bool canChange, ChangeGate gate,
-        ActionRunner? actions = null, SystemAction? enableRealTime = null, ISystemShell? shell = null)
+        ActionRunner? actions = null, SystemAction? enableRealTime = null, ISystemShell? shell = null,
+        DefenderActivity? defenderActivity = null)
     {
+        _activity = defenderActivity;
+        if (defenderActivity is not null)
+            defenderActivity.PropertyChanged += (_, _) =>
+            {
+                UpdateSignaturesCommand.NotifyCanExecuteChanged();
+                QuickScanCommand.NotifyCanExecuteChanged();
+                FullScanCommand.NotifyCanExecuteChanged();
+                CleanCommand.NotifyCanExecuteChanged();
+                CheckWithDefenderCommand.NotifyCanExecuteChanged();
+                EnablePuaCommand.NotifyCanExecuteChanged();
+                EnableRealTimeCommand.NotifyCanExecuteChanged();
+            };
         _actions = actions;
         _enableRealTime = enableRealTime;
         _shell = shell;
@@ -163,7 +178,8 @@ public sealed partial class ProtectViewModel : ObservableObject
 
     public bool IsDefenderBusy => DefenderOperation is not null;
 
-    bool CanRunDefender() => CanChange && !IsDefenderBusy;
+    // also waits for a Defender job of another page (Sicherheit, Rechner in Ordnung bringen)
+    bool CanRunDefender() => CanChange && !IsDefenderBusy && _activity?.IsRunning != true;
 
     [RelayCommand(CanExecute = nameof(CanRunDefender))]
     private Task UpdateSignaturesAsync() => RunDefenderAsync("Signaturen werden aktualisiert", "Signaturen aktualisiert.",
