@@ -74,6 +74,8 @@
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
                                 <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,0" Content="Neu suchen" Command="{Binding RefreshCommand}" />
                                 <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,0" Content="Alle auswählen" Command="{Binding SelectAllCommand}" />
+                                <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,0" Content="Abbrechen" Command="{Binding CancelCommand}"
+                                        Visibility="{Binding IsBusy, Converter={StaticResource Vis}}" />
                                 <Button Style="{StaticResource Button.Final}" Content="{Binding UpdateSelectedText}" Command="{Binding UpdateSelectedCommand}" />
                             </StackPanel>
                             <StackPanel>

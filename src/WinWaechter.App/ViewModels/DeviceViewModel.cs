@@ -76,7 +76,9 @@ public sealed partial class DeviceViewModel : ObservableObject
         _scan = scan;
         _runner = runner;
         CanChange = canChange;
-        if (runner.Lock(ActivityLock.Disk) is { } l) l.PropertyChanged += (_, _) => RefreshRows();
+        // optimize uses the disk lock, „Datenträger prüfen“ the repair lock
+        foreach (var key in new[] { ActivityLock.Disk, ActivityLock.Repair })
+            if (runner.Lock(key) is { } l) l.PropertyChanged += (_, _) => RefreshRows();
     }
 
     public bool CanChange { get; }

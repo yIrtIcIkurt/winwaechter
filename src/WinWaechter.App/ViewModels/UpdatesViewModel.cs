@@ -181,10 +181,11 @@ public sealed partial class UpdatesViewModel : ObservableObject
                 if (byId.TryGetValue(r.Package.Id, out var row)) row.ResultText = r.Text;
             return Task.CompletedTask;
         });
+        _cts = new CancellationTokenSource();
         IsBusy = true;
         try
         {
-            var outcome = await _runner.RunAsync(this, action, new Progress<string>(t => ProgressText = t));
+            var outcome = await _runner.RunAsync(this, action, new Progress<string>(t => ProgressText = t), _cts.Token);
             if (outcome is null) return;
             ResultText = outcome.Message;
         }
@@ -192,7 +193,24 @@ public sealed partial class UpdatesViewModel : ObservableObject
         {
             ProgressText = null;
             IsBusy = false;
+            _cts.Dispose();
+            _cts = null;
         }
         await LoadAsync(false);
     }
+
+    CancellationTokenSource? _cts;
+
+    bool CanCancel() => IsBusy && _cts is { IsCancellationRequested: false };
+
+    /// <summary>„Abbrechen“: takes effect after the running package; a running setup is never killed.</summary>
+    [RelayCommand(CanExecute = nameof(CanCancel))]
+    void Cancel()
+    {
+        _cts?.Cancel();
+        ProgressText = "Wird nach dem laufenden Paket abgebrochen …";
+        CancelCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsBusyChanged(bool value) => CancelCommand.NotifyCanExecuteChanged();
 }

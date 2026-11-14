@@ -172,6 +172,45 @@ public class RepairTests
         Assert.Equal(["WLAN: DNS 9.9.9.9, 149.112.112.112", "Ethernet: IP 10.0.0.5"], a.Items);
     }
 
+    // review: disconnected adapters (dock, Bluetooth) are not IPEnabled in WMI but still lose their fixed settings
+    [Fact]
+    public void Network_config_from_registry_covers_disconnected_adapters()
+    {
+        const string v4 = @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces";
+        const string v6 = @"SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\Interfaces";
+        const string names = @"SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}";
+        var reg = new FakeRegistry()
+            .Seed(Hive.LocalMachine, v4 + @"\{aaa}", "EnableDHCP", 0, Microsoft.Win32.RegistryValueKind.DWord)
+            .Seed(Hive.LocalMachine, v4 + @"\{aaa}", "IPAddress", new[] { "192.168.178.5" }, Microsoft.Win32.RegistryValueKind.MultiString)
+            .Seed(Hive.LocalMachine, v4 + @"\{aaa}", "NameServer", "9.9.9.9,149.112.112.112")
+            .Seed(Hive.LocalMachine, names + @"\{aaa}\Connection", "Name", "Ethernet 2 (Dock)")
+            .Seed(Hive.LocalMachine, v4 + @"\{bbb}", "EnableDHCP", 1, Microsoft.Win32.RegistryValueKind.DWord)
+            .Seed(Hive.LocalMachine, v4 + @"\{bbb}", "NameServer", "")
+            .Seed(Hive.LocalMachine, v6 + @"\{bbb}", "NameServer", "2620:fe::fe")
+            .Seed(Hive.LocalMachine, names + @"\{bbb}\Connection", "Name", "WLAN")
+            .Seed(Hive.LocalMachine, v4 + @"\{ccc}", "EnableDHCP", 1, Microsoft.Win32.RegistryValueKind.DWord);
+        var list = new RegistryNetworkConfig(reg).Read();
+        var dock = list.Single(a => a.Name == "Ethernet 2 (Dock)");
+        Assert.True(dock.StaticIp);
+        Assert.Equal(["192.168.178.5"], dock.Ips);
+        Assert.Equal(["9.9.9.9", "149.112.112.112"], dock.Dns);
+        var wlan = list.Single(a => a.Name == "WLAN");
+        Assert.False(wlan.StaticIp);
+        Assert.Equal(["2620:fe::fe"], wlan.Dns);
+        Assert.False(list.Single(a => a.Name == "{ccc}").StaticDns);
+    }
+
+    // review: every repair shares one lock (spec: one repair at a time)
+    [Fact]
+    public void Every_repair_uses_the_repair_lock()
+    {
+        _files.FileSet.Add(Path.Combine(Spool, "1.SPL"));
+        var a = Actions();
+        foreach (var act in new[] { a.SystemFiles(), a.WindowsUpdate(), a.FlushDns(), a.RenewIp(), a.NetworkReset(), a.PrintQueue()!, a.IconCache(),
+                     a.ScanDisk('C'), a.FixDiskOnRestart('C') })
+            Assert.Equal("repair", act.LockKey);
+    }
+
     [Fact]
     public async Task Network_reset_runs_winsock_and_ip_reset_after_restore_point()
     {
@@ -232,7 +271,7 @@ public class RepairTests
         var scan = acts.ScanDisk('C');
         Assert.Null(scan.ConfirmText);
         Assert.True(scan.SkipGate);
-        Assert.Equal("disk", scan.LockKey);
+        Assert.Equal("repair", scan.LockKey);
         _run.Handler = (_, _) => Task.FromResult((0, "Windows hat das Dateisystem überprüft und keine Probleme gefunden.", ""));
         await scan.RunAsync(null, CancellationToken.None);
         Assert.False(acts.ScanFoundErrors);

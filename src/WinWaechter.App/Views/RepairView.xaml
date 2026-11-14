@@ -58,6 +58,9 @@
                                         <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Top" HorizontalAlignment="Right">
                                             <Button Style="{StaticResource Button.Quiet}" Content="{Binding ButtonText}" Command="{Binding RunCommand}"
                                                     AutomationProperties.Name="{Binding Title}" HorizontalAlignment="Right" />
+                                            <Button Margin="0,8,0,0" Style="{StaticResource Button.Quiet}" Content="Abbrechen" Command="{Binding CancelCommand}"
+                                                    HorizontalAlignment="Right" ToolTip="Wirkt, sobald DISM fertig ist (vor sfc)."
+                                                    Visibility="{Binding ShowCancel, Converter={StaticResource Vis}}" />
                                             <Button Margin="0,8,0,0" Style="{StaticResource Button.Final}" Content="Beim nächsten Neustart reparieren"
                                                     Command="{Binding FixCommand}" HorizontalAlignment="Right"
                                                     Visibility="{Binding ShowFix, Converter={StaticResource Vis}}" />

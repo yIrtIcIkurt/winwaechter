@@ -112,7 +112,7 @@ public sealed partial class RepairActions(
                     ? new ActionOutcome(true, "Windows Update wurde zurückgesetzt. Suchen Sie danach erneut nach Updates.")
                     : new ActionOutcome(false, "Windows Update ließ sich nicht vollständig zurücksetzen: " + error);
             })
-        { Stamp = true };
+        { LockKey = "repair", Stamp = true };
 
     void RenameKeepingOne(string dir)
     {
@@ -147,7 +147,7 @@ public sealed partial class RepairActions(
             var (exit, _, _) = await run.RunAsync(Sys32("ipconfig.exe"), "/flushdns", CancellationToken.None).ConfigureAwait(false);
             return exit == 0 ? new ActionOutcome(true, "Der DNS-Cache wurde geleert.") : new ActionOutcome(false, $"Fehlgeschlagen (Code {exit}).");
         })
-        { Stamp = true };
+        { LockKey = "repair", Stamp = true };
 
     public SystemAction RenewIp() =>
         new("repair-renew", "Verbindung neu aufbauen", "Neu aufbauen", "Die Verbindung ist kurz weg.", false, async (p, _) =>
@@ -160,7 +160,7 @@ public sealed partial class RepairActions(
                 ? new ActionOutcome(true, "Die Verbindung wurde neu aufgebaut.")
                 : new ActionOutcome(false, "Die Verbindung ließ sich nicht neu aufbauen. Prüfen Sie Kabel oder WLAN.");
         })
-        { Stamp = true };
+        { LockKey = "repair", Stamp = true };
 
     public SystemAction NetworkReset()
     {
@@ -182,7 +182,7 @@ public sealed partial class RepairActions(
             return a.Exit == 0 && b.Exit == 0
                 ? new ActionOutcome(true, "Netzwerk zurückgesetzt. Bitte starten Sie den Rechner neu.")
                 : new ActionOutcome(false, $"Das Zurücksetzen ist teilweise fehlgeschlagen (Code {a.Exit}/{b.Exit}). Details im Protokoll.");
-        }, items) { Stamp = true };
+        }, items) { LockKey = "repair", Stamp = true };
     }
 
     // ---- 4. print queue ----
@@ -214,7 +214,7 @@ public sealed partial class RepairActions(
             return failed == 0
                 ? new ActionOutcome(true, "Die Druckerwarteschlange ist leer.")
                 : new ActionOutcome(false, $"{failed} Druckaufträge ließen sich nicht löschen.");
-        }) { Stamp = true };
+        }) { LockKey = "repair", Stamp = true };
 
     // ---- 5. icon and thumbnail cache ----
 
@@ -242,7 +242,7 @@ public sealed partial class RepairActions(
                 if (!outcome.Success) message += " " + outcome.Message;
                 return new ActionOutcome(outcome.Success, message);
             })
-        { Stamp = true };
+        { LockKey = "repair", Stamp = true };
 
     // ---- 6. disk check ----
 
@@ -265,7 +265,7 @@ public sealed partial class RepairActions(
             return clean
                 ? new ActionOutcome(true, $"Laufwerk {d}: keine Fehler gefunden.")
                 : new ActionOutcome(false, $"Auf Laufwerk {d}: wurden Fehler gefunden. Sie lassen sich beim nächsten Neustart reparieren.");
-        }) { SkipGate = true, LockKey = "disk", Stamp = true };
+        }) { SkipGate = true, LockKey = "repair", Stamp = true };
     }
 
     public SystemAction FixDiskOnRestart(char drive)
@@ -279,7 +279,7 @@ public sealed partial class RepairActions(
                 return exit == 0
                     ? new ActionOutcome(true, "Die Reparatur läuft beim nächsten Neustart.")
                     : new ActionOutcome(false, $"Die Reparatur ließ sich nicht einplanen (Code {exit}). {err.Trim()}".Trim());
-            }) { Stamp = true };
+            }) { LockKey = "repair", Stamp = true };
     }
 }
 

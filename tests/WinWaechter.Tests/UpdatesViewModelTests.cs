@@ -128,6 +128,26 @@ public class UpdatesViewModelTests
         Assert.True(Assert.Single(_dialogs.Confirms).Final);
     }
 
+    // review: „Abbrechen“ stops after the running package
+    [Fact]
+    public async Task Cancel_stops_after_the_running_package()
+    {
+        _winget.List = new(WingetListStatus.Ok, [P("7-Zip", "7zip.7zip"), P("Notepad++", "Notepad++.Notepad++")], null);
+        var vm = Vm();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.False(vm.CancelCommand.CanExecute(null));
+        _winget.UpgradeHandler = _ =>
+        {
+            Assert.True(vm.CancelCommand.CanExecute(null));
+            vm.CancelCommand.Execute(null);
+            return 0;
+        };
+        await vm.UpdateSelectedCommand.ExecuteAsync(null);
+        Assert.Single(_winget.Upgraded);
+        Assert.Contains("Rest abgebrochen", vm.ResultText);
+        Assert.False(vm.CancelCommand.CanExecute(null));
+    }
+
     [Fact]
     public async Task Update_one_installs_only_that_row()
     {

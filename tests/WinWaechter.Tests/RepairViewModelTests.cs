@@ -54,7 +54,7 @@ public sealed class RepairViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task Running_repair_disables_other_long_rows()
+    public async Task Running_repair_disables_every_other_repair()
     {
         var vm = Vm();
         await vm.LoadCommand.ExecuteAsync(null);
@@ -63,10 +63,32 @@ public sealed class RepairViewModelTests : IDisposable
         Assert.True(_locks["repair"].TryBegin());
         Assert.False(sfc.RunCommand.CanExecute(null));
         Assert.Equal("Eine Reparatur läuft gerade.", sfc.LockText);
-        // a short tool keeps working
-        Assert.True(vm.Rows.Single(r => r.Id == "repair-dns").RunCommand.CanExecute(null));
+        // spec 4.3: one repair at a time – the short tools wait too (Windows Update must not be reset during DISM)
+        Assert.All(vm.Rows, r => Assert.False(r.RunCommand.CanExecute(null), r.Id));
+        Assert.False(vm.LoadCommand.CanExecute(null));
         _locks["repair"].End();
         Assert.True(sfc.RunCommand.CanExecute(null));
+        Assert.True(vm.LoadCommand.CanExecute(null));
+    }
+
+    // review: „Abbrechen“ of the system-file repair takes effect before sfc
+    [Fact]
+    public async Task Cancel_before_sfc_stops_after_dism()
+    {
+        var vm = Vm();
+        await vm.LoadCommand.ExecuteAsync(null);
+        var sfc = vm.Rows.Single(r => r.Id == "repair-sfc");
+        Assert.True(sfc.CanCancel);
+        Assert.False(vm.Rows.Single(r => r.Id == "repair-dns").CanCancel);
+        _run.Handler = (exe, _) =>
+        {
+            if (exe.EndsWith("dism.exe")) sfc.CancelCommand.Execute(null);
+            return Task.FromResult((0, "", ""));
+        };
+        _run.Calls.Clear();
+        await sfc.RunCommand.ExecuteAsync(null);
+        Assert.Single(_run.Calls);
+        Assert.Equal("Abgebrochen.", sfc.ResultText);
     }
 
     [Fact]

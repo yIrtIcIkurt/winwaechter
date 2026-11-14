@@ -264,7 +264,7 @@ public sealed class AppServices : IDisposable
 
         // Reparatur: fixed System32 tools; the restore point before the final ones asks only on a real failure
         var systemDrive = char.ToUpperInvariant((Path.GetPathRoot(windowsDir) ?? "C")[0]);
-        var repairActions = new RepairActions(runner, sc, new WinRepairFiles(), new WmiNetworkConfig(),
+        var repairActions = new RepairActions(runner, sc, new WinRepairFiles(), new RegistryNetworkConfig(reg),
             () => RestorePointGate.EnsureAsync(restore.TryCreate, "Reparatur", dialogs), ender, windowsDir, localAppData, DateTime.Today);
         var repairChecks = new RepairChecks(runner, windowsDir);
         var repair = new RepairViewModel(repairActions, repairChecks, actions, stamps, canChange, systemDrive, ownAccount);
