@@ -166,7 +166,8 @@ public sealed class AppServices : IDisposable
         Task<IReadOnlyList<PrivacyRow>> PrivacyScan(CancellationToken ct) => Task.Run<IReadOnlyList<PrivacyRow>>(async () =>
         {
             var recall = await RecallProbe.IsPresentAsync(new ProcessRunner(), ct);
-            return new PrivacyScanner(reg, rules).Scan(r => r == "recall" && recall);
+            // a policy value someone else set is left alone (the journal tells which ones WinWächter set)
+            return new PrivacyScanner(reg, rules, new JournalPolicyOwnership(store)).Scan(r => r == "recall" && recall);
         }, ct);
         var privacy = new PrivacyViewModel(PrivacyScan, engine, dialogs, canChange, gate);
         // traces (services, tasks, autostarts) for the leftover search and the forced removal

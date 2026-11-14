@@ -234,6 +234,60 @@ public sealed class PrivacyTests : IDisposable
         Assert.Single(row.Changes);
     }
 
+    sealed class Ownership(bool ours, bool throws = false) : IPolicyOwnership
+    {
+        public bool IsOurs(Hive h, string key, string name) => throws ? throw new IOException("Journal") : ours;
+    }
+
+    const string PolicyKey = @"SOFTWARE\Policies\Microsoft\Windows\DataCollection";
+
+    PrivacyRow Diagnose(IPolicyOwnership? own) =>
+        new PrivacyScanner(_reg, _rules, own).Scan(_ => true).Single(r => r.Setting.Id == "diagnosedaten");
+
+    [Fact]
+    public void Foreign_policy_value_is_not_overwritten_and_the_row_says_so()
+    {
+        _reg.Seed(Hive.LocalMachine, PolicyKey, "AllowTelemetry", 3, RegistryValueKind.DWord);
+
+        foreach (var own in new IPolicyOwnership?[] { new Ownership(false), null, new Ownership(true, throws: true) })
+        {
+            var row = Diagnose(own);
+            Assert.Equal(PrivacyState.On, row.State);
+            Assert.Empty(row.Changes);
+            Assert.Equal(PolicyValues.ForeignText, row.Note);
+        }
+    }
+
+    [Fact]
+    public void Own_or_missing_policy_value_is_offered()
+    {
+        // missing: no policy is set, WinWächter may set it
+        var missing = Diagnose(new Ownership(false));
+        Assert.Single(missing.Changes);
+        Assert.Null(missing.Note);
+
+        // WinWächter set it earlier and something reset it: offered again
+        _reg.Seed(Hive.LocalMachine, PolicyKey, "AllowTelemetry", 3, RegistryValueKind.DWord);
+        var ours = Diagnose(new Ownership(true));
+        Assert.Single(ours.Changes);
+        Assert.Null(ours.Note);
+    }
+
+    [Fact]
+    public void Foreign_policy_at_target_counts_as_off_and_non_policy_values_ignore_ownership()
+    {
+        _reg.Seed(Hive.LocalMachine, PolicyKey, "AllowTelemetry", 1, RegistryValueKind.DWord);
+        var row = Diagnose(new Ownership(false));
+        Assert.Equal(PrivacyState.Off, row.State);
+        Assert.Null(row.Note);
+
+        // „tipps“ lives under ContentDeliveryManager (no policy key): present values are always offered
+        _reg.Seed(Hive.CurrentUser, CdmKey, "SoftLandingEnabled", 1, RegistryValueKind.DWord);
+        var tipps = new PrivacyScanner(_reg, _rules, new Ownership(false)).Scan(_ => true).Single(r => r.Setting.Id == "tipps");
+        Assert.Equal(2, tipps.Changes.Count);
+        Assert.Null(tipps.Note);
+    }
+
     [Fact]
     public void Scanner_hides_recall_row_without_component()
     {

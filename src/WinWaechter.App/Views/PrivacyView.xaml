@@ -66,6 +66,9 @@
                                                         <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                                         <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap"
                                                                    MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding Explanation}" />
+                                                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap"
+                                                                   MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding Note}"
+                                                                   Visibility="{Binding HasNote, Converter={StaticResource Vis}}" />
                                                     </StackPanel>
                                                     <StackPanel Grid.Column="2" Margin="16,0,0,0" HorizontalAlignment="Right">
                                                         <ContentControl Style="{StaticResource Chip}" Tag="{Binding StateTone}" Content="{Binding StateText}"

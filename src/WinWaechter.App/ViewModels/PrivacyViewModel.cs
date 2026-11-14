@@ -26,6 +26,10 @@ public sealed partial class PrivacyRowViewModel : ObservableObject
     public string Explanation => Row.Setting.Explanation;
     public bool IsRecommended => Row.Setting.Recommended;
 
+    /// <summary>E.g. „Von einer Richtlinie festgelegt“: that value is left alone.</summary>
+    public string? Note => Row.Note;
+    public bool HasNote => Row.Note is not null;
+
     public string StateText => Row.State switch
     {
         PrivacyState.On => "An",
