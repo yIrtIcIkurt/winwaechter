@@ -57,7 +57,19 @@ public sealed class RuleSet
         public List<string>? LeftoverIgnore { get; set; }
         public List<PrivacyDto>? Privacy { get; set; }
         public List<BloatAppDto>? BloatApps { get; set; }
+        public List<UpdateBlockDto>? UpdateBlock { get; set; }
     }
+
+    sealed class UpdateBlockDto
+    {
+        public string? Name { get; set; }
+        public string? Publisher { get; set; }
+        public string? Path { get; set; }
+        public string? IdPrefix { get; set; }
+    }
+
+    /// <summary>A program WinWächter never updates (all given fields must match; names and publishers on word start).</summary>
+    public sealed record UpdateBlockRule(string? Name, string? Publisher, string? Path, string? IdPrefix);
 
     sealed class BloatAppDto
     {
@@ -132,13 +144,15 @@ public sealed class RuleSet
         Privacy = (d.Privacy ?? []).Select(ToSetting).ToArray();
         RejectDuplicatePrivacyValues(Privacy);
         BloatApps = (d.BloatApps ?? []).Select(ToBloatRule).ToArray();
+        UpdateBlock = (d.UpdateBlock ?? []).Select(ToUpdateBlock).ToArray();
     }
 
     // Used by UnionWith only.
     RuleSet(int version, string? minApp, Matcher[] prot, Matcher[] exp, Matcher[] pua, string[] minerNames,
         string[] minerCmd, IReadOnlySet<int> ports, IReadOnlyList<string> leftoverIgnore, IReadOnlyList<PrivacySetting> privacy,
-        IReadOnlyList<BloatAppRule> bloatApps)
+        IReadOnlyList<BloatAppRule> bloatApps, IReadOnlyList<UpdateBlockRule> updateBlock)
     {
+        UpdateBlock = updateBlock;
         RulesVersion = version;
         MinAppVersion = minApp;
         _protected = prot;
@@ -165,8 +179,32 @@ public sealed class RuleSet
         return new RuleSet(Math.Max(RulesVersion, other.RulesVersion), other.MinAppVersion,
             M(_protected, other._protected), M(_expendable, other._expendable), M(_pua, other._pua),
             S(_minerNames, other._minerNames), S(_minerCmd, other._minerCmd),
-            new HashSet<int>(PoolPorts.Concat(other.PoolPorts)), S(LeftoverIgnore, other.LeftoverIgnore), Privacy, BloatApps);
+            new HashSet<int>(PoolPorts.Concat(other.PoolPorts)), S(LeftoverIgnore, other.LeftoverIgnore), Privacy, BloatApps, UpdateBlock);
     }
+
+    static readonly System.Text.RegularExpressions.Regex IdPrefixPattern = new(@"^[A-Za-z0-9][A-Za-z0-9+_-]*\.$");
+
+    static UpdateBlockRule ToUpdateBlock(UpdateBlockDto u)
+    {
+        var rule = new UpdateBlockRule(Norm(u.Name), Norm(u.Publisher), Norm(u.Path), Norm(u.IdPrefix));
+        if (rule is { Name: null, Publisher: null, Path: null, IdPrefix: null })
+            throw new InvalidDataException("rules.json: leerer Eintrag in \"updateBlock\".");
+        if (rule.IdPrefix is not null && !IdPrefixPattern.IsMatch(rule.IdPrefix))
+            throw new InvalidDataException($"rules.json: ungültiges \"idPrefix\" \"{rule.IdPrefix}\" in \"updateBlock\".");
+        return rule;
+    }
+
+    /// <summary>Programs never updated through winget (fixed local list; never from the network).</summary>
+    public IReadOnlyList<UpdateBlockRule> UpdateBlock { get; }
+
+    /// <summary>True when an entry of <see cref="UpdateBlock"/> matches: every field the entry gives must match
+    /// (name/publisher on word start, path as substring, idPrefix as start of the winget id).</summary>
+    public bool IsUpdateBlocked(string? name, string? publisher, string? path, string? wingetId = null) =>
+        UpdateBlock.Any(r =>
+            (r.Name is null || WordStart(name, r.Name))
+            && (r.Publisher is null || WordStart(publisher, r.Publisher))
+            && (r.Path is null || (!string.IsNullOrEmpty(path) && path.Contains(r.Path, StringComparison.OrdinalIgnoreCase)))
+            && (r.IdPrefix is null || (wingetId is not null && wingetId.StartsWith(r.IdPrefix, StringComparison.OrdinalIgnoreCase))));
 
     // The fixed list of registry values the privacy feature may ever write.
     static PrivacySetting ToSetting(PrivacyDto p)

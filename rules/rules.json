@@ -1,5 +1,5 @@
-{
-  "rulesVersion": 3,
+﻿{
+  "rulesVersion": 4,
   "minAppVersion": "0.3.0",
   "protected": [
     { "publisher": "Microsoft" }, { "publisher": "Dell" }, { "publisher": "Intel" }, { "publisher": "Realtek" },
@@ -224,5 +224,12 @@
     { "package": "Microsoft.MicrosoftOfficeHub", "title": "Microsoft 365 (Office)", "recommended": false },
     { "package": "MicrosoftCorporationII.QuickAssist", "title": "Schnellhilfe (Quick Assist)", "recommended": false },
     { "package": "Microsoft.MicrosoftStickyNotes", "title": "Kurznotizen", "recommended": false }
+  ],
+  "updateBlock": [
+    { "publisher": "Dell" }, { "idPrefix": "Dell." }, { "name": "Dell" },
+    { "publisher": "Lexware" }, { "name": "Lexware" }, { "idPrefix": "Lexware." }, { "path": "\\Lexware\\" },
+    { "publisher": "Haufe" }, { "idPrefix": "Haufe." },
+    { "idPrefix": "Intel." }, { "idPrefix": "Nvidia." }, { "idPrefix": "AMD." }, { "idPrefix": "Realtek." },
+    { "publisher": "Intel" }, { "publisher": "NVIDIA" }, { "publisher": "Advanced Micro Devices" }, { "publisher": "Realtek" }
   ]
 }
