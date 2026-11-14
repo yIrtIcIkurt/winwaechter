@@ -33,27 +33,33 @@ public static class SystemActions
     /// It never starts Explorer itself: the elevated app must not launch the user's shell.
     /// </summary>
     public static SystemAction RestartExplorer(IProcessEnder ender, string windowsDir, TimeSpan? poll = null, TimeSpan? timeout = null) =>
-        new("restart-explorer", "Explorer neu starten", "Neu starten", null, false, async (p, ct) =>
+        new("restart-explorer", "Explorer neu starten", "Neu starten", null, false,
+            (p, ct) => RestartExplorerAsync(ender, windowsDir, null, p, ct, poll, timeout));
+
+    /// <summary>The restart itself; whileDown runs right after Explorer ended (e.g. deleting its locked cache files).</summary>
+    public static async Task<ActionOutcome> RestartExplorerAsync(IProcessEnder ender, string windowsDir, Action? whileDown,
+        IProgress<string>? p, CancellationToken ct, TimeSpan? poll = null, TimeSpan? timeout = null)
+    {
+        var exe = ProcessGuard.NormalizePath(Path.Combine(windowsDir, "explorer.exe"))
+                  ?? throw new InvalidOperationException("Der Windows-Ordner ist unbekannt.");
+        IReadOnlyList<RunningProcess> Ours() => ender.Find("explorer")
+            .Where(r => string.Equals(ProcessGuard.NormalizePath(r.ExePath), exe, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        p?.Report("Explorer wird neu gestartet …");
+        var running = Ours();
+        if (running.Count > 0 && ender.Kill(running) == 0)
+            return new ActionOutcome(false, "Der Explorer ließ sich nicht beenden.");
+        whileDown?.Invoke();
+
+        var step = poll ?? TimeSpan.FromMilliseconds(250);
+        var left = timeout ?? TimeSpan.FromSeconds(15);
+        while (true)
         {
-            var exe = ProcessGuard.NormalizePath(Path.Combine(windowsDir, "explorer.exe"))
-                      ?? throw new InvalidOperationException("Der Windows-Ordner ist unbekannt.");
-            IReadOnlyList<RunningProcess> Ours() => ender.Find("explorer")
-                .Where(r => string.Equals(ProcessGuard.NormalizePath(r.ExePath), exe, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            p?.Report("Explorer wird neu gestartet …");
-            var running = Ours();
-            if (running.Count > 0 && ender.Kill(running) == 0)
-                return new ActionOutcome(false, "Der Explorer ließ sich nicht beenden.");
-
-            var step = poll ?? TimeSpan.FromMilliseconds(250);
-            var left = timeout ?? TimeSpan.FromSeconds(15);
-            while (true)
-            {
-                await Task.Delay(step, ct).ConfigureAwait(false);
-                if (Ours().Count > 0) return new ActionOutcome(true, "Der Explorer wurde neu gestartet.");
-                left -= step;
-                if (left <= TimeSpan.Zero) return new ActionOutcome(false, ExplorerNotBack);
-            }
-        });
+            await Task.Delay(step, ct).ConfigureAwait(false);
+            if (Ours().Count > 0) return new ActionOutcome(true, "Der Explorer wurde neu gestartet.");
+            left -= step;
+            if (left <= TimeSpan.Zero) return new ActionOutcome(false, ExplorerNotBack);
+        }
+    }
 }
