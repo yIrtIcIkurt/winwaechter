@@ -1,3 +1,4 @@
+using WinWaechter.Core.Changes;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Sys;
@@ -31,6 +32,13 @@ public sealed class ShellExtScanner(IRegistry reg, ISignatureVerifier sig, RuleS
         ScanVerbs(result);
         return result;
     }
+
+    /// <summary>
+    /// True while a fresh scan still offers exactly this entry (same switch). Used before „Erneut versuchen“:
+    /// an entry that became protected, Microsoft's, already switched off or vanished is not offered.
+    /// </summary>
+    public bool StillOffered(IChange change) =>
+        Scan().Any(f => f.Change is { Kind: "shellext" } c && string.Equals(c.Target, change.Target, StringComparison.OrdinalIgnoreCase));
 
     void ScanHandlers(List<Finding> result)
     {

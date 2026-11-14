@@ -28,14 +28,19 @@ public sealed class OptimizerEngine
     readonly SessionStore _store;
     readonly IChangeFactory _factory;
     readonly Func<string, RestorePointResult> _restorePoint;
+    readonly IReadOnlyDictionary<string, Func<IChange, string?>> _retryGuards;
 
+    /// <param name="retryGuards">Per kind: the protection check of the first offer, run again before a retry
+    /// (null = allowed, otherwise the German refusal). See <see cref="RetryGuards"/>.</param>
     public OptimizerEngine(IEnumerable<Func<IReadOnlyList<Finding>>> scanners, SessionStore store,
-        IChangeFactory factory, Func<string, RestorePointResult> restorePoint)
+        IChangeFactory factory, Func<string, RestorePointResult> restorePoint,
+        IReadOnlyDictionary<string, Func<IChange, string?>>? retryGuards = null)
     {
         _scanners = scanners.ToList();
         _store = store;
         _factory = factory;
         _restorePoint = restorePoint;
+        _retryGuards = retryGuards ?? new Dictionary<string, Func<IChange, string?>>();
     }
 
     public Task<IReadOnlyList<Finding>> ScanAsync(IProgress<string>? p, CancellationToken ct) =>
@@ -80,15 +85,28 @@ public sealed class OptimizerEngine
 
     /// <summary>
     /// Rebuilds a failed change from its retry data through the kind's own FromRecord (so its whitelist
-    /// check runs) and applies it again in a new session.
+    /// check runs), runs the kind's retry guard (off the UI thread, it may scan) and applies it again in a new session.
     /// </summary>
     public Task<ApplyResult> RetryAsync(ChangeRecord failed, IProgress<string>? p, CancellationToken ct) =>
         Task.Run(() =>
         {
             var change = RetryChange(failed);
+            if (RetryRefusal(change) is { } refusal) throw new InvalidOperationException(refusal);
             ct.ThrowIfCancellationRequested();
             return Apply($"Erneut versuchen: {failed.Description}", [change], p, ct, continueOnError: false);
         }, CancellationToken.None);
+
+    // fails closed: a guard that throws refuses the retry
+    string? RetryRefusal(IChange change)
+    {
+        if (!_retryGuards.TryGetValue(change.Kind, out var guard)) return null;
+        try { return guard(change); }
+        catch (Exception ex)
+        {
+            FileLog.Warn($"Schutzprüfung für erneuten Versuch fehlgeschlagen: {change.Description}", ex);
+            return RetryGuards.CheckFailed;
+        }
+    }
 
     ApplyResult Apply(string title, IReadOnlyList<IChange> changes, IProgress<string>? p, CancellationToken ct,
         bool continueOnError)

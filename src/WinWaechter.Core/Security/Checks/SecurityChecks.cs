@@ -206,14 +206,22 @@ public static class SecurityChecks
         try
         {
             var change = new FirewallRuleChange(rules, path, windowsDir ?? Environment.GetFolderPath(Environment.SpecialFolder.Windows));
-            if (info.State == SignatureState.Valid && info.Publisher?.StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase) == true)
-                return (null, null);
-            if (IsUnder(path, ownDir ?? AppContext.BaseDirectory)) return (null, null); // WinWächter itself
-            if (ruleSet.Classify(new ItemFacts(Path.GetFileName(path), path, info.Publisher, null)) == RuleVerdict.Protected)
-                return (null, null);
+            if (!MayBlock(path, info, ruleSet, ownDir ?? AppContext.BaseDirectory)) return (null, null);
             return rules.Get(change.Target) is not null ? (null, BlockedNote) : (change, null);
         }
         catch (Exception) { return (null, null); } // path not allowed, or the firewall cannot be read: no offer
+    }
+
+    /// <summary>
+    /// The protection check of the block offer (the Windows folder is refused by FirewallRuleChange itself):
+    /// never Microsoft-signed programs, WinWächter itself or protected ones. Also run before „Erneut versuchen“.
+    /// </summary>
+    public static bool MayBlock(string path, SignatureInfo info, RuleSet ruleSet, string ownDir)
+    {
+        if (info.State == SignatureState.Valid && info.Publisher?.StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase) == true)
+            return false;
+        if (IsUnder(path, ownDir)) return false; // WinWächter itself
+        return ruleSet.Classify(new ItemFacts(Path.GetFileName(path), path, info.Publisher, null)) != RuleVerdict.Protected;
     }
 
     static bool IsUnder(string path, string dir) =>

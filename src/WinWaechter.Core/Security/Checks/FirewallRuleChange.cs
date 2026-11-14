@@ -38,6 +38,9 @@ public sealed class FirewallRuleChange : IChange
         return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>The full program path the rule blocks.</summary>
+    public string Program => _program;
+
     public string Kind => "fwrule";
     public string Target => _name;
     public string Description => $"Eingehende Verbindungen für „{_file}“ sperren";

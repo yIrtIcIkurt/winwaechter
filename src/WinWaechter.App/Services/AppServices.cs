@@ -117,7 +117,9 @@ public sealed class AppServices : IDisposable
         var shellExt = new ShellExtScanner(reg, sig, rules, windowsDir, AppContext.BaseDirectory);
         var engine = new OptimizerEngine(
             new Func<IReadOnlyList<Finding>>[] { autostart.Scan, services.Scan, tasks.Scan, temp.Scan, cache.Scan, Installers, leftovers.Scan, shellExt.Scan },
-            store, factory, restore.TryCreate);
+            store, factory, restore.TryCreate,
+            // „Erneut versuchen“ (Verlauf): the protection check of the first offer runs again
+            RetryGuards.Create(shellExt, sig, rules, AppContext.BaseDirectory));
 
         var heuristics = new HeuristicScanner(new WmiProcessSource(), new TcpTableConnections(), sig, rules,
             user, fo, autostart, tasks, services);
