@@ -206,7 +206,7 @@ Anti-Ziele (wäre ein Fehlschlag, auch wenn es „funktioniert“)
   - Die Meldung startet `winwaechter:verbessern`. Windows öffnet die EXE darüber per ShellExecute, das löst bei `requireAdministrator` das normale UAC-Fenster aus.
   - Ein COM-Aktivator scheidet aus: Er kann die erhöhte EXE nicht starten (Fehler 740, vgl. `winwaechter.iss:57`).
   - Läuft WinWächter schon, übergibt die neue Instanz das Sprungziel an die laufende und beendet sich. Der Weg dafür (z. B. Named Pipe) ist Sache des Umsetzers.
-- Das Windows-Zielframework (`net10.0-windows10.0.19041.0` o. ä.) statt eines Zusatzpakets gilt zentral in `Directory.Build.props` für alle Projekte, weil das Testprojekt App referenziert. Die WinRT-Umsetzung von `INotifier` liegt in App, die Schnittstelle in Core.
+- Festgelegt im Plan (Nachtrag 2026-11-14): Die Meldung kommt **immer** über einen kleinen nicht erhöhten Helfer `WinWaechter.Notify.exe` im Benutzerkontext. Nur dieses Projekt bekommt das Windows-Zielframework (`net10.0-windows10.0.19041.0`). App, Core und Tests bleiben bei `net10.0-windows`. Damit entfällt der Gerätetest „Meldung aus erhöhtem Prozess“.
 - **Risiko:** Benachrichtigungen aus einem erhöhten Prozess erscheinen unter Umständen nicht. Der Umsetzer prüft das zuerst. Klappt es nicht, startet der Prüfmodus die Meldung über einen kleinen nicht erhöhten Helfer im Benutzerkontext (`UserTokenLauncher`, z. B. dieselbe EXE mit `--melden`, Manifest `asInvoker` über eine zweite kleine EXE).
 
 ### 4.5 Speicherplatz-Karte (neue Seite „Speicherplatz“)
