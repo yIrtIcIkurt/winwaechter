@@ -188,8 +188,19 @@ public sealed class ViewSmokeTests : IDisposable
                     (_, _) => Task.FromResult(new ActionOutcome(true, "ok"))))],
             ["Leistung: nicht prüfbar"], DateTimeOffset.Now),
             () => new DriveSpace(@"C:\", 8L << 30, 500L << 30));
+        // 0.6 Reparatur: fake tools, the system-files check says „repairable“
+        var repairRun = new FakeProcessRunner
+        {
+            Handler = (exe, _) => Task.FromResult((0, exe.EndsWith("dism.exe") ? "Der Komponentenspeicher kann repariert werden." : "", "")),
+        };
+        var repair = new RepairViewModel(
+            new Core.Repair.RepairActions(repairRun, new FakeServiceControl(), new FakeRepairFiles(), new FakeNetworkConfig(),
+                () => Task.FromResult(true), new FakeProcessEnder(), @"C:\Windows", @"C:\Users\u\AppData\Local", new DateTime(2026, 11, 14)),
+            new Core.Repair.RepairChecks(repairRun, @"C:\Windows"), new ActionRunner(new YesDialogs(), gate, locks: ActivityLock.CreateDefaults()),
+            new ActionStampStore(Path.Combine(Path.GetTempPath(), "ww-smoke-" + Guid.NewGuid().ToString("N"), "aktionen.json")), true, 'C');
+        repair.LoadCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, improve,
-            isElevated: false);
+            isElevated: false, new ShellPages(Repair: repair));
         var allGood = new OverviewViewModel(optimize, protect, security, update,
             Improve(engine, gate, new ImprovementScan([], [], [], new DateTimeOffset(2026, 11, 13, 9, 5, 0, TimeSpan.FromHours(1)))), _ => { });
 
@@ -265,6 +276,14 @@ public sealed class ViewSmokeTests : IDisposable
             AssertShown(programsView, "Alle unerwünschten entfernen (1)", programs.UninstallUnwantedCommand);
             AssertUpdatesBox(programsView, programs);
             AssertProgramListReachable(programsView);
+            var repairView = new RepairView { DataContext = shell.Repair };
+            Layout(repairView);
+            AssertRepairPage(repairView, shell.Repair!);
+            shell.Navigate(shell.Repair!);
+            Layout(shellContent);
+            Assert.NotEmpty(FindAll<RepairView>(shellContent!));
+            Assert.Contains(shell.PrimaryNav, n => n.Title == "Reparatur");
+            Assert.Equal("Verlauf", shell.PrimaryNav[^1].Title);
             var performanceView = new PerformanceView { DataContext = performance };
             Layout(performanceView);
             AssertComboShowsLabel(performanceView, "PerfOption");
@@ -357,6 +376,28 @@ public sealed class ViewSmokeTests : IDisposable
         var last = rows.Single(t => t.Text == "Such-Toolbar");   // sorted by name: the last row
         var y = last.TransformToAncestor(page).Transform(new Point(0, 0)).Y;
         Assert.InRange(y, 0, page.ViewportHeight);
+    }
+
+    // 0.6 spec 4.3: eight tools, the recommended one first with its chip, every button shown; a low window still reaches the last row
+    static void AssertRepairPage(FrameworkElement view, RepairViewModel vm)
+    {
+        var texts = FindAll<TextBlock>(view).Where(Shown).Select(t => t.Text).ToList();
+        Assert.Contains("Reparatur", texts);
+        Assert.Contains("Systemdateien prüfen und reparieren", texts);
+        Assert.Contains("Wenn Webseiten nicht laden, andere aber schon.", texts);
+        Assert.Contains("Noch nie ausgeführt", texts);
+        Assert.Equal("repair-sfc", vm.Rows[0].Id);
+        Assert.Contains(FindAll<ContentControl>(view), c => c.Content as string == "Empfohlen" && Shown(c));
+        AssertShown(view, "Prüfen und reparieren", vm.Rows[0].RunCommand);
+        view.Measure(new Size(1100, 450));
+        view.Arrange(new Rect(0, 0, 1100, 450));
+        view.UpdateLayout();
+        var page = FindAll<ScrollViewer>(view).First();
+        Assert.True(page.ScrollableHeight > 0);
+        page.ScrollToEnd();
+        view.UpdateLayout();
+        var last = FindAll<TextBlock>(view).First(t => t.Text == "Datenträger prüfen");
+        Assert.InRange(last.TransformToAncestor(page).Transform(new Point(0, 0)).Y, 0, page.ViewportHeight);
     }
 
     // 0.6 spec 4.1: header with the count, the offered row with „alt → neu“, its own button, the hidden note, no Dell row

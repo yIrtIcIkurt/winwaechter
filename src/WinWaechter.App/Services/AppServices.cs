@@ -16,6 +16,7 @@ using WinWaechter.Core.Optimizer.Storage;
 using WinWaechter.Core.Optimizer.Tasks;
 using WinWaechter.Core.Performance;
 using WinWaechter.Core.Privacy;
+using WinWaechter.Core.Repair;
 using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Checks;
@@ -241,6 +242,24 @@ public sealed class AppServices : IDisposable
         var update = new UpdateViewModel(new UpdateService(env), dialogs, canChange, shutdown, gate);
         var settingsVm = new SettingsViewModel(settings, env, update, shell, rulesInfo, updateRules);
 
+        // Reparatur: fixed System32 tools; the restore point before the final ones asks only on a real failure
+        var systemDrive = char.ToUpperInvariant((Path.GetPathRoot(windowsDir) ?? "C")[0]);
+        var repairActions = new RepairActions(runner, sc, new WinRepairFiles(), new WmiNetworkConfig(),
+            () => RestorePointGate.EnsureAsync(restore.TryCreate, "Reparatur", dialogs), ender, windowsDir, localAppData, DateTime.Today);
+        var repairChecks = new RepairChecks(runner, windowsDir);
+        var repair = new RepairViewModel(repairActions, repairChecks, actions, stamps, canChange, systemDrive, ownAccount);
+        async Task<IReadOnlyList<ActionSuggestion>> RepairSuggestions(CancellationToken ct)
+        {
+            var list = new List<ActionSuggestion>();
+            if (await repairChecks.ComponentStoreRepairableAsync(ct) == true)
+                list.Add(new ActionSuggestion("repair-sfc", "Systemdateien reparieren", "Windows meldet beschädigte Systemdateien.",
+                    repairActions.SystemFiles()));
+            if (await repairChecks.IsDirtyAsync(systemDrive, ct) == true)
+                list.Add(new ActionSuggestion("repair-chkdsk", "Datenträger prüfen", "Windows hat das Laufwerk zur Prüfung vorgemerkt.",
+                    repairActions.ScanDisk(systemDrive)));
+            return list;
+        }
+
         // „Rechner in Ordnung bringen“: the same scanners as the area pages, in this order (the first source wins a shared change);
         // without admin rights everything is listed and locked (the apps only need the signed-in user's account)
         static ImprovementSource Source(string name, Func<CancellationToken, Task<IReadOnlyList<Improvement>>> read) =>
@@ -258,6 +277,7 @@ public sealed class AppServices : IDisposable
                     "winget schickt sonst Nutzungsdaten an Microsoft.", [c])]
                 : [], ct)),
             new("Programm-Updates", async ct => ([], UpdateSuggestions(await updateService.LoadAsync(false, ct)))),
+            new("Reparatur", async ct => ([], await RepairSuggestions(ct))),
         ]);
         // „n Programm-Updates verfügbar“ only switches to Programme (updates never join the collect button)
         IReadOnlyList<ActionSuggestion> UpdateSuggestions(
@@ -277,7 +297,7 @@ public sealed class AppServices : IDisposable
             canChange, gate, disk.SystemDrive, shell, OpenOptimizeAndScan, defenderActivity);
 
         shellVm = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settingsVm, update,
-            improve, env.IsElevated);
+            improve, env.IsElevated, new ShellPages(Repair: repair));
         return new AppServices(env, settings, janitor, gate, shellVm, systemSources);
     }
 

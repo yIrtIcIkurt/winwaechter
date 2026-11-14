@@ -20,13 +20,17 @@ public sealed partial class NavItem(string title, string glyph, object page, Act
     }
 }
 
+/// <summary>The pages added in 0.6 (null = not shown, e.g. in tests that do not need them).</summary>
+public sealed record ShellPages(RepairViewModel? Repair = null);
+
 /// <summary>Window-level state: navigation, update banner, admin notice.</summary>
 public sealed partial class ShellViewModel : ObservableObject
 {
     public ShellViewModel(OptimizeViewModel optimize, PerformanceViewModel performance, ProtectViewModel protect,
         SecurityViewModel security, PrivacyViewModel privacy, ProgramsViewModel programs, HistoryViewModel history,
-        SettingsViewModel settings, UpdateViewModel update, ImproveViewModel improve, bool isElevated)
+        SettingsViewModel settings, UpdateViewModel update, ImproveViewModel improve, bool isElevated, ShellPages? pages = null)
     {
+        Repair = pages?.Repair;
         Optimize = optimize;
         Performance = performance;
         Protect = protect;
@@ -50,6 +54,8 @@ public sealed partial class ShellViewModel : ObservableObject
             new NavItem("Programme", "\uE71D", programs, OnSelected),
             new NavItem("Verlauf", "\uE81C", history, OnSelected),
         ];
+        // 0.6 pages, in the order \u00DCbersicht, Optimieren, Speicherplatz, Leistung, Ger\u00E4t, \u2026, Programme, Reparatur, Verlauf
+        if (Repair is { } repair) PrimaryNav.Insert(PrimaryNav.Count - 1, new NavItem("Reparatur", "\uE15E", repair, OnSelected));
         SettingsNav = new NavItem("Einstellungen", "\uE713", settings, OnSelected);
         PrimaryNav[0].IsSelected = true;
 
@@ -68,6 +74,7 @@ public sealed partial class ShellViewModel : ObservableObject
         performance.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
     }
 
+    public RepairViewModel? Repair { get; }
     public OverviewViewModel Overview { get; }
     public OptimizeViewModel Optimize { get; }
     public PerformanceViewModel Performance { get; }
@@ -110,6 +117,8 @@ public sealed partial class ShellViewModel : ObservableObject
         // the program list is read on the first visit as well
         if (ReferenceEquals(item.Page, Programs) && !Programs.HasLoaded && !Programs.RefreshCommand.IsRunning)
             Programs.RefreshCommand.Execute(null);
+        if (ReferenceEquals(item.Page, Repair) && Repair is { IsLoaded: false } r && !r.LoadCommand.IsRunning)
+            r.LoadCommand.Execute(null);
         // and the winget updates (not on every visit: winget takes a few seconds)
         if (ReferenceEquals(item.Page, Programs) && Programs.Updates is { HasLoaded: false } u && !u.RefreshCommand.IsRunning)
             u.RefreshCommand.Execute(null);
