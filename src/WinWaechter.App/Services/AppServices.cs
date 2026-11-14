@@ -65,6 +65,12 @@ public sealed class AppServices : IDisposable
     public static AppServices Create(AppEnvironment env, AppSettings settings, IDialogService dialogs, ISystemShell shell, Action shutdown)
     {
         var user = new InteractiveUserContext();
+        // Leistung, Programme and winget: the animation switch (SPI), the app removal and winget's settings act on the
+        // signed-in user's account, so they are offered only when the process runs as that user.
+        using var identity = WindowsIdentity.GetCurrent();
+        var ownAccount = string.Equals(identity.User?.Value, user.Sid, StringComparison.OrdinalIgnoreCase);
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var wingetSettings = WingetSettingsFile.PathFor(localAppData);
         var reg = new WinRegistry(user);
         var sc = new WinServiceControl();
         var ts = new WinTaskStore();
@@ -104,6 +110,7 @@ public sealed class AppServices : IDisposable
         var plans = new WinPowerPlans();
         PerformanceRegistration.Register(factory, reg, power, animation, hibernation, broadcast, plans);
         ShellExtChange.Register(factory, reg);
+        WingetTelemetryChange.Register(factory, wingetSettings);
 
         var autostart = new AutostartScanner(reg, user, sig, rules, fo, lnk);
         var services = new ServiceScanner(sc, sig, rules, reg, fo);
@@ -184,21 +191,23 @@ public sealed class AppServices : IDisposable
             // a policy value someone else set is left alone (the journal tells which ones WinWächter set)
             return new PrivacyScanner(reg, rules, new JournalPolicyOwnership(store)).Scan(r => r == "recall" && recall);
         }, ct);
-        var privacy = new PrivacyViewModel(PrivacyScan, engine, dialogs, canChange, gate);
+        // winget's usage data: only with winget installed; changeable only for the signed-in user's own account
+        WingetTelemetryOffer? WingetOffer()
+        {
+            if (WingetClient.FindWinget(localAppData) is null) return null;
+            var state = WingetSettingsFile.Read(wingetSettings);
+            return new WingetTelemetryOffer(state, ownAccount && state == TelemetryState.On ? new WingetTelemetryChange(wingetSettings) : null);
+        }
+        var privacy = new PrivacyViewModel(PrivacyScan, engine, dialogs, canChange, gate) { WingetTelemetry = WingetOffer };
         // traces (services, tasks, autostarts) for the leftover search and the forced removal
         IReadOnlyList<Finding> TraceScan() => [.. autostart.Scan(), .. services.Scan(), .. tasks.Scan()];
         var inventory = new ProgramInventory(reg, rules);
         var programService = new ProgramService(inventory, reg, fo, sig, new JobUninstallLauncher(user.Sid),
             new UninstallLeftoverFinder(reg, fo, rules, procs, paths, TraceScan),
             new ForcedRemovalPlanner(reg, fo, rules, procs, paths, TraceScan), paths);
-        // Leistung and Programme: the animation switch (SPI) and the app removal act on the signed-in user's account,
-        // so they are offered only when the process runs as that user.
-        using var identity = WindowsIdentity.GetCurrent();
-        var ownAccount = string.Equals(identity.User?.Value, user.Sid, StringComparison.OrdinalIgnoreCase);
         // the view model runs every read of the service (and the app scan) on the thread pool
         IReadOnlyList<BloatAppRow> BloatScan() => new BloatAppScanner(pkgs, rules).Scan();
         // „Updates verfügbar“: winget of the signed-in user (same account as the elevated app when ownAccount)
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var winget = new WingetClient(runner, new UserProcessRunner(user.Sid), WingetClient.FindWinget(localAppData), Path.GetTempPath());
         var updateService = new WingetUpdateService(winget, new UpdateFilter(rules, () => inventory.Read()), restore.TryCreate);
         var updates = new UpdatesViewModel(updateService, actions, dialogs, shell, canChange,
@@ -244,6 +253,10 @@ public sealed class AppServices : IDisposable
             Source("Leistung", ct => Task.Run(() => ImprovementMap.FromPerformance(perfScanner.Scan(), perfScanner.ChangesFor), ct)),
             new("Sicherheit", async ct => ImprovementMap.FromSecurity(await SecurityRun(ct))),
             Source("Vorinstallierte Apps", ct => Task.Run(() => ImprovementMap.FromBloatApps(BloatScan(), ownAccount), ct)),
+            Source("winget", ct => Task.Run<IReadOnlyList<Improvement>>(() => WingetOffer() is { Change: { } c }
+                ? [new Improvement("winget-telemetry", ImprovementArea.DatenschutzWerbung, WingetTelemetryChange.Title,
+                    "winget schickt sonst Nutzungsdaten an Microsoft.", [c])]
+                : [], ct)),
             new("Programm-Updates", async ct => ([], UpdateSuggestions(await updateService.LoadAsync(false, ct)))),
         ]);
         // „n Programm-Updates verfügbar“ only switches to Programme (updates never join the collect button)

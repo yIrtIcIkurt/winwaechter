@@ -89,14 +89,14 @@ public class WingetTableTests
     }
 
     [Fact]
-    public void Unknown_version_is_flagged()
+    public async Task Unknown_version_is_flagged()
     {
         var client = Client(out var runner);
         runner.Handler = (_, args) => Task.FromResult((0, WingetSamples.Table(WingetSamples.DeNoSource,
             ["Ubisoft Connect", "Ubisoft.Connect", "< 175.1.0.13416", "175.1.0.13416"],
             ["Alt", "Beispiel.Alt", "Unknown", "2.0"],
             ["Neu", "Beispiel.Neu", "1.0", "2.0"]), ""));
-        var list = client.ListUpgradesAsync(false, CancellationToken.None).Result;
+        var list = await client.ListUpgradesAsync(false, CancellationToken.None);
         Assert.Equal(WingetListStatus.Ok, list.Status);
         Assert.Equal([true, true, false], list.Packages.Select(p => p.UnknownVersion));
         Assert.Equal("< 175.1.0.13416", list.Packages[0].Installed);

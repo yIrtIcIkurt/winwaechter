@@ -7,6 +7,8 @@ using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Rules;
+using WinWaechter.Core.Changes;
+using WinWaechter.Core.Updates;
 
 namespace WinWaechter.App.ViewModels;
 
@@ -127,6 +129,7 @@ public sealed partial class PrivacyViewModel : ObservableObject
             foreach (var r in rows) Rows.Add(new PrivacyRowViewModel(r, UpdateSelection));
             RebuildGroups();
             UpdateSelection();
+            await LoadWingetAsync();
         }
         catch (OperationCanceledException)
         {
@@ -237,4 +240,81 @@ public sealed partial class PrivacyViewModel : ObservableObject
     bool CanApply() => CanChange && !IsBusy && !_gate.IsBusy && SelectedCount > 0;
 
     void UpdateSelection() => SelectedCount = Rows.Count(r => r.IsSelected && r.CanSelect);
+
+    // ---- „Programme“: winget usage data (0.6) ----
+
+    /// <summary>Reads winget's state; null = winget not installed (the section is hidden).</summary>
+    public Func<WingetTelemetryOffer?>? WingetTelemetry { get; init; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowWinget), nameof(WingetStateText), nameof(WingetTone), nameof(WingetNote))]
+    [NotifyCanExecuteChangedFor(nameof(TurnOffWingetCommand))]
+    private WingetTelemetryOffer? _winget;
+
+    public bool ShowWinget => Winget is not null;
+    public string WingetTitle => WingetTelemetryChange.Title;
+    public string WingetExplanation => "winget schickt sonst Nutzungsdaten an Microsoft.";
+
+    public string WingetStateText => Winget?.State switch
+    {
+        TelemetryState.Off => "Aus",
+        TelemetryState.Unreadable => "Unbekannt",
+        _ => "An",
+    };
+
+    public Tone WingetTone => Winget?.State == TelemetryState.On ? Tone.Watch : Tone.Good;
+
+    public string? WingetNote => Winget switch
+    {
+        { State: TelemetryState.Unreadable } => WingetTelemetryChange.AmbiguousText,
+        { State: TelemetryState.On, Change: null } => "Nur für das angemeldete Benutzerkonto möglich.",
+        _ => null,
+    };
+
+    async Task LoadWingetAsync()
+    {
+        if (WingetTelemetry is null) return;
+        try { Winget = await Task.Run(WingetTelemetry); }
+        catch (Exception ex)
+        {
+            FileLog.Warn("winget-Einstellungen nicht lesbar", ex);
+            Winget = null;
+        }
+    }
+
+    bool CanTurnOffWinget() => CanChange && !IsBusy && !_gate.IsBusy && Winget is { State: TelemetryState.On, Change: not null };
+
+    [RelayCommand(CanExecute = nameof(CanTurnOffWinget))]
+    private async Task TurnOffWingetAsync()
+    {
+        if (Winget?.Change is not { } change) return;
+        if (!_dialogs.Confirm(WingetTelemetryChange.Title,
+                "WinWächter trägt in die Einstellungen von winget ein, dass keine Nutzungsdaten gesendet werden. Im Verlauf lässt sich das rückgängig machen.",
+                "Abschalten")) return;
+        var ran = await _gate.RunAsync(this, async () =>
+        {
+            IsBusy = true;
+            try
+            {
+                var finding = new Finding("privacy|winget", FindingArea.Einstellung, change.Description, change.Target, [], Rating.Info, true, change);
+                var result = await _engine.ApplyAsync("Datenschutz: winget", [finding], null, CancellationToken.None);
+                LastSummary = result.Failed > 0 ? "winget-Nutzungsdaten: fehlgeschlagen, Details im Verlauf." : "winget-Nutzungsdaten abgeschaltet.";
+                ChangesApplied?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Error("winget-Nutzungsdaten abschalten fehlgeschlagen", ex);
+                _dialogs.Inform("Abschalten fehlgeschlagen", ex.Message);
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        });
+        if (!ran) { LastSummary = ChangeGate.BusyHint; return; }
+        await LoadWingetAsync();
+    }
 }
+
+/// <summary>winget's usage-data state; Change null = shown but locked (another account, or not readable).</summary>
+public sealed record WingetTelemetryOffer(TelemetryState State, IChange? Change);
