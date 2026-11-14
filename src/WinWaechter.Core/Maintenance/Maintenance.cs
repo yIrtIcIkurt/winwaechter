@@ -126,7 +126,24 @@ public static class CheckResultStore
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
                 var tmp = path + ".tmp";
                 File.WriteAllText(tmp, JsonSerializer.Serialize(r, Json));
-                File.Move(tmp, path, overwrite: true);
+                // a reader holding the file blocks the replace for a moment: try again, never leave the .tmp behind
+                for (var attempt = 0; ; attempt++)
+                {
+                    try
+                    {
+                        File.Move(tmp, path, overwrite: true);
+                        break;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        if (attempt >= 10)
+                        {
+                            try { File.Delete(tmp); } catch (Exception) { }
+                            throw;
+                        }
+                        Thread.Sleep(20);
+                    }
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

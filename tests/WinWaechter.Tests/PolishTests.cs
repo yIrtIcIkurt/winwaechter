@@ -15,7 +15,9 @@ using WinWaechter.Core.Update;
 
 namespace WinWaechter.Tests;
 
-/// <summary>Task 10: undo progress, rules in the settings, about block, author metadata, rules wiring.</summary>
+/// <summary>Task 10: undo progress, rules in the settings, about block, author metadata, rules wiring.
+/// Runs alone (1200 real file moves): overlapping other tests crashed the test host now and then (see RealSamplerCollection).</summary>
+[Collection(nameof(RealSamplerCollection))]
 public sealed class PolishTests : IDisposable
 {
     readonly string _root = Path.Combine(Path.GetTempPath(), "ww-polish-" + Guid.NewGuid().ToString("N"));
