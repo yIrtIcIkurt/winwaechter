@@ -57,6 +57,33 @@ public class WingetTableTests
         Assert.Equal("Microsoft Visual C++ 2015-2022 Redistributable (x64) - 14.44.35211", de[2].Name);
     }
 
+    // review: the footer follows the last row directly; in a short table it reaches the last column
+    [Fact]
+    public void Short_table_footer_is_not_a_package()
+    {
+        var text = WingetSamples.Table(WingetSamples.DeNoSource, ["Zoom", "Zoom.Zoom", "6.0.2", "6.1.0"]) + "1 Aktualisierungen verfügbar.\r\n";
+        var rows = WingetTable.Parse(text);
+        Assert.Equal(["Zoom.Zoom"], rows.Select(r => r.Id));
+        var en = WingetTable.Parse(WingetSamples.Table(WingetSamples.En, ["Zoom", "Zoom.Zoom", "6.0.2", "6.1.0", "winget"]) + "1 upgrades available.\r\n");
+        Assert.Single(en);
+    }
+
+    // review: a row whose cells do not start after a space is shifted (e.g. wrongly decoded bytes): never read it
+    [Fact]
+    public void Shifted_row_is_discarded_not_misread()
+    {
+        var table = WingetSamples.Table(WingetSamples.DeNoSource,
+            ["Ein sehr langer Programmname", "Beispiel.Lang", "2.0", "2.1"],
+            ["Groessenpruefer", "Beispiel.PrueferPro", "1.0", "1.1"]);
+        // two extra characters in a short name push the later cells right, like UTF-8 bytes read as ANSI („ö“ → „Ã¶“):
+        // the ID cell then holds a cut but still valid-looking ID – it must not be taken
+        var shifted = table.Replace("Groessenpruefer ", "GrÃ¶ÃŸssenpruefer ");
+        var discarded = new List<string>();
+        var rows = WingetTable.Parse(shifted, discarded.Add);
+        Assert.Equal(["Beispiel.Lang"], rows.Select(r => r.Id));
+        Assert.Single(discarded);
+    }
+
     [Fact]
     public void Four_column_table_without_source_is_read()
     {
@@ -164,6 +191,16 @@ public class WingetTableTests
         runner.Calls.Clear();
         await client.ListUpgradesAsync(true, CancellationToken.None);
         Assert.All(runner.Calls, c => Assert.EndsWith(" --accept-source-agreements", c.Args));
+    }
+
+    [Fact]
+    public async Task List_and_upgrade_ask_for_utf8_output()
+    {
+        var client = Client(out var runner);
+        await client.ListUpgradesAsync(false, CancellationToken.None);
+        await client.UpgradeAsync(new WingetPackage("7-Zip", "7zip.7zip", "1", "2", false, false), null, CancellationToken.None);
+        Assert.Equal(3, runner.Encodings.Count);
+        Assert.All(runner.Encodings, e => Assert.Equal(65001, e?.CodePage));
     }
 
     [Theory]

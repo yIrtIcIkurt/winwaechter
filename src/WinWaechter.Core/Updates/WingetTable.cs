@@ -49,11 +49,14 @@ public static partial class WingetTable
         for (var i = dash + 1; i < lines.Length; i++)
         {
             var line = lines[i];
-            if (line.Trim().Length == 0) break;
-            var cells = Cut(line, starts);
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0) break;
+            if (trimmed.Length >= 10 && trimmed.All(c => c == '-')) break;   // a second table
+            var cells = Cut(line, starts, out var aligned);
             if (cells is null) break;   // shorter than the last column: footer text
             var id = cells[1];
-            if (!IsValidId(id))
+            // every cell must begin after a space: otherwise the row is shifted (or it is a long footer) – never guess
+            if (!aligned || !IsValidId(id))
             {
                 onDiscard?.Invoke(line.Trim());
                 continue;
@@ -64,19 +67,27 @@ public static partial class WingetTable
     }
 
     // Cells of one row by display position; null when the row does not reach the last column.
-    static string[]? Cut(string line, List<int> starts)
+    // aligned: the character before each column start is a space (a row shifted by wrong decoding is not).
+    static string[]? Cut(string line, List<int> starts, out bool aligned)
     {
         var parts = new System.Text.StringBuilder[starts.Count];
         for (var k = 0; k < parts.Length; k++) parts[k] = new System.Text.StringBuilder();
         var cell = 0;
         var col = 0;
         var reachedLast = false;
+        var previous = ' ';
+        aligned = true;
         foreach (var c in line)
         {
-            while (col + 1 < starts.Count && cell >= starts[col + 1]) col++;
+            while (col + 1 < starts.Count && cell >= starts[col + 1])
+            {
+                col++;
+                if (previous != ' ') aligned = false;
+            }
             if (col == starts.Count - 1 && c != ' ') reachedLast = true;
             parts[col].Append(c);
             cell += Width(c);
+            previous = c;
         }
         if (!reachedLast) return null;
         return parts.Select(p => p.ToString().Trim()).ToArray();

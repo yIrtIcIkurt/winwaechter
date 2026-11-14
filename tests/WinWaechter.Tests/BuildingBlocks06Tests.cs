@@ -34,6 +34,25 @@ public class BuildingBlocks06Tests
         Assert.Equal(["10%", "20%", "ok"], ProcessRunner.SplitLines("10%\r20%\r\nok\n"));
     }
 
+    // review: a WinExe decodes child output with the ANSI code page; winget writes UTF-8
+    [Fact]
+    public async Task ProcessRunner_decodes_utf8_when_asked()
+    {
+        var file = Path.Combine(Path.GetTempPath(), "ww-utf8-" + Guid.NewGuid().ToString("N") + ".txt");
+        const string text = "Größenprüfer Pro … 图片";
+        File.WriteAllText(file, text, new System.Text.UTF8Encoding(false));
+        try
+        {
+            var cmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+            var lines = new List<string>();
+            var r = await ((IProcessRunner)new ProcessRunner()).RunAsync(cmd, $"/c type \"{file}\"", lines.Add, System.Text.Encoding.UTF8,
+                CancellationToken.None);
+            Assert.Equal(text, r.StdOut.Trim());
+            Assert.Equal([text], lines);
+        }
+        finally { File.Delete(file); }
+    }
+
     [Fact]
     public async Task Skip_gate_action_runs_while_gate_is_held_and_respects_its_lock()
     {

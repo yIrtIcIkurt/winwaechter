@@ -17,6 +17,11 @@ public interface IProcessRunner
             foreach (var line in ProcessRunner.SplitLines(r.StdOut)) onLine(line);
         return r;
     }
+
+    /// <summary>Like the line overload, decoding the output with outputEncoding (null = the default, which in a
+    /// window app is the ANSI code page; winget writes UTF-8).</summary>
+    Task<(int Exit, string StdOut, string StdErr)> RunAsync(string exe, string args, Action<string>? onLine, Encoding? outputEncoding,
+        CancellationToken ct) => RunAsync(exe, args, onLine, ct);
 }
 
 // Runs a hidden process and collects its output. Cancelling only stops waiting; the process keeps running.
@@ -29,7 +34,11 @@ public sealed class ProcessRunner : IProcessRunner
     public Task<(int Exit, string StdOut, string StdErr)> RunAsync(string exe, string args, CancellationToken ct) =>
         RunAsync(exe, args, null, ct);
 
-    public async Task<(int Exit, string StdOut, string StdErr)> RunAsync(string exe, string args, Action<string>? onLine, CancellationToken ct)
+    public Task<(int Exit, string StdOut, string StdErr)> RunAsync(string exe, string args, Action<string>? onLine, CancellationToken ct) =>
+        RunAsync(exe, args, onLine, null, ct);
+
+    public async Task<(int Exit, string StdOut, string StdErr)> RunAsync(string exe, string args, Action<string>? onLine,
+        Encoding? outputEncoding, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(exe, args)
         {
@@ -38,6 +47,11 @@ public sealed class ProcessRunner : IProcessRunner
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
+        if (outputEncoding is not null)
+        {
+            psi.StandardOutputEncoding = outputEncoding;
+            psi.StandardErrorEncoding = outputEncoding;
+        }
         using var p = new Process { StartInfo = psi };
         p.Start();
         var stdout = ReadAsync(p.StandardOutput, onLine);

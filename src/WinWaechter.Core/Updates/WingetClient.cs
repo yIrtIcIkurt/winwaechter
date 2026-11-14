@@ -29,6 +29,9 @@ public sealed class WingetClient(IProcessRunner runner, IUserProcessRunner userR
 
     const string ListArgs = "upgrade --source winget --include-unknown --disable-interactivity";
 
+    // winget writes UTF-8 to a pipe; the default in a window app would be the ANSI code page (names shift, IDs break)
+    static readonly System.Text.Encoding Utf8 = new System.Text.UTF8Encoding(false);
+
     /// <summary>The App Installer alias of the signed-in user; null when it does not exist.</summary>
     public static string? FindWinget(string localAppData)
     {
@@ -41,7 +44,7 @@ public sealed class WingetClient(IProcessRunner runner, IUserProcessRunner userR
         if (wingetPath is null) return new WingetList(WingetListStatus.Missing, [], null);
         var accept = acceptSourceAgreements ? " --accept-source-agreements" : "";
 
-        var (exit, stdout, _) = await runner.RunAsync(wingetPath, ListArgs + accept, ct).ConfigureAwait(false);
+        var (exit, stdout, _) = await runner.RunAsync(wingetPath, ListArgs + accept, null, Utf8, ct).ConfigureAwait(false);
         if (exit == SourceAgreementsNotAccepted || (exit != 0 && stdout.Contains("--accept-source-agreements", StringComparison.Ordinal)))
             return new WingetList(WingetListStatus.NeedsSourceAgreement, [], null);
         var rows = WingetTable.Parse(stdout, d => FileLog.Info("winget: Zeile verworfen: " + d));
@@ -52,7 +55,7 @@ public sealed class WingetClient(IProcessRunner runner, IUserProcessRunner userR
         var userRows = new List<(string Name, string Id, string Version, string Available, string Source)>();
         try
         {
-            var (uExit, uOut, _) = await runner.RunAsync(wingetPath, ListArgs + " --scope user" + accept, ct).ConfigureAwait(false);
+            var (uExit, uOut, _) = await runner.RunAsync(wingetPath, ListArgs + " --scope user" + accept, null, Utf8, ct).ConfigureAwait(false);
             if (uExit == 0 || uExit == NoPackagesFound)
                 foreach (var r in WingetTable.Parse(uOut))
                 {
@@ -81,7 +84,7 @@ public sealed class WingetClient(IProcessRunner runner, IUserProcessRunner userR
         if (wingetPath is null) throw new InvalidOperationException("winget ist nicht installiert.");
         var args = $"upgrade --id {p.Id} --exact --source winget --silent --disable-interactivity --accept-package-agreements --accept-source-agreements";
         if (!p.UserScope)
-            return (await runner.RunAsync(wingetPath, args, onLine, ct).ConfigureAwait(false)).Exit;
+            return (await runner.RunAsync(wingetPath, args, onLine, Utf8, ct).ConfigureAwait(false)).Exit;
 
         // in the user's context there is no output pipe: winget writes a log the elevated app reads afterwards
         var log = Path.Combine(userTempDir, $"winwaechter-winget-{Guid.NewGuid():N}.log");
