@@ -120,7 +120,8 @@
                                    Typography.NumeralAlignment="Tabular" Text="{Binding CountText}" AutomationProperties.LiveSetting="Polite" />
                         <StackPanel Orientation="Horizontal">
                             <TextBlock VerticalAlignment="Center" Margin="0,0,8,0" Style="{StaticResource Text.Small}" Text="Suchen" />
-                            <TextBox Width="260" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                            <!-- Delay: the list (no virtualization) is rebuilt once after typing, not on every key -->
+                            <TextBox Width="260" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}"
                                      AutomationProperties.Name="Programme suchen (Name oder Herausgeber)" />
                             <TextBlock VerticalAlignment="Center" Margin="20,0,8,0" Style="{StaticResource Text.Small}" Text="Sortieren nach" />
                             <ComboBox MinWidth="170" ItemsSource="{Binding SortOptions}" DisplayMemberPath="Label" SelectedValuePath="Value"

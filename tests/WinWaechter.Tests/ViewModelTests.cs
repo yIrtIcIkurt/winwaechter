@@ -1126,6 +1126,37 @@ public sealed class ViewModelTests : IDisposable
         Assert.False(on.EnableRealTimeCommand.CanExecute(null));
     }
 
+    [Fact]
+    public async Task Protect_waits_for_Defender_jobs_of_other_pages_and_still_runs_its_own_realtime_fix()
+    {
+        // wired like AppServices: the shared runner and the Schutz page share one DefenderActivity
+        var d = new FakeDefender { RealTime = false };
+        var dialogs = new WinWaechter.Tests.Fakes.RecordingDialogs();
+        var activity = new DefenderActivity();
+        var set = WinWaechter.Core.Security.Checks.SecurityActionSet.Create(d, new FakeUpdateInstaller(), new FakeRestarter());
+        var vm = new ProtectViewModel(d, (_, _) => Task.FromResult<IReadOnlyList<Finding>>([]), Engine(), _ => 0, dialogs, true, _gate,
+            new ActionRunner(dialogs, _gate, activity), set.EnableRealTime, new LinkShell(), activity);
+        activity.Others = () => vm.IsDefenderBusy;
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        // a job of another page (e.g. „Virendefinitionen aktualisieren“ on Sicherheit) locks the Defender buttons here
+        var changed = 0;
+        vm.UpdateSignaturesCommand.CanExecuteChanged += (_, _) => changed++;
+        Assert.True(activity.TryBegin());
+        Assert.False(vm.UpdateSignaturesCommand.CanExecute(null));
+        Assert.False(vm.QuickScanCommand.CanExecute(null));
+        Assert.False(vm.EnableRealTimeCommand.CanExecute(null));
+        activity.End();
+        Assert.True(vm.UpdateSignaturesCommand.CanExecute(null));
+        Assert.Equal(2, changed);
+
+        // the page's own real-time fix goes through the same runner and does not refuse itself
+        await vm.EnableRealTimeCommand.ExecuteAsync(null);
+        Assert.Contains("enable-realtime", d.Calls);
+        Assert.True(d.RealTime);
+        Assert.False(activity.IsBusy);
+    }
+
     sealed class CallbackChange(string target, Action onApply) : IChange
     {
         public string Kind => "fake";

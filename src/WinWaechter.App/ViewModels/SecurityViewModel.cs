@@ -306,6 +306,12 @@ public sealed partial class SecurityViewModel : ObservableObject
         {
             var outcome = await _actions!.RunAsync(this, run, new Progress<string>(s => ProgressText = s));
             if (outcome is null) return;
+            // refused because Defender is busy: nothing ran, no need to read everything again
+            if (outcome.Message == DefenderActivity.BusyText)
+            {
+                LastSummary = outcome.Message;
+                return;
+            }
             IsBusy = true;
             if (outcome.Link is { } link)
             {

@@ -31,6 +31,9 @@ public sealed class DefenderActivity : ObservableObject
         return true;
     }
 
+    /// <summary>Called when <see cref="Others"/> changed (a Schutz operation started or ended): listeners refresh their buttons.</summary>
+    public void NotifyOthersChanged() => OnPropertyChanged(nameof(IsBusy));
+
     public void End()
     {
         if (_running == 0) return;

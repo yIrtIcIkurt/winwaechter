@@ -123,7 +123,7 @@ public sealed class AppServices : IDisposable
             new Func<IReadOnlyList<Finding>>[] { autostart.Scan, services.Scan, tasks.Scan, temp.Scan, cache.Scan, Installers, leftovers.Scan, shellExt.Scan },
             store, factory, restore.TryCreate,
             // „Erneut versuchen“ (Verlauf): the protection check of the first offer runs again
-            RetryGuards.Create(shellExt, sig, rules, AppContext.BaseDirectory));
+            RetryGuards.Create(shellExt, sig, rules, AppContext.BaseDirectory, reg, () => new JournalPolicyOwnership(store)));
 
         var heuristics = new HeuristicScanner(new WmiProcessSource(), tcp, sig, rules,
             user, fo, autostart, tasks, services);
@@ -157,6 +157,10 @@ public sealed class AppServices : IDisposable
         var protect = new ProtectViewModel(defender, HeuristicScan,
             engine, ProcessTools.KillByPath, dialogs, canChange, gate, actions, securityActions.EnableRealTime, shell, defenderActivity);
         defenderActivity.Others = () => protect.IsDefenderBusy;
+        protect.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ProtectViewModel.IsDefenderBusy)) defenderActivity.NotifyOthersChanged();
+        };
         // every source runs on the thread pool with its own timeout; the whole check stays off the UI thread
         // the browser's own extensions page opens with the signed-in user's normal rights, never elevated
         var extensionPages = new ExtensionPageOpener(reg, paths, new UserTokenLauncher(user.Sid));
@@ -229,7 +233,7 @@ public sealed class AppServices : IDisposable
             Source("Vorinstallierte Apps", ct => Task.Run(() => ImprovementMap.FromBloatApps(BloatScan(), ownAccount), ct)),
         ]);
         var improve = new ImproveViewModel((p, ct) => Task.Run(() => collector.CollectAsync(p, ct), ct), engine, dialogs, actions,
-            canChange, gate, disk.SystemDrive, shell, OpenOptimizeAndScan);
+            canChange, gate, disk.SystemDrive, shell, OpenOptimizeAndScan, defenderActivity);
 
         shellVm = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settingsVm, update,
             improve, env.IsElevated);

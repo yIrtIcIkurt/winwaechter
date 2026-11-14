@@ -4,6 +4,7 @@ using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Optimizer.ContextMenu;
+using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Checks;
 using WinWaechter.Core.Sys;
@@ -37,9 +38,51 @@ public sealed class RetryGuardTests : IDisposable
         var factory = new ChangeFactory();
         FirewallRuleChange.Register(factory, _fw, WinDir);
         ShellExtChange.Register(factory, _reg);
-        var engine = new OptimizerEngine([], store, factory, _ => new RestorePointResult(true, "ok"),
-            RetryGuards.Create(Scanner(), _sig, Rules, Own));
+        factory.Register("regvalue", r => RegValueChange.FromRecord(r, _reg, RuleSet.Default));
+        var engine = new OptimizerEngine([], store, factory, _ => new RestorePointResult(true, "ok"), Guards(store));
         return (engine, store);
+    }
+
+    IReadOnlyDictionary<string, Func<IChange, string?>> Guards(SessionStore store) =>
+        RetryGuards.Create(Scanner(), _sig, Rules, Own, _reg, () => new JournalPolicyOwnership(store));
+
+    const string TelemetryKey = @"SOFTWARE\Policies\Microsoft\Windows\DataCollection";
+
+    RegValueChange Telemetry() =>
+        new(_reg, RuleSet.Default.FindPrivacyValue(Hive.LocalMachine, TelemetryKey, "AllowTelemetry")!, "Diagnosedaten");
+
+    [Fact]
+    public async Task Value_retry_is_refused_when_a_foreign_policy_now_sets_the_value()
+    {
+        var (engine, store) = Engine();
+        // meanwhile a group policy set the value (the newest journal record is the failed one: not ours)
+        _reg.Seed(Hive.LocalMachine, TelemetryKey, "AllowTelemetry", 3, Microsoft.Win32.RegistryValueKind.DWord);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            engine.RetryAsync(Failed(Telemetry()), null, CancellationToken.None));
+        Assert.Equal(RetryGuards.PolicyRefused, ex.Message);
+        Assert.Equal(3, _reg.Get(Hive.LocalMachine, TelemetryKey, "AllowTelemetry"));
+        Assert.Empty(store.List());
+    }
+
+    [Fact]
+    public async Task Value_retry_runs_while_no_policy_value_is_present()
+    {
+        var (engine, _) = Engine();
+        var res = await engine.RetryAsync(Failed(Telemetry()), null, CancellationToken.None);
+        Assert.Equal(1, res.Applied);
+        Assert.Equal(1, _reg.Get(Hive.LocalMachine, TelemetryKey, "AllowTelemetry"));
+    }
+
+    [Fact]
+    public async Task Firewall_retry_refuses_a_protected_path_even_when_the_signature_cannot_be_read()
+    {
+        _sig.Throw = new IOException("Signatur nicht lesbar");
+        var (engine, _) = Engine();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            engine.RetryAsync(Failed(new FirewallRuleChange(_fw, DellExe, WinDir)), null, CancellationToken.None));
+        Assert.Equal(RetryGuards.FirewallRefused, ex.Message);
+        Assert.Empty(_fw.Added);
     }
 
     static ChangeRecord Failed(IChange c)
@@ -136,7 +179,7 @@ public sealed class RetryGuardTests : IDisposable
     [Fact]
     public void Guards_cover_exactly_the_kinds_whose_offer_has_a_protection_check()
     {
-        var guards = RetryGuards.Create(Scanner(), _sig, Rules, Own);
-        Assert.Equal(["fwrule", "shellext"], guards.Keys.Order().ToArray());
+        var guards = Guards(new SessionStore(Path.Combine(_root, "g")));
+        Assert.Equal(["fwrule", "perfvalue", "regvalue", "secvalue", "shellext"], guards.Keys.Order(StringComparer.Ordinal).ToArray());
     }
 }

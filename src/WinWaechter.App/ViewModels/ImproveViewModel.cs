@@ -78,14 +78,18 @@ public sealed partial class ImproveViewModel : ObservableObject
     readonly Func<DriveSpace?>? _disk;
     readonly ISystemShell? _shell;
     readonly Action? _openOptimize;
+    readonly DefenderActivity? _activity;
 
     /// <param name="disk">The system drive; read at once (for the low-disk band) and after every check.</param>
     /// <param name="shell">Opens an allowed system link an action points to (Windows-Sicherheit).</param>
     /// <param name="openOptimize">„Platz schaffen“ once a list exists: Optimieren with a fresh scan.</param>
+    /// <param name="defenderActivity">While Defender is busy (any page), the Defender suggestions wait.</param>
     public ImproveViewModel(Func<IProgress<string>?, CancellationToken, Task<ImprovementScan>> collect, OptimizerEngine engine,
         IDialogService dialogs, ActionRunner actions, bool canChange, ChangeGate gate, Func<DriveSpace?>? disk = null,
-        ISystemShell? shell = null, Action? openOptimize = null)
+        ISystemShell? shell = null, Action? openOptimize = null, DefenderActivity? defenderActivity = null)
     {
+        _activity = defenderActivity;
+        if (defenderActivity is not null) defenderActivity.PropertyChanged += (_, _) => NotifyCommands();
         _collect = collect;
         _engine = engine;
         _dialogs = dialogs;
@@ -232,7 +236,7 @@ public sealed partial class ImproveViewModel : ObservableObject
             Groups.Add(new ImprovementGroupViewModel(ImprovementAreas.Title(area.Key),
                 area.Select(i => new ImprovementItemViewModel(i, CanChange, UpdateSelection)).ToList()));
         Suggestions.Clear();
-        foreach (var s in scan.Actions) Suggestions.Add(new ActionSuggestionViewModel(s, RunSuggestionAsync, CanRunSuggestion));
+        foreach (var s in scan.Actions) Suggestions.Add(new ActionSuggestionViewModel(s, RunSuggestionAsync, () => CanRunSuggestion(s)));
         UncheckedText = scan.Unchecked.Count > 0 ? "Nicht geprüft: " + string.Join(" · ", scan.Unchecked) : null;
         UpdateSelection();
         OnPropertyChanged(nameof(HasItems));
@@ -396,12 +400,13 @@ public sealed partial class ImproveViewModel : ObservableObject
         changes.Select(c => new Finding($"improve|{c.Kind}|{c.Target}", FindingArea.Einstellung, c.Description, c.Target, [],
             Rating.Info, true, c)).ToList();
 
-    bool CanRunSuggestion() => CanChange && !IsBusy && !_gate.IsBusy;
+    bool CanRunSuggestion(ActionSuggestion s) =>
+        CanChange && !IsBusy && !_gate.IsBusy && !(s.Action.UsesDefender && _activity?.IsBusy == true);
 
     // The runner confirms (and says „endgültig“), takes the gate itself and logs – so this runs outside any gate of ours.
     async Task RunSuggestionAsync(ActionSuggestionViewModel s)
     {
-        if (!CanRunSuggestion()) return;
+        if (!CanRunSuggestion(s.Suggestion)) return;
         var act = s.Suggestion.Action;
         // busy only once the action really runs, i.e. after the confirmation and inside the gate
         var run = act with
@@ -424,6 +429,12 @@ public sealed partial class ImproveViewModel : ObservableObject
             IsBusy = false;
         }
         if (outcome is null) return;
+        // refused because Defender is busy: nothing ran, so no new check of every area
+        if (outcome.Message == DefenderActivity.BusyText)
+        {
+            ShowResult(outcome.Message, [], run: false);
+            return;
+        }
         if (outcome.Link is { } link)
         {
             // e.g. the real-time switch blocked by tamper protection: offer Windows-Sicherheit directly
