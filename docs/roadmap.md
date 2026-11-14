@@ -91,13 +91,23 @@ Offen, nur mit Zustimmung des Nutzers:
 
 Bekannt, nicht behoben: Eine abgelehnte Wiederholung erscheint im Protokoll als Fehler mit dem Titel „Erneut versuchen fehlgeschlagen“ (nur Wortwahl).
 
-## 0.6.0 (Reihenfolge laut Nutzer)
-Design `docs/superpowers/specs/2026-11-14-winwaechter-0.6-design.md`. Nutzer-Entscheidung 2026-11-14: Die automatische Wartung prüft und meldet nur, sie ändert nichts.
-1. Programm-Updates (winget)
-2. Gerätezustand (Akku, SSD)
-3. Reparatur-Seite (SFC/DISM, Update-Reparatur, Netzwerk-Reset, Druckerwarteschlange, Symbol-Cache, Datenträgerprüfung)
-4. Automatische Wartung (mit Benachrichtigungen)
-5. Speicherplatz-Karte
+## 0.6.0 (gebaut, unveröffentlicht, Stand 2026-11-14)
+Design `docs/superpowers/specs/2026-11-14-winwaechter-0.6-design.md`, Plan `docs/superpowers/plans/2026-11-14-winwaechter-0.6.md`, Branch `feature/v0.6`. Nutzer-Entscheidung 2026-11-14: Die automatische Wartung prüft und meldet nur, sie ändert nichts. Inhalt siehe CHANGELOG: Programm-Updates (winget), Gerät, Reparatur, automatische Prüfung, Speicherplatz-Karte, winget-Nutzungsdaten.
+
+Nur lesende Prüfungen auf dem Rechner des Nutzers (nicht erhöht): `winget upgrade` liest sich vollständig (31 Zeilen = Fußzeile, nur 4 Spalten bei `--source winget`); SSD „2650 Micron 1024GB“ Healthy, Akku-Vollkapazität lesbar; Scan von C: 75 s für 1,8 Mio. Dateien; die Defrag-Statistik `Dfrg\Statistics\Volume{…}\LastRunTime` ist lesbar.
+
+Offen, nur mit Zustimmung des Nutzers, nichts davon hat der Umsetzer allein gemacht:
+- [ ] 1. Den 0.6.0-Build installieren (vorher die laufende App schließen)
+- [ ] 2. Programme: Update-Liste entspricht `winget upgrade` ohne die Dell-Pakete (und ohne etwaige Treiber-Pakete aus `updateBlock`); 7-Zip über WinWächter aktualisieren
+- [ ] 3. Gerät: Akku (≈42,8 Wh voll) und SSD-Werte plausibel
+- [ ] 4. Reparatur: „DNS-Cache leeren“ und „Datenträger prüfen“ (`/scan`); andere Reparaturen nur auf Wunsch
+- [ ] 5. Automatische Prüfung einschalten, die Aufgabe einmal in der Aufgabenplanung mit „Ausführen“ starten, Meldung erscheint, „Ansehen“ öffnet „Rechner in Ordnung bringen“ (mit UAC); danach ausschalten → Aufgabe ist weg
+- [ ] 6. Speicherplatz-Karte von C: lädt; eine Testdatei in Downloads in die Ablage verschieben und im Verlauf zurückholen
+- [ ] 7. winget-Nutzungsdaten abschalten und zurücknehmen; die `settings.json` von winget behält ihre Kommentare
+- [ ] 8. Neue Seiten hell/dunkel, 150 %, Tastatur ansehen
+- [ ] Vor dem Release: `rules/rules.json` hat sich geändert (`rulesVersion` 4, `updateBlock`) → `rules.json.sig` neu signieren (`build-release.ps1`); Release erst nach Freigabe
+
+Bekannt, offen: Der Testprozess stürzte in vollen Testläufen manchmal ab (Zugriffsverletzung in coreclr bzw. Fail-Fast in ucrtbase), immer während des Tests mit 1200 echten Dateiverschiebungen, wenn gleichzeitig der echte PDH-Messtest lief. Beide laufen jetzt allein (eigene Testsammlung), seither stabil. Die native Ursache ist nicht gefunden; dafür braucht es einen Absturz-Dump und einen Debugger.
 
 ## Danach
 Mehrsprachigkeit Deutsch, Englisch, Türkisch (App, Regeltexte, Installer), früher für 0.5.0 geplant (Entscheidung Nutzer 2026-11-10). Startsprache wie Windows, sonst Englisch; umschaltbar in den Einstellungen. Türkische Texte vom Nutzer gegenlesen lassen.
