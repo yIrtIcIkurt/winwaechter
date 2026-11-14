@@ -18,6 +18,7 @@ using WinWaechter.Core.Performance;
 using WinWaechter.Core.Privacy;
 using WinWaechter.Core.Repair;
 using WinWaechter.Core.Device;
+using WinWaechter.Core.Storage.Map;
 using WinWaechter.Core.Programs;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Security.Checks;
@@ -257,6 +258,41 @@ public sealed class AppServices : IDisposable
             new DeviceScanner(battery, new CimDiskHealth(), volumes, repairActions, runner, DownloadsFolder.Resolve(reg, user), DateTime.Now,
                 windowsDir).Scan(), ct);
         var device = new DeviceViewModel(DeviceScan, actions, canChange);
+        // Speicherplatz: the places of this machine, read when a scan starts (programs and OneDrive may have changed)
+        PlaceContext Places()
+        {
+            var installed = inventory.Read().Where(p => !string.IsNullOrWhiteSpace(p.InstallLocation) && Path.IsPathRooted(p.InstallLocation!))
+                .OrderByDescending(p => p.InstallLocation!.Length).ToList();
+            var oneDrive = new[] { "OneDrive", "OneDriveConsumer", "OneDriveCommercial" }
+                .Select(Environment.GetEnvironmentVariable).OfType<string>().Where(s => s.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            oneDrive.Add(Path.Combine(user.ProfileDir, "OneDrive"));
+            var libraries = new[]
+            {
+                DownloadsFolder.Resolve(reg, user), Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+                Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+            }.Where(s => s.Length > 0).ToList();
+            return new PlaceContext(windowsDir, paths.ProgramFiles, paths.ProgramFilesX86, paths.ProgramData, user.ProfileDir,
+                Path.Combine(paths.LocalAppData, "Temp"), oneDrive, libraries,
+                p => installed.FirstOrDefault(i => p.StartsWith(i.InstallLocation!.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)
+                                                   || p.Equals(i.InstallLocation!.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)),
+                p => rules.Classify(new ItemFacts("", p, null, null)) == RuleVerdict.Protected);
+        }
+        IReadOnlyList<DriveSpace> FixedDrives() => DriveInfo.GetDrives()
+            .Where(d => d.DriveType == DriveType.Fixed && d.IsReady)
+            .Select(d => new DriveSpace(d.Name, d.AvailableFreeSpace, d.TotalSize)).ToList();
+        void StorageNavigate(string target)
+        {
+            if (target == "optimize") OpenOptimizeAndScan();
+            else if (target == "performance") shellVm?.Navigate(performance);
+            else if (target.StartsWith("programs:", StringComparison.Ordinal))
+            {
+                programs.SearchText = target["programs:".Length..];
+                shellVm?.Navigate(programs);
+            }
+        }
+        var storage = new StorageMapViewModel(new StorageScanner(), FixedDrives, Places, engine, fo, new WinRecycleBin(), dialogs, shell, gate,
+            canChange, ownAccount, settings.AblageDays, StorageNavigate);
         async Task<IReadOnlyList<ActionSuggestion>> RepairSuggestions(CancellationToken ct)
         {
             var list = new List<ActionSuggestion>();
@@ -307,7 +343,7 @@ public sealed class AppServices : IDisposable
             canChange, gate, disk.SystemDrive, shell, OpenOptimizeAndScan, defenderActivity);
 
         shellVm = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settingsVm, update,
-            improve, env.IsElevated, new ShellPages(Repair: repair, Device: device));
+            improve, env.IsElevated, new ShellPages(Repair: repair, Device: device, Storage: storage));
         return new AppServices(env, settings, janitor, gate, shellVm, systemSources);
     }
 

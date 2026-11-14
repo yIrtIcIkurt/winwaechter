@@ -32,11 +32,11 @@ public static class PlaceKinds
         var p = path.TrimEnd('\\');
         var rootDir = Path.GetPathRoot(p)?.TrimEnd('\\') ?? "";
         var rest = p.Length > rootDir.Length ? p[(rootDir.Length + 1)..] : "";
-        var first = rest.Split('\\')[0];
 
         if (c.IsProtectedPath(p + "\\")) return PlaceKind.Protected;
         if (c.OneDriveRoots.Any(r => Under(p, r))) return PlaceKind.OneDrive;
-        if (first.Equals("$Recycle.Bin", StringComparison.OrdinalIgnoreCase)) return PlaceKind.RecycleBin;
+        // Windows keeps it at each volume root; a scan of a sub-folder can still meet one there
+        if (p.Split('\\').Any(s => s.Equals("$Recycle.Bin", StringComparison.OrdinalIgnoreCase))) return PlaceKind.RecycleBin;
         if (rest.Equals("hiberfil.sys", StringComparison.OrdinalIgnoreCase)) return PlaceKind.Hibernation;
         if (rest.Equals("pagefile.sys", StringComparison.OrdinalIgnoreCase) || rest.Equals("swapfile.sys", StringComparison.OrdinalIgnoreCase))
             return PlaceKind.PageFile;

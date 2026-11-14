@@ -213,8 +213,25 @@ public sealed class ViewSmokeTests : IDisposable
                         (_, _) => Task.FromResult(new ActionOutcome(true, "ok"))) { SkipGate = true, LockKey = "disk" }),
             ]), new ActionRunner(new YesDialogs(), gate, locks: ActivityLock.CreateDefaults()), true);
         device.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        // 0.6 Speicherplatz: a small fake drive C: with Windows, Users\u\Downloads and a big video
+        static Core.Storage.Map.StorageEntry E(string dir, string name, bool isDir, long bytes) =>
+            new(name, System.IO.Path.Combine(dir, name), isDir, bytes, isDir ? System.IO.FileAttributes.Directory : System.IO.FileAttributes.Normal);
+        var tree = new Dictionary<string, Core.Storage.Map.StorageEntry[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C:\"] = [E(@"C:\", "Windows", true, 0), E(@"C:\", "Users", true, 0), E(@"C:\", "hiberfil.sys", false, 12L << 30)],
+            [@"C:\Windows"] = [E(@"C:\Windows", "explorer.exe", false, 30L << 30)],
+            [@"C:\Users"] = [E(@"C:\Users", "u", true, 0)],
+            [@"C:\Users\u"] = [E(@"C:\Users\u", "Downloads", true, 0)],
+            [@"C:\Users\u\Downloads"] = [E(@"C:\Users\u\Downloads", "Urlaub.mp4", false, 8L << 30)],
+        };
+        var storage = new StorageMapViewModel(new Core.Storage.Map.StorageScanner(d => tree[d]),
+            () => [new DriveSpace(@"C:\", 215L << 30, 997L << 30)],
+            () => new Core.Storage.Map.PlaceContext(@"C:\Windows", @"C:\Program Files", @"C:\Program Files (x86)", @"C:\ProgramData", @"C:\Users\u",
+                @"C:\Users\u\AppData\Local\Temp", [], [@"C:\Users\u\Downloads"], _ => null, _ => false),
+            engine, new FakeFileOps(), new NoRecycle(), new YesDialogs(), new Shell(), gate, true, true, 14, _ => { });
+        storage.ScanCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         var shell = new ShellViewModel(optimize, performance, protect, security, privacy, programs, history, settings, update, improve,
-            isElevated: false, new ShellPages(Repair: repair, Device: device));
+            isElevated: false, new ShellPages(Repair: repair, Device: device, Storage: storage));
         var allGood = new OverviewViewModel(optimize, protect, security, update,
             Improve(engine, gate, new ImprovementScan([], [], [], new DateTimeOffset(2026, 11, 13, 9, 5, 0, TimeSpan.FromHours(1)))), _ => { });
 
@@ -311,6 +328,10 @@ public sealed class ViewSmokeTests : IDisposable
             shell.Navigate(shell.Device!);
             Layout(shellContent);
             Assert.NotEmpty(FindAll<DeviceView>(shellContent!));
+            var storageView = new StorageMapView { DataContext = shell.Storage };
+            Layout(storageView);
+            AssertStorageMap(storageView, shell.Storage!);
+            Assert.Equal(nav.IndexOf("Optimieren") + 1, shell.PrimaryNav.Select(n => n.Title).ToList().IndexOf("Speicherplatz"));
             var performanceView = new PerformanceView { DataContext = performance };
             Layout(performanceView);
             AssertComboShowsLabel(performanceView, "PerfOption");
@@ -403,6 +424,37 @@ public sealed class ViewSmokeTests : IDisposable
         var last = rows.Single(t => t.Text == "Such-Toolbar");   // sorted by name: the last row
         var y = last.TransformToAncestor(page).Transform(new Point(0, 0)).Y;
         Assert.InRange(y, 0, page.ViewportHeight);
+    }
+
+    sealed class NoRecycle : IRecycleBin
+    {
+        public void Empty(string driveRoot) { }
+    }
+
+    // 0.6 spec 4.5: tiles with real sizes (biggest first and largest), the list with the same entries and their offers,
+    // the biggest files with „In die Ablage verschieben“; a low window still reaches the last file
+    static void AssertStorageMap(FrameworkElement view, StorageMapViewModel vm)
+    {
+        var texts = FindAll<TextBlock>(view).Where(Shown).Select(t => t.Text).ToList();
+        Assert.Contains("Speicherplatz", texts);
+        Assert.Contains("Größte Dateien", texts);
+        var tiles = FindAll<Button>(view).Where(b => b.ToolTip is string s && s.Contains(" – ") && Shown(b)).ToList();
+        Assert.Equal(3, tiles.Count);
+        var windows = tiles.Single(t => ((string)t.ToolTip).StartsWith("Windows"));
+        var users = tiles.Single(t => ((string)t.ToolTip).StartsWith("Users"));
+        Assert.True(windows.ActualWidth * windows.ActualHeight > users.ActualWidth * users.ActualHeight);
+        Assert.Contains(FindAll<Button>(view), b => b.Content as string == "Ruhezustand ansehen" && Shown(b));
+        Assert.Contains(FindAll<Button>(view), b => b.Content as string == "In die Ablage verschieben" && Shown(b));
+        Assert.Single(vm.LargestFiles, f => f.Name == "Urlaub.mp4");
+        view.Measure(new Size(1100, 450));
+        view.Arrange(new Rect(0, 0, 1100, 450));
+        view.UpdateLayout();
+        var page = FindAll<ScrollViewer>(view).First();
+        Assert.True(page.ScrollableHeight > 0);
+        page.ScrollToEnd();
+        view.UpdateLayout();
+        var last = FindAll<TextBlock>(view).Last(t => t.Text == "Urlaub.mp4");
+        Assert.InRange(last.TransformToAncestor(page).Transform(new Point(0, 0)).Y, 0, page.ViewportHeight);
     }
 
     // 0.6 spec 4.3: eight tools, the recommended one first with its chip, every button shown; a low window still reaches the last row

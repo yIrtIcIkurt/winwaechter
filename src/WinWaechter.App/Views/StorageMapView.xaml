@@ -1,0 +1,204 @@
+<UserControl x:Class="WinWaechter.App.Views.StorageMapView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels"
+             xmlns:c="clr-namespace:WinWaechter.App.Views.Controls">
+    <UserControl.Resources>
+        <!-- the offers of one entry: buttons, or a plain sentence for „von Windows verwaltet“ -->
+        <DataTemplate x:Key="Offers" DataType="{x:Type vm:StorageItemViewModel}">
+            <ItemsControl ItemsSource="{Binding Offers}" Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel HorizontalAlignment="Right" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:StorageOfferViewModel}">
+                        <Grid Margin="8,0,0,0">
+                            <Button Style="{StaticResource Button.Quiet}" Content="{Binding Text}" ToolTip="{Binding Note}"
+                                    Command="{Binding DataContext.OfferCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}" Visibility="{Binding IsButton, Converter={StaticResource Vis}}"
+                                    AutomationProperties.Name="{Binding Text}" />
+                            <TextBlock Style="{StaticResource Text.Small}" VerticalAlignment="Center" Text="{Binding Text}"
+                                       Visibility="{Binding IsText, Converter={StaticResource Vis}}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </DataTemplate>
+
+        <DataTemplate x:Key="Row" DataType="{x:Type vm:StorageItemViewModel}">
+            <Border Style="{StaticResource RowDivider}" Padding="16,10,16,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <Button Style="{StaticResource Button.Quiet}" HorizontalAlignment="Left" Content="{Binding Name}" FontWeight="SemiBold"
+                                Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding}" IsEnabled="{Binding CanOpen}" AutomationProperties.Name="{Binding Name}" />
+                        <ProgressBar Margin="0,6,0,0" Style="{StaticResource Scale}" Maximum="1" Value="{Binding Share, Mode=OneWay}" MaxWidth="360"
+                                     HorizontalAlignment="Left" Width="360" />
+                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding NoAccessText}"
+                                   Visibility="{Binding NoAccess, Converter={StaticResource Vis}}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Top" Style="{StaticResource Text.Small}"
+                               Typography.NumeralAlignment="Tabular" Text="{Binding SizeText}" />
+                    <ContentControl Grid.Column="2" VerticalAlignment="Top" Content="{Binding}" ContentTemplate="{StaticResource Offers}" Focusable="False" />
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Line}" Background="{DynamicResource Canvas}"
+                Padding="32,12,32,14">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" Text="{Binding AdminNotice}"
+                           Visibility="{Binding ShowAdminNotice, Converter={StaticResource Vis}}" />
+                <TextBlock Style="{StaticResource Text.Small}" TextWrapping="Wrap" Text="{Binding ResultText}"
+                           Visibility="{Binding ResultText, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+            <StackPanel Margin="{StaticResource PagePadding}">
+                <TextBlock Style="{StaticResource Text.PageTitle}" Text="Speicherplatz" />
+                <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
+                           Text="Was auf dem Laufwerk Platz belegt, Ordner für Ordner. Große Dateien aus Ihren eigenen Ordnern lassen sich in die Ablage verschieben und im Verlauf zurückholen; gelöscht wird hier nichts außer dem Papierkorb." />
+
+                <!-- drives -->
+                <StackPanel Margin="0,18,0,0" Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center" Margin="0,0,8,0" Style="{StaticResource Text.Small}" Text="Laufwerk" />
+                    <ComboBox MinWidth="320" ItemsSource="{Binding Drives}" DisplayMemberPath="Text" SelectedItem="{Binding SelectedDrive, Mode=TwoWay}"
+                              AutomationProperties.Name="Laufwerk" />
+                </StackPanel>
+                <ProgressBar Margin="0,8,0,0" Style="{StaticResource Scale}" Maximum="1" Value="{Binding SelectedDrive.UsedShare, Mode=OneWay}"
+                             Width="420" HorizontalAlignment="Left" ToolTip="belegt" />
+                <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                    <Button Style="{StaticResource Button.Primary}" Content="Speicherplatz untersuchen" Command="{Binding ScanCommand}" />
+                    <Button Margin="8,0,0,0" Style="{StaticResource Button.Quiet}" Content="Abbrechen" Command="{Binding CancelCommand}"
+                            Visibility="{Binding IsScanning, Converter={StaticResource Vis}}" />
+                </StackPanel>
+                <StackPanel Margin="0,10,0,0" Visibility="{Binding IsScanning, Converter={StaticResource Vis}}">
+                    <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
+                </StackPanel>
+                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding StatusText}" TextWrapping="Wrap"
+                           Visibility="{Binding StatusText, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
+
+                <StackPanel Visibility="{Binding HasResult, Converter={StaticResource Vis}}">
+                    <!-- breadcrumb -->
+                    <DockPanel Margin="0,18,0,8">
+                        <Button DockPanel.Dock="Left" Style="{StaticResource Button.Quiet}" Content="Eine Ebene höher" Command="{Binding UpCommand}"
+                                Margin="0,0,12,0" />
+                        <ItemsControl ItemsSource="{Binding Breadcrumbs}" Focusable="False" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:StorageCrumb}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Style="{StaticResource Button.Quiet}" Content="{Binding Name}"
+                                                Command="{Binding DataContext.CrumbCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}" />
+                                        <TextBlock Margin="6,0" Style="{StaticResource Text.Small}" Text="›" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DockPanel>
+
+                    <!-- the map: tiles sized by space; a click goes one level deeper -->
+                    <Border Style="{StaticResource SurfaceBox}" Height="280" Padding="2">
+                        <ItemsControl ItemsSource="{Binding Items}" Focusable="False" AlternationCount="3"
+                                      AutomationProperties.Name="Speicherplatz-Karte">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <c:TreemapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:StorageItemViewModel}">
+                                    <Button x:Name="Tile" Margin="1" Padding="0" ToolTip="{Binding ToolTip}" Focusable="True"
+                                            AutomationProperties.Name="{Binding ToolTip}"
+                                            Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="Box" Background="{DynamicResource AccentSoft}" BorderBrush="{DynamicResource Line}"
+                                                        BorderThickness="1" CornerRadius="3" Padding="6,4" ClipToBounds="True">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Ink}" TextTrimming="CharacterEllipsis"
+                                                                   FontWeight="SemiBold" />
+                                                        <TextBlock Text="{Binding SizeText}" Foreground="{DynamicResource InkMuted}" FontSize="11"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                    </StackPanel>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                                        <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                                        <Setter TargetName="Box" Property="BorderThickness" Value="2" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                    <DataTemplate.Triggers>
+                                        <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                                            <Setter TargetName="Tile" Property="Opacity" Value="0.85" />
+                                        </Trigger>
+                                        <Trigger Property="ItemsControl.AlternationIndex" Value="2">
+                                            <Setter TargetName="Tile" Property="Opacity" Value="0.7" />
+                                        </Trigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+
+                    <!-- the same entries as a list (keyboard and screen readers) -->
+                    <TextBlock Margin="2,18,0,8" Style="{StaticResource Text.Section}" Text="Ordner" />
+                    <Border Style="{StaticResource SurfaceBox}">
+                        <ItemsControl ItemsSource="{Binding Items}" Focusable="False" Margin="0,0,0,-1" ItemTemplate="{StaticResource Row}" />
+                    </Border>
+
+                    <TextBlock Margin="2,18,0,8" Style="{StaticResource Text.Section}" Text="Größte Dateien" />
+                    <TextBlock Margin="2,0,0,8" Style="{StaticResource Text.Small}" Text="Keine Dateien ab 100 MB gefunden."
+                               Visibility="{Binding LargestFiles.Count, Converter={StaticResource Vis}, ConverterParameter=not}" />
+                    <Border Style="{StaticResource SurfaceBox}" Visibility="{Binding LargestFiles.Count, Converter={StaticResource Vis}}">
+                        <ItemsControl ItemsSource="{Binding LargestFiles}" Focusable="False" Margin="0,0,0,-1">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:StorageItemViewModel}">
+                                    <Border Style="{StaticResource RowDivider}" Padding="16,10,16,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Path}" Text="{Binding FullPath}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Top" Style="{StaticResource Text.Small}"
+                                                       Typography.NumeralAlignment="Tabular" Text="{Binding SizeText}" />
+                                            <ContentControl Grid.Column="2" VerticalAlignment="Top" Content="{Binding}" ContentTemplate="{StaticResource Offers}"
+                                                            Focusable="False" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

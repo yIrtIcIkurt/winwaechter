@@ -21,7 +21,7 @@ public sealed partial class NavItem(string title, string glyph, object page, Act
 }
 
 /// <summary>The pages added in 0.6 (null = not shown, e.g. in tests that do not need them).</summary>
-public sealed record ShellPages(RepairViewModel? Repair = null, DeviceViewModel? Device = null);
+public sealed record ShellPages(RepairViewModel? Repair = null, DeviceViewModel? Device = null, StorageMapViewModel? Storage = null);
 
 /// <summary>Window-level state: navigation, update banner, admin notice.</summary>
 public sealed partial class ShellViewModel : ObservableObject
@@ -32,6 +32,7 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         Repair = pages?.Repair;
         Device = pages?.Device;
+        Storage = pages?.Storage;
         Optimize = optimize;
         Performance = performance;
         Protect = protect;
@@ -56,6 +57,9 @@ public sealed partial class ShellViewModel : ObservableObject
             new NavItem("Verlauf", "\uE81C", history, OnSelected),
         ];
         // 0.6 pages, in the order \u00DCbersicht, Optimieren, Speicherplatz, Leistung, Ger\u00E4t, \u2026, Programme, Reparatur, Verlauf
+        if (Storage is { } storage)
+            PrimaryNav.Insert(PrimaryNav.IndexOf(PrimaryNav.First(n => ReferenceEquals(n.Page, optimize))) + 1,
+                new NavItem("Speicherplatz", "", storage, OnSelected));
         if (Device is { } device)
             PrimaryNav.Insert(PrimaryNav.IndexOf(PrimaryNav.First(n => ReferenceEquals(n.Page, performance))) + 1,
                 new NavItem("Ger\u00E4t", "\uE7F8", device, OnSelected));
@@ -74,12 +78,14 @@ public sealed partial class ShellViewModel : ObservableObject
             if (e.PropertyName == nameof(ProtectViewModel.IsDefenderBusy)) security.RunActionCommand.NotifyCanExecuteChanged();
         };
         privacy.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
+        if (Storage is not null) Storage.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         programs.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
         performance.ChangesApplied += async (_, _) => await history.ShowNewestAsync();
     }
 
     public RepairViewModel? Repair { get; }
     public DeviceViewModel? Device { get; }
+    public StorageMapViewModel? Storage { get; }
     public OverviewViewModel Overview { get; }
     public OptimizeViewModel Optimize { get; }
     public PerformanceViewModel Performance { get; }

@@ -34,6 +34,9 @@
         <DataTemplate DataType="{x:Type vm:ProgramsViewModel}">
             <views:ProgramsView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:StorageMapViewModel}">
+            <views:StorageMapView />
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:DeviceViewModel}">
             <views:DeviceView />
         </DataTemplate>
