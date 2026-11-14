@@ -94,11 +94,13 @@ Bekannt, nicht behoben: Eine abgelehnte Wiederholung erscheint im Protokoll als 
 ## 0.6.0 (gebaut, unveröffentlicht, Stand 2026-11-14)
 Design `docs/superpowers/specs/2026-11-14-winwaechter-0.6-design.md`, Plan `docs/superpowers/plans/2026-11-14-winwaechter-0.6.md`, Branch `feature/v0.6`. Nutzer-Entscheidung 2026-11-14: Die automatische Wartung prüft und meldet nur, sie ändert nichts. Inhalt siehe CHANGELOG: Programm-Updates (winget), Gerät, Reparatur, automatische Prüfung, Speicherplatz-Karte, winget-Nutzungsdaten.
 
+Gesamtprüfung (unabhängiger Prüfer) mit „With fixes“: zwei kritische Funde (winget-Ausgabe im Fenster falsch dekodiert; Speicherplatz hätte Ordner mit Lexware-Daten oder ganze Bibliotheksordner verschieben können) und acht wichtige Funde behoben, je mit Test. Alle Entscheidungen und zurückgestellten Kleinigkeiten: `docs/superpowers/plans/2026-11-14-winwaechter-0.6-ledger.md`. 1278 Tests, fünfmal hintereinander grün.
+
 Nur lesende Prüfungen auf dem Rechner des Nutzers (nicht erhöht): `winget upgrade` liest sich vollständig (31 Zeilen = Fußzeile, nur 4 Spalten bei `--source winget`); SSD „2650 Micron 1024GB“ Healthy, Akku-Vollkapazität lesbar; Scan von C: 75 s für 1,8 Mio. Dateien; die Defrag-Statistik `Dfrg\Statistics\Volume{…}\LastRunTime` ist lesbar.
 
 Offen, nur mit Zustimmung des Nutzers, nichts davon hat der Umsetzer allein gemacht:
 - [ ] 1. Den 0.6.0-Build installieren (vorher die laufende App schließen)
-- [ ] 2. Programme: Update-Liste entspricht `winget upgrade` ohne die Dell-Pakete (und ohne etwaige Treiber-Pakete aus `updateBlock`); 7-Zip über WinWächter aktualisieren
+- [ ] 2. Programme: Update-Liste entspricht `winget upgrade` ohne die Dell-Pakete (und ohne etwaige Treiber-Pakete aus `updateBlock`), Namen mit Umlauten und „…“ korrekt (nach dem UTF-8-Fix nur im echten Fenster prüfbar); 7-Zip über WinWächter aktualisieren
 - [ ] 3. Gerät: Akku (≈42,8 Wh voll) und SSD-Werte plausibel
 - [ ] 4. Reparatur: „DNS-Cache leeren“ und „Datenträger prüfen“ (`/scan`); andere Reparaturen nur auf Wunsch
 - [ ] 5. Automatische Prüfung einschalten, die Aufgabe einmal in der Aufgabenplanung mit „Ausführen“ starten, Meldung erscheint, „Ansehen“ öffnet „Rechner in Ordnung bringen“ (mit UAC); danach ausschalten → Aufgabe ist weg
