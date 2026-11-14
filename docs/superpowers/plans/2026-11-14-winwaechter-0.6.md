@@ -510,7 +510,7 @@
 **Files:**
 - Create: `src/WinWaechter.App/ViewModels/RepairViewModel.cs`, `src/WinWaechter.App/Views/RepairView.xaml(.cs)`, `tests/WinWaechter.Tests/RepairViewModelTests.cs`
 - Modify:
-  - `ShellViewModel.cs`: ctor parameter `RepairViewModel repair`; nav item „Reparatur“, glyph `\uE90F`? No, Optimieren uses it, so use `\uE15E` (Repair).
+  - `ShellViewModel.cs`: ctor parameter `RepairViewModel repair`; nav item „Reparatur“, glyph `\uE15E` (Repair); `\uE90F` is already taken by Optimieren.
   - `ShellWindow.xaml`: DataTemplate.
   - `AppServices.cs`.
   - `ViewSmokeTests.cs`.
