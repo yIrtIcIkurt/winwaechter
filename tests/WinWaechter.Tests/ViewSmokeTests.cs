@@ -263,6 +263,7 @@ public sealed class ViewSmokeTests : IDisposable
             AssertComboShowsLabel(programsView, "ProgramSortOption");
             AssertAppsSection(programsView);
             AssertShown(programsView, "Alle unerwünschten entfernen (1)", programs.UninstallUnwantedCommand);
+            AssertUpdatesBox(programsView, programs);
             AssertProgramListReachable(programsView);
             var performanceView = new PerformanceView { DataContext = performance };
             Layout(performanceView);
@@ -356,6 +357,17 @@ public sealed class ViewSmokeTests : IDisposable
         var last = rows.Single(t => t.Text == "Such-Toolbar");   // sorted by name: the last row
         var y = last.TransformToAncestor(page).Transform(new Point(0, 0)).Y;
         Assert.InRange(y, 0, page.ViewportHeight);
+    }
+
+    // 0.6 spec 4.1: header with the count, the offered row with „alt → neu“, its own button, the hidden note, no Dell row
+    static void AssertUpdatesBox(FrameworkElement view, ProgramsViewModel vm)
+    {
+        var texts = FindAll<TextBlock>(view).Where(Shown).Select(t => t.Text).ToList();
+        Assert.Contains("Updates verfügbar (1)", texts);
+        Assert.Contains("26.00 → 26.06", texts);
+        Assert.DoesNotContain("Dell Optimizer", texts);
+        AssertShown(view, "Ausgewählte aktualisieren (1)", vm.Updates!.UpdateSelectedCommand);
+        Assert.Contains(FindAll<Expander>(view), e => e.Header as string == "1 Programme bewusst ausgelassen (geschützt)" && Shown(e));
     }
 
     static void AssertAppsSection(FrameworkElement view)
@@ -483,8 +495,21 @@ public sealed class ViewSmokeTests : IDisposable
                 null, false, false, "Store", true))
             .Add(new AppPackage("Microsoft.Copilot", "Microsoft.Copilot_1.0.0.0_neutral__8wekyb3d8bbwe", "Microsoft.Copilot_8wekyb3d8bbwe",
                 null, false, false, "Store", false));
+        // 0.6: the winget box above the apps, one offered update and one protected (hidden) package
+        var winget = new FakeWinget
+        {
+            List = new(Core.Updates.WingetListStatus.Ok,
+            [
+                new("7-Zip 26.00 (x64)", "7zip.7zip", "26.00", "26.06", false, false),
+                new("Dell Optimizer", "Dell.Optimizer", "6.3.2.0", "6.3.3.0", false, false),
+            ], null),
+        };
+        var updates = new UpdatesViewModel(
+            new Core.Updates.WingetUpdateService(winget, new Core.Updates.UpdateFilter(RuleSet.Default, () => []), _ => new RestorePointResult(true, "")),
+            new ActionRunner(new YesDialogs(), gate, locks: ActivityLock.CreateDefaults()), new YesDialogs(), new Shell(), true, () => Task.FromResult(true));
+        updates.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         var vm = new ProgramsViewModel(actions, engine, new YesDialogs(), new Shell(), canChange: true, gate,
-            () => new BloatAppScanner(pkgs, RuleSet.Default).Scan());
+            () => new BloatAppScanner(pkgs, RuleSet.Default).Scan()) { Updates = updates };
         vm.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         actions.Programs = [tool, lexware, toolbar];   // the launched uninstaller removed „Foo“
         vm.UninstallCommand.ExecuteAsync(vm.Items.Single(i => i.Name == "Foo")).GetAwaiter().GetResult();

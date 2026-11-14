@@ -23,6 +23,7 @@ using WinWaechter.Core.Security.Defender;
 using WinWaechter.Core.Security.Heuristics;
 using WinWaechter.Core.Sys;
 using WinWaechter.Core.Update;
+using WinWaechter.Core.Updates;
 
 namespace WinWaechter.App.Services;
 
@@ -132,8 +133,10 @@ public sealed class AppServices : IDisposable
         var gate = new ChangeGate();
         // one Defender job at a time across Schutz, Sicherheit and „Rechner in Ordnung bringen“ (Schutz is wired in below)
         var defenderActivity = new DefenderActivity();
-        // one runner for every one-off action, on every page
-        var actions = new ActionRunner(dialogs, gate, defenderActivity);
+        // one runner for every one-off action, on every page; long actions (updates, repairs, disk) have their own locks
+        var locks = ActivityLock.CreateDefaults();
+        var stamps = new ActionStampStore(Path.Combine(env.DataRoot, "aktionen.json"));
+        var actions = new ActionRunner(dialogs, gate, defenderActivity, locks, stamps);
         // Windows restarts the shell itself after the kill; the elevated app never launches Explorer
         var restartExplorer = SystemActions.RestartExplorer(ender, windowsDir);
         // „Beenden“ (Leistung) asks the guard at run time: never Windows, services, protected vendors (rules.json) or WinWächter
@@ -184,7 +187,8 @@ public sealed class AppServices : IDisposable
         var privacy = new PrivacyViewModel(PrivacyScan, engine, dialogs, canChange, gate);
         // traces (services, tasks, autostarts) for the leftover search and the forced removal
         IReadOnlyList<Finding> TraceScan() => [.. autostart.Scan(), .. services.Scan(), .. tasks.Scan()];
-        var programService = new ProgramService(new ProgramInventory(reg, rules), reg, fo, sig, new JobUninstallLauncher(user.Sid),
+        var inventory = new ProgramInventory(reg, rules);
+        var programService = new ProgramService(inventory, reg, fo, sig, new JobUninstallLauncher(user.Sid),
             new UninstallLeftoverFinder(reg, fo, rules, procs, paths, TraceScan),
             new ForcedRemovalPlanner(reg, fo, rules, procs, paths, TraceScan), paths);
         // Leistung and Programme: the animation switch (SPI) and the app removal act on the signed-in user's account,
@@ -193,7 +197,16 @@ public sealed class AppServices : IDisposable
         var ownAccount = string.Equals(identity.User?.Value, user.Sid, StringComparison.OrdinalIgnoreCase);
         // the view model runs every read of the service (and the app scan) on the thread pool
         IReadOnlyList<BloatAppRow> BloatScan() => new BloatAppScanner(pkgs, rules).Scan();
-        var programs = new ProgramsViewModel(programService, engine, dialogs, shell, canChange, gate, BloatScan, ownAccount);
+        // „Updates verfügbar“: winget of the signed-in user (same account as the elevated app when ownAccount)
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var winget = new WingetClient(runner, new UserProcessRunner(user.Sid), WingetClient.FindWinget(localAppData), Path.GetTempPath());
+        var updateService = new WingetUpdateService(winget, new UpdateFilter(rules, () => inventory.Read()), restore.TryCreate);
+        var updates = new UpdatesViewModel(updateService, actions, dialogs, shell, canChange,
+            () => RestorePointGate.EnsureAsync(restore.TryCreate, "Programme aktualisieren", dialogs));
+        var programs = new ProgramsViewModel(programService, engine, dialogs, shell, canChange, gate, BloatScan, ownAccount)
+        {
+            Updates = updates,
+        };
         var perfScanner = new PerformanceScanner(reg, power, animation, hibernation, new WinAppDisplayNames(reg), ownAccount, broadcast,
             plans, () => new JournalPolicyOwnership(store));
         var disk = new WinDiskSpace();
@@ -231,7 +244,22 @@ public sealed class AppServices : IDisposable
             Source("Leistung", ct => Task.Run(() => ImprovementMap.FromPerformance(perfScanner.Scan(), perfScanner.ChangesFor), ct)),
             new("Sicherheit", async ct => ImprovementMap.FromSecurity(await SecurityRun(ct))),
             Source("Vorinstallierte Apps", ct => Task.Run(() => ImprovementMap.FromBloatApps(BloatScan(), ownAccount), ct)),
+            new("Programm-Updates", async ct => ([], UpdateSuggestions(await updateService.LoadAsync(false, ct)))),
         ]);
+        // „n Programm-Updates verfügbar“ only switches to Programme (updates never join the collect button)
+        IReadOnlyList<ActionSuggestion> UpdateSuggestions(
+            (WingetList List, IReadOnlyList<Core.Updates.WingetPackage> Offered, IReadOnlyList<Core.Updates.WingetPackage> Hidden) r)
+        {
+            if (r.List.Status != WingetListStatus.Ok || r.Offered.Count == 0) return [];
+            var open = new SystemAction("updates-open", "Programm-Updates", "Ansehen", null, false, (_, _) =>
+            {
+                shellVm?.Navigate(programs);
+                return Task.FromResult(new ActionOutcome(true, ""));
+            });
+            var n = r.Offered.Count;
+            return [new ActionSuggestion("updates", n == 1 ? "1 Programm-Update verfügbar" : $"{n} Programm-Updates verfügbar",
+                "Veraltete Programme sind ein häufiges Einfallstor.", open)];
+        }
         var improve = new ImproveViewModel((p, ct) => Task.Run(() => collector.CollectAsync(p, ct), ct), engine, dialogs, actions,
             canChange, gate, disk.SystemDrive, shell, OpenOptimizeAndScan, defenderActivity);
 

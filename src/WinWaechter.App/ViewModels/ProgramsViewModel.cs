@@ -150,6 +150,10 @@ public sealed partial class ProgramsViewModel : ObservableObject
     public bool ShowAdminNotice => !CanChange;
     public string AdminNotice => AppEnvironment.AdminNotice;
 
+    /// <summary>„Updates verfügbar“ (winget) above the apps; null when the page runs without it.</summary>
+    public UpdatesViewModel? Updates { get; init; }
+    public bool ShowUpdates => Updates is not null;
+
     /// <summary>Shown while another page holds the change gate.</summary>
     public string? GateHint => _gate.IsBusyFor(this) ? ChangeGate.BusyHint : null;
 

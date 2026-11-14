@@ -244,7 +244,28 @@ public sealed class ImproveViewModelTests : IDisposable
     [Theory]
     [InlineData(SystemLinks.DefenderThreat, true)]
     [InlineData("https://example.com", false)]
-    public async Task Blocked_action_offers_Windows_Sicherheit(string link, bool offered)
+    public async Task Blocked_action_offers_Windows_Sicherheit(string link, bool offered) =>
+        await BlockedActionOffersWindowsSicherheit(link, offered);
+
+    // „Ansehen“ (e.g. program updates) only switches the page: no result line, no new check of every area
+    [Fact]
+    public async Task Navigation_suggestion_neither_shows_result_nor_rechecks()
+    {
+        var navigated = 0;
+        var act = new SystemAction("updates-open", "Programm-Updates", "Ansehen", null, false,
+            (_, _) => { navigated++; return Task.FromResult(new ActionOutcome(true, "")); });
+        var vm = Vm(Scan([], [new ActionSuggestion("updates", "3 Programm-Updates verfügbar", "weil", act)]));
+        await vm.CheckCommand.ExecuteAsync(null);
+        var before = _collects;
+
+        await vm.Suggestions[0].RunCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, navigated);
+        Assert.Equal(before, _collects);
+        Assert.Empty(_dialogs.Informs);
+    }
+
+    async Task BlockedActionOffersWindowsSicherheit(string link, bool offered)
     {
         var act = new SystemAction("realtime", "Echtzeitschutz einschalten", "Einschalten", null, false,
             (_, _) => Task.FromResult(new ActionOutcome(false, "Windows hat das Einschalten blockiert.", link)));

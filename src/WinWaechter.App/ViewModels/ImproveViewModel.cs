@@ -429,6 +429,8 @@ public sealed partial class ImproveViewModel : ObservableObject
             IsBusy = false;
         }
         if (outcome is null) return;
+        // a suggestion that only opens another page („Ansehen“): nothing changed, nothing to report or re-check
+        if (outcome.Success && outcome.Message.Length == 0) return;
         // refused because Defender is busy: nothing ran, so no new check of every area
         if (outcome.Message == DefenderActivity.BusyText)
         {

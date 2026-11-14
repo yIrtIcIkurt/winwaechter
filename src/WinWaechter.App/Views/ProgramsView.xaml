@@ -67,6 +67,95 @@
                     <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Prose}"
                                Text="Installierte Programme mit Herausgeber, Version, Datum und Größe. „Deinstallieren“ startet das Deinstallationsprogramm des Herstellers; das lässt sich in WinWächter nicht rückgängig machen. „Erzwungen entfernen“ erscheint nur, wenn die offizielle Deinstallation nicht möglich war, und lässt sich im Verlauf rückgängig machen." />
 
+                    <!-- winget updates (0.6 spec 4.1) -->
+                    <StackPanel Margin="0,18,0,0" DataContext="{Binding Updates}"
+                                Visibility="{Binding DataContext.ShowUpdates, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Vis}}">
+                        <DockPanel Margin="2,0,0,8">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
+                                <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,0" Content="Neu suchen" Command="{Binding RefreshCommand}" />
+                                <Button Style="{StaticResource Button.Quiet}" Margin="0,0,8,0" Content="Alle auswählen" Command="{Binding SelectAllCommand}" />
+                                <Button Style="{StaticResource Button.Final}" Content="{Binding UpdateSelectedText}" Command="{Binding UpdateSelectedCommand}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Section}" Text="{Binding HeaderText}" />
+                                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap" MaxWidth="{StaticResource ProseWidth}"
+                                           HorizontalAlignment="Left"
+                                           Text="Neue Versionen über winget, den Paketmanager von Windows. Ein Update lässt sich nicht im Verlauf zurücknehmen; Dell, Lexware und Treiber werden nie aktualisiert." />
+                                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" TextWrapping="Wrap"
+                                           MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding LockedHint}"
+                                           Visibility="{Binding LockedHint, Converter={StaticResource Vis}}" />
+                            </StackPanel>
+                        </DockPanel>
+
+                        <StackPanel Margin="0,0,0,8" Visibility="{Binding ProgressText, Converter={StaticResource Vis}}">
+                            <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" />
+                            <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" Text="{Binding ProgressText}" TextWrapping="Wrap"
+                                       AutomationProperties.LiveSetting="Polite" />
+                        </StackPanel>
+                        <TextBlock Margin="2,0,0,8" Style="{StaticResource Text.Small}" TextWrapping="Wrap" Text="{Binding ResultText}"
+                                   Visibility="{Binding ResultText, Converter={StaticResource Vis}}" AutomationProperties.LiveSetting="Polite" />
+
+                        <Border Margin="0,0,0,8" Style="{StaticResource Notice}" Visibility="{Binding ShowMissing, Converter={StaticResource Vis}}">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Margin="16,0,0,0" Style="{StaticResource Button.Quiet}"
+                                        Content="App-Installer im Microsoft Store öffnen" Command="{Binding OpenStoreCommand}" />
+                                <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="winget (App-Installer) fehlt. Ohne ihn kann WinWächter keine Programme aktualisieren." />
+                            </DockPanel>
+                        </Border>
+                        <Border Margin="0,0,0,8" Style="{StaticResource Notice}" Visibility="{Binding ShowSourceAgreement, Converter={StaticResource Vis}}">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Margin="16,0,0,0" Style="{StaticResource Button.Quiet}"
+                                        Content="Bedingungen der winget-Quelle annehmen und suchen" Command="{Binding AcceptSourceAndSearchCommand}" />
+                                <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="winget braucht einmal Ihre Zustimmung zu den Bedingungen seiner Quelle." />
+                            </DockPanel>
+                        </Border>
+                        <TextBlock Margin="2,0,0,8" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}" TextWrapping="Wrap"
+                                   Text="{Binding ErrorText}" Visibility="{Binding ErrorText, Converter={StaticResource Vis}}" />
+
+                        <Border Style="{StaticResource SurfaceBox}" Visibility="{Binding Rows.Count, Converter={StaticResource Vis}}">
+                            <ItemsControl ItemsSource="{Binding Rows}" Focusable="False" Margin="0,0,0,-1">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:UpdateRowViewModel}">
+                                        <Border Style="{StaticResource RowDivider}" Padding="16,10,16,10">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox VerticalAlignment="Center" Margin="0,0,14,0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                          AutomationProperties.Name="{Binding Name}" />
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Typography.NumeralAlignment="Tabular"
+                                                               Text="{Binding Versions}" />
+                                                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}"
+                                                               Text="{Binding Note}" Visibility="{Binding Note, Converter={StaticResource Vis}}" />
+                                                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding ResultText}"
+                                                               Visibility="{Binding ResultText, Converter={StaticResource Vis}}" />
+                                                </StackPanel>
+                                                <Button Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center" Style="{StaticResource Button.Quiet}"
+                                                        Content="Aktualisieren" AutomationProperties.Name="{Binding Name, StringFormat={}{0} aktualisieren}"
+                                                        Command="{Binding DataContext.UpdateOneCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding}" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+                        <Expander Margin="2,8,0,0" Style="{StaticResource Reasons}" Header="{Binding HiddenText}"
+                                  Visibility="{Binding HiddenText, Converter={StaticResource Vis}}">
+                            <ItemsControl ItemsSource="{Binding Hidden}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Style="{StaticResource Text.Small}" Text="{Binding}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Expander>
+                    </StackPanel>
+
                     <!-- preinstalled apps (spec 4.4) -->
                     <StackPanel Margin="0,18,0,0" Visibility="{Binding ShowApps, Converter={StaticResource Vis}}">
                         <DockPanel Margin="2,0,0,8">

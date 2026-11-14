@@ -13,11 +13,13 @@ public static class SystemLinks
         VisualEffects = "ms-settings:easeofaccess-visualeffects",
         AdvancedGraphics = "ms-settings:display-advancedgraphics",
         StoragePolicies = "ms-settings:storagepolicies",
-        PowerSleep = "ms-settings:powersleep";
+        PowerSleep = "ms-settings:powersleep",
+        // Store page of the App Installer (brings winget)
+        AppInstallerStore = "ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1";
 
     public static IReadOnlySet<string> Allowed { get; } = new HashSet<string>(
         [AppsFeatures, WindowsUpdate, RemoteDesktop, DeviceEncryption, DefenderThreat, DefenderAppBrowser,
-            VisualEffects, AdvancedGraphics, StoragePolicies, PowerSleep],
+            VisualEffects, AdvancedGraphics, StoragePolicies, PowerSleep, AppInstallerStore],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Exact match against <see cref="Allowed"/> (case-insensitive, no trimming).</summary>

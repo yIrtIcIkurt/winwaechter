@@ -110,6 +110,9 @@ public sealed partial class ShellViewModel : ObservableObject
         // the program list is read on the first visit as well
         if (ReferenceEquals(item.Page, Programs) && !Programs.HasLoaded && !Programs.RefreshCommand.IsRunning)
             Programs.RefreshCommand.Execute(null);
+        // and the winget updates (not on every visit: winget takes a few seconds)
+        if (ReferenceEquals(item.Page, Programs) && Programs.Updates is { HasLoaded: false } u && !u.RefreshCommand.IsRunning)
+            u.RefreshCommand.Execute(null);
     }
 
     /// <summary>Shows a page: its view model, or its type (the overview leads to the history without holding it).</summary>
