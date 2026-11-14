@@ -52,6 +52,26 @@ public class StorageMapTests
         Assert.Equal(3, scan.Root.Children.Single(c => c.Name == "OneDrive").Bytes);
     }
 
+    // review: OneDrive folders and their locally present files carry a cloud reparse point but are no links
+    [Fact]
+    public async Task OneDrive_folders_with_cloud_reparse_points_are_counted()
+    {
+        var t = new Tree()
+            .Dir(@"C:\R", D(@"C:\R", "OneDrive", FileAttributes.ReparsePoint) with { IsLink = false })
+            .Dir(@"C:\R\OneDrive", F(@"C:\R\OneDrive", "lokal.txt", 45, FileAttributes.Archive | FileAttributes.ReparsePoint) with { IsLink = false },
+                F(@"C:\R\OneDrive", "online.mp4", 9000, FileAttributes.ReparsePoint | (FileAttributes)0x400000) with { IsLink = false });
+        var scan = await new StorageScanner(t.Enumerate).ScanAsync(@"C:\R", null, CancellationToken.None);
+        Assert.Equal(45, scan.Root.Bytes);
+        Assert.Equal(2, scan.Root.Files);
+    }
+
+    [Fact]
+    public void Library_root_itself_gets_no_move()
+    {
+        Assert.Equal(PlaceKind.Normal, PlaceKinds.Classify(@"C:\Users\u\Downloads", Ctx()));
+        Assert.Equal(PlaceKind.UserLibrary, PlaceKinds.Classify(@"C:\Users\u\Downloads\Film", Ctx()));
+    }
+
     [Fact]
     public async Task Sizes_roll_up_to_parents()
     {

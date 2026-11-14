@@ -114,7 +114,7 @@
 
                     <!-- the map: tiles sized by space; a click goes one level deeper -->
                     <Border Style="{StaticResource SurfaceBox}" Height="280" Padding="2">
-                        <ItemsControl ItemsSource="{Binding Items}" Focusable="False" AlternationCount="3"
+                        <ItemsControl ItemsSource="{Binding Tiles}" Focusable="False" AlternationCount="3"
                                       AutomationProperties.Name="Speicherplatz-Karte">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>

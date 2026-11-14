@@ -41,7 +41,9 @@ public sealed class StorageMapViewModelTests : IDisposable
     string Downloads => Path.Combine(Profile, "Downloads");
 
     PlaceContext Ctx() => new(Path.Combine(_root, "Windows"), Path.Combine(_root, "PF"), Path.Combine(_root, "PF86"), Path.Combine(_root, "PD"),
-        Profile, Path.Combine(Profile, "AppData", "Local", "Temp"), [Path.Combine(Profile, "OneDrive")], [Downloads], _ => null, _ => false);
+        Profile, Path.Combine(Profile, "AppData", "Local", "Temp"), [Path.Combine(Profile, "OneDrive")], [Downloads], _ => null, _protectedPath);
+
+    Func<string, bool> _protectedPath = _ => false;
 
     // a real little tree under the temp root: Users\u\Downloads\big (file), Users\u\Downloads\Film\a.mp4, $Recycle.Bin\x
     StorageScanner Scanner()
@@ -54,8 +56,9 @@ public sealed class StorageMapViewModelTests : IDisposable
         return new StorageScanner();
     }
 
-    StorageMapViewModel Vm(bool canChange = true, StorageScanner? scanner = null)
+    StorageMapViewModel Vm(bool canChange = true, StorageScanner? scanner = null, Func<string, bool>? protectedPath = null)
     {
+        if (protectedPath is not null) _protectedPath = protectedPath;
         var store = new SessionStore(_data);
         var factory = new ChangeFactory();
         var engine = new OptimizerEngine([], store, factory, _ => new RestorePointResult(true, "ok"));
@@ -99,6 +102,43 @@ public sealed class StorageMapViewModelTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(Downloads, "Film")));
         Assert.DoesNotContain(vm.Items, i => i.Name == "Film");
         Assert.Equal(2500, vm.Breadcrumbs[0].Node.Bytes);
+    }
+
+    // review: moving a folder moves its whole subtree: never when Lexware data or OneDrive sits inside it
+    [Fact]
+    public async Task Folder_with_protected_or_onedrive_inside_gets_no_move()
+    {
+        Directory.CreateDirectory(Path.Combine(Downloads, "Firma", "Lexware"));
+        File.WriteAllBytes(Path.Combine(Downloads, "Firma", "Lexware", "daten.lxd"), new byte[100]);
+        Directory.CreateDirectory(Path.Combine(Downloads, "Fotos"));
+        File.WriteAllBytes(Path.Combine(Downloads, "Fotos", "a.jpg"), new byte[100]);
+        var vm = Vm(protectedPath: p => p.Contains(@"\Lexware\", StringComparison.OrdinalIgnoreCase));
+        vm.SelectedDrive = vm.Drives[0];
+        await vm.ScanCommand.ExecuteAsync(null);
+        foreach (var name in new[] { "Users", "u" }) await vm.OpenCommand.ExecuteAsync(vm.Items.Single(i => i.Name == name));
+        Assert.DoesNotContain(vm.Items.Single(i => i.Name == "Downloads").Offers, o => o.Kind == StorageOfferKind.MoveToAblage);
+        await vm.OpenCommand.ExecuteAsync(vm.Items.Single(i => i.Name == "Downloads"));
+        Assert.DoesNotContain(vm.Items.Single(i => i.Name == "Firma").Offers, o => o.Kind == StorageOfferKind.MoveToAblage);
+        Assert.Contains(vm.Items.Single(i => i.Name == "Fotos").Offers, o => o.Kind == StorageOfferKind.MoveToAblage);
+    }
+
+    [Fact]
+    public async Task Huge_folder_is_capped_with_a_rest_entry()
+    {
+        var entries = Enumerable.Range(0, 300).Select(i => new StorageEntry($"d{i:D3}", Path.Combine(_root, $"d{i:D3}"), true, 0,
+            FileAttributes.Directory)).ToList();
+        var tree = new Dictionary<string, IEnumerable<StorageEntry>>(StringComparer.OrdinalIgnoreCase) { [_root] = entries };
+        for (var i = 0; i < 300; i++)
+            tree[Path.Combine(_root, $"d{i:D3}")] = [new StorageEntry("f", Path.Combine(_root, $"d{i:D3}", "f"), false, 1000 + i, FileAttributes.Normal)];
+        var vm = Vm(scanner: new StorageScanner(d => tree[d]));
+        vm.SelectedDrive = vm.Drives[0];
+        await vm.ScanCommand.ExecuteAsync(null);
+        Assert.Equal(201, vm.Items.Count);
+        Assert.Equal("100 weitere Ordner", vm.Items[^1].Name);
+        Assert.Equal(Enumerable.Range(0, 100).Sum(i => 1000L + i), vm.Items[^1].Bytes);
+        Assert.False(vm.Items[^1].CanOpen);
+        Assert.Equal(41, vm.Tiles.Count);
+        Assert.Equal("260 weitere Ordner", vm.Tiles[^1].Name);
     }
 
     [Fact]

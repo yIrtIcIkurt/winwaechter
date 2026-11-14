@@ -1,7 +1,12 @@
 namespace WinWaechter.Core.Storage.Map;
 
-/// <summary>One entry of a folder listing (what the scanner needs; a fake lists these directly).</summary>
-public sealed record StorageEntry(string Name, string FullPath, bool IsDir, long Length, FileAttributes Attributes);
+/// <summary>One entry of a folder listing (what the scanner needs; a fake lists these directly).
+/// IsLink: a real link (junction, symbolic link); null = decided by the ReparsePoint attribute. OneDrive folders and files
+/// carry a cloud reparse point too, but they are no links and are counted.</summary>
+public sealed record StorageEntry(string Name, string FullPath, bool IsDir, long Length, FileAttributes Attributes, bool? IsLink = null)
+{
+    public bool Link => IsLink ?? (Attributes & FileAttributes.ReparsePoint) != 0;
+}
 
 /// <summary>A folder of the map. Bytes and Files include all subfolders; OwnFileBytes = files directly in it.</summary>
 public sealed class StorageNode(string name, string fullPath, StorageNode? parent)
@@ -60,7 +65,9 @@ public sealed class StorageScanner(Func<string, IEnumerable<StorageEntry>>? enum
             try
             {
                 var isDir = (e.Attributes & FileAttributes.Directory) != 0;
-                entry = new StorageEntry(e.Name, e.FullName, isDir, isDir ? 0 : ((FileInfo)e).Length, e.Attributes);
+                // only symbolic links and junctions have a link target; cloud placeholders (OneDrive) do not
+                var isLink = (e.Attributes & FileAttributes.ReparsePoint) != 0 && IsRealLink(e);
+                entry = new StorageEntry(e.Name, e.FullName, isDir, isDir ? 0 : ((FileInfo)e).Length, e.Attributes, isLink);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -68,6 +75,12 @@ public sealed class StorageScanner(Func<string, IEnumerable<StorageEntry>>? enum
             }
             if (entry is not null) yield return entry;
         }
+    }
+
+    static bool IsRealLink(FileSystemInfo e)
+    {
+        try { return e.LinkTarget is not null; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return true; }   // unclear: never follow
     }
 
     public Task<StorageScan> ScanAsync(string root, IProgress<(long Files, long Bytes)>? progress, CancellationToken ct,
@@ -99,13 +112,13 @@ public sealed class StorageScanner(Func<string, IEnumerable<StorageEntry>>? enum
                         var child = new StorageNode(e.Name, e.FullPath, node);
                         node.Children.Add(child);
                         // a junction or link is listed, but never entered (no double counting, no cycles)
-                        if ((e.Attributes & FileAttributes.ReparsePoint) == 0) stack.Push(child);
+                        if (!e.Link) stack.Push(child);
                         continue;
                     }
                     files++;
                     node.Files++;
-                    if ((e.Attributes & (RecallOnDataAccess | RecallOnOpen | FileAttributes.Offline)) != 0
-                        || (e.Attributes & FileAttributes.ReparsePoint) != 0) continue;   // takes no local space
+                    // „nur online“ and links take no local space; locally present OneDrive files do
+                    if ((e.Attributes & (RecallOnDataAccess | RecallOnOpen | FileAttributes.Offline)) != 0 || e.Link) continue;
                     node.OwnFileBytes += e.Length;
                     bytes += e.Length;
                     if (e.Length >= minLarge && maxLarge > 0)

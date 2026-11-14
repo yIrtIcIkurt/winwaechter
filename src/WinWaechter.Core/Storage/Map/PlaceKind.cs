@@ -50,8 +50,24 @@ public static class PlaceKinds
         if (Under(p, c.ProgramData)) return PlaceKind.ProgramData;
         var users = Path.GetDirectoryName(c.UserProfile.TrimEnd('\\')) ?? "";
         if (Under(p, users) && !Under(p, c.UserProfile)) return PlaceKind.OtherUserProfile;
-        if (c.UserLibraries.Any(l => Under(p, l))) return PlaceKind.UserLibrary;
+        // only what lies below a library: the Downloads (Videos …) folder itself must stay where Windows expects it
+        if (c.UserLibraries.Any(l => Under(p, l) && !p.Equals(l.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))) return PlaceKind.UserLibrary;
         return PlaceKind.Normal;
+    }
+
+    /// <summary>True when the folder or anything scanned below it is protected (e.g. Lexware) or in OneDrive:
+    /// moving the folder would move those too.</summary>
+    public static bool ContainsBlocked(StorageNode node, PlaceContext c)
+    {
+        var stack = new Stack<StorageNode>();
+        stack.Push(node);
+        while (stack.Count > 0)
+        {
+            var n = stack.Pop();
+            if (Classify(n.FullPath, c) is PlaceKind.Protected or PlaceKind.OneDrive) return true;
+            foreach (var child in n.Children) stack.Push(child);
+        }
+        return false;
     }
 }
 

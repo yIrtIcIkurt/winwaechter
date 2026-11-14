@@ -183,21 +183,43 @@ public sealed partial class StorageMapViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanCancel))]
     void Cancel() => _cts?.Cancel();
 
+    /// <summary>Most rows in the list and tiles on the map (WinSxS has ~20 000 folders): the rest is one entry.</summary>
+    public const int MaxRows = 200, MaxTiles = 40;
+
+    /// <summary>The tiles of the map: the biggest folders, then single files and the rest as one tile each.</summary>
+    public ObservableCollection<StorageItemViewModel> Tiles { get; } = [];
+
     void Show(StorageNode node)
     {
         Current = node;
         Items.Clear();
+        Tiles.Clear();
         var total = Math.Max(node.Bytes, 1);
-        foreach (var c in node.Children.OrderByDescending(c => c.Bytes))
+        var sorted = node.Children.OrderByDescending(c => c.Bytes).ToList();
+        StorageItemViewModel Rest(IReadOnlyList<StorageNode> rest)
+        {
+            var bytes = rest.Sum(r => r.Bytes);
+            return Item($"{rest.Count} weitere Ordner", node.FullPath, bytes, (double)bytes / total, null, isFile: false, isOwnFiles: true);
+        }
+        foreach (var c in sorted.Take(MaxRows))
             Items.Add(Item(c.Name, c.FullPath, c.Bytes, (double)c.Bytes / total, c, isFile: false, isOwnFiles: false));
-        if (node.OwnFileBytes > 0)
-            Items.Add(Item(OwnFilesName, node.FullPath, node.OwnFileBytes, (double)node.OwnFileBytes / total, null, isFile: false, isOwnFiles: true));
+        if (sorted.Count > MaxRows) Items.Add(Rest(sorted.Skip(MaxRows).ToList()));
+        StorageItemViewModel? own = node.OwnFileBytes > 0
+            ? Item(OwnFilesName, node.FullPath, node.OwnFileBytes, (double)node.OwnFileBytes / total, null, isFile: false, isOwnFiles: true)
+            : null;
+        if (own is not null) Items.Add(own);
+
+        foreach (var item in Items.Take(Math.Min(MaxTiles, sorted.Count))) Tiles.Add(item);
+        if (own is not null) Tiles.Add(own);
+        if (sorted.Count > MaxTiles) Tiles.Add(Rest(sorted.Skip(MaxTiles).ToList()));
     }
 
     StorageItemViewModel Item(string name, string path, long bytes, double share, StorageNode? node, bool isFile, bool isOwnFiles)
     {
         var ctx = _ctx ?? _context();
         var kind = PlaceKinds.Classify(path, ctx);
+        // moving a folder moves its subtree: never when Lexware data or OneDrive sits somewhere inside
+        if (kind == PlaceKind.UserLibrary && node is not null && PlaceKinds.ContainsBlocked(node, ctx)) kind = PlaceKind.Normal;
         var program = kind == PlaceKind.ProgramFolder ? ctx.ProgramFor(path) : null;
         return new StorageItemViewModel(name, path, bytes, share, node, isFile, isOwnFiles, kind, item =>
             (isOwnFiles ? StorageOffers.For(PlaceKind.Normal, null, _ablageDays) : StorageOffers.For(kind, program, _ablageDays))
@@ -283,6 +305,13 @@ public sealed partial class StorageMapViewModel : ObservableObject
 
     async Task MoveToAblageAsync(StorageItemViewModel item, string? note)
     {
+        // checked again right before the move
+        var ctx = _ctx ?? _context();
+        if (PlaceKinds.Classify(item.FullPath, ctx) != PlaceKind.UserLibrary || (item.Node is { } n0 && PlaceKinds.ContainsBlocked(n0, ctx)))
+        {
+            ResultText = $"„{item.Name}“ bleibt, wo es ist: darin liegen geschützte Daten oder OneDrive.";
+            return;
+        }
         if (!_dialogs.Confirm("In die Ablage verschieben",
                 $"„{item.Name}“ ({item.SizeText}) kommt in die Ablage. Sie können es im Verlauf zurückholen. {note}".Trim(), "Verschieben"))
             return;
