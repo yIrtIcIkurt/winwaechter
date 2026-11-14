@@ -153,7 +153,7 @@ public static class NotifyRule
 /// <summary>Text and XML of the Windows notification (shared with the notification helper, which links this file).</summary>
 public static class ToastContent
 {
-    public const string Launch = "winwaechter:verbessern";
+    public const string Launch = ToastXml.Launch;
 
     public static string Text(CheckResult r)
     {
@@ -165,13 +165,7 @@ public static class ToastContent
         return string.Join(", ", parts);
     }
 
-    public static string Xml(string title, string text)
-    {
-        static string E(string s) => SecurityElement.Escape(s) ?? "";
-        return $"<toast launch=\"{Launch}\" activationType=\"protocol\"><visual><binding template=\"ToastGeneric\">"
-               + $"<text>{E(title)}</text><text>{E(text)}</text></binding></visual>"
-               + $"<actions><action content=\"Ansehen\" arguments=\"{Launch}\" activationType=\"protocol\" /></actions></toast>";
-    }
+    public static string Xml(string title, string text) => ToastXml.Build(title, text);
 }
 
 /// <summary>Windows command-line quoting for one argument (CommandLineToArgvW rules).</summary>

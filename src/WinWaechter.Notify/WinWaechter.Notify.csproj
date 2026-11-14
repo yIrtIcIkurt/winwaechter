@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shows the weekly check's Windows notification. Started by the elevated app in the signed-in user's
+       session with normal rights (notifications from an elevated process are unreliable). The only project with
+       the Windows SDK target framework (WinRT ToastNotificationManager). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>WinWaechter.Notify</AssemblyName>
+    <RootNamespace>WinWaechter.Notify</RootNamespace>
+  </PropertyGroup>
+
+  <!-- the notification XML is compiled from Core directly, so the helper stays small -->
+  <ItemGroup>
+    <Compile Include="..\WinWaechter.Core\Maintenance\ToastXml.cs" Link="ToastXml.cs" />
+  </ItemGroup>
+
+</Project>

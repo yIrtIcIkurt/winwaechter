@@ -175,6 +175,30 @@ public sealed class MaintenanceTests : IDisposable
         Assert.Null(CheckResultStore.Load(Path.Combine(_dir, "kaputt.json")));
     }
 
+    static string RepoFile(params string[] parts)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "WinWaechter.sln"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        return Path.Combine([dir!.FullName, .. parts]);
+    }
+
+    [Fact]
+    public void Notify_project_links_toast_content_and_targets_windows_sdk()
+    {
+        var csproj = XDocument.Load(RepoFile("src", "WinWaechter.Notify", "WinWaechter.Notify.csproj"));
+        Assert.Equal("net10.0-windows10.0.19041.0", csproj.Descendants("TargetFramework").Single().Value);
+        Assert.Contains(csproj.Descendants("Compile"), c => (string?)c.Attribute("Include") == @"..\WinWaechter.Core\Maintenance\ToastXml.cs");
+        Assert.Empty(csproj.Descendants("PackageReference"));
+        Assert.Contains("asInvoker", File.ReadAllText(RepoFile("src", "WinWaechter.Notify", "app.manifest")));
+        // the installer registers the same AppUserModelID, the protocol and removes the task
+        var iss = File.ReadAllText(RepoFile("installer", "winwaechter.iss"));
+        Assert.Contains($"AppUserModelID: \"{ToastXml.AppId}\"", iss);
+        Assert.Contains(@"Software\Classes\winwaechter", iss);
+        Assert.Contains(MaintenanceTask.Path, iss);
+        Assert.Contains("WinWaechter.Notify", File.ReadAllText(RepoFile("build-release.ps1")));
+    }
+
     [Theory]
     [InlineData("einfach", "\"einfach\"")]
     [InlineData("mit \"Zitat\"", "\"mit \\\"Zitat\\\"\"")]

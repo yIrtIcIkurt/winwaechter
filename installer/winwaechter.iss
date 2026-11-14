@@ -48,8 +48,19 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{commonappdata}\WinWaechter"
 
 [Icons]
-Name: "{autoprograms}\WinWächter"; Filename: "{app}\WinWaechter.App.exe"
+; the AppUserModelID lets the weekly check's notification appear under WinWächter (WinWaechter.Notify.exe)
+Name: "{autoprograms}\WinWächter"; Filename: "{app}\WinWaechter.App.exe"; AppUserModelID: "TahsinYilmaz.WinWaechter"
 Name: "{autodesktop}\WinWächter"; Filename: "{app}\WinWaechter.App.exe"; Tasks: desktopicon
+
+[Registry]
+; winwaechter:verbessern – a click on the notification opens „Rechner in Ordnung bringen“ (ShellExecute asks for UAC as usual)
+Root: HKA; Subkey: "Software\Classes\winwaechter"; ValueType: string; ValueName: ""; ValueData: "URL:WinWächter"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\winwaechter"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\winwaechter\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\WinWaechter.App.exe"" ""%1"""
+
+[UninstallRun]
+; the weekly check (if it was switched on); a missing task is fine
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""\WinWaechter\Wöchentliche Prüfung"" /F"; Flags: runhidden; RunOnceId: "DelTask"
 
 [Run]
 ; Start after install (interactive and silent, e.g. self-update).

@@ -54,6 +54,10 @@ $publishDir = Join-Path $root "publish\$Version"
 if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
 & $dotnet publish (Join-Path $root 'src\WinWaechter.App') -c Release -r win-x64 --self-contained -p:PublishSingleFile=false -o $publishDir
 Assert-Ok 'dotnet publish'
+# the notification helper of the weekly check (normal rights, Windows SDK target) next to the app
+& $dotnet publish (Join-Path $root 'src\WinWaechter.Notify') -c Release -r win-x64 --self-contained -p:PublishSingleFile=false -o $publishDir
+Assert-Ok 'dotnet publish (WinWaechter.Notify)'
+if (-not (Test-Path (Join-Path $publishDir 'WinWaechter.Notify.exe'))) { throw 'WinWaechter.Notify.exe fehlt im Publish-Ordner.' }
 
 # 4. Installer
 $dist = Join-Path $root 'dist'
