@@ -263,6 +263,7 @@ public sealed class ViewSmokeTests : IDisposable
             AssertComboShowsLabel(programsView, "ProgramSortOption");
             AssertAppsSection(programsView);
             AssertShown(programsView, "Alle unerwünschten entfernen (1)", programs.UninstallUnwantedCommand);
+            AssertProgramListReachable(programsView);
             var performanceView = new PerformanceView { DataContext = performance };
             Layout(performanceView);
             AssertComboShowsLabel(performanceView, "PerfOption");
@@ -338,6 +339,25 @@ public sealed class ViewSmokeTests : IDisposable
     }
 
     // 4.4: the preinstalled-apps section shows its title, one unticked box per app, the undo text and the remove button
+    // A low window (apps, leftovers and search above the list) must still reach every program row:
+    // the whole page scrolls in one piece instead of squeezing the list to nothing.
+    static void AssertProgramListReachable(FrameworkElement view)
+    {
+        view.Measure(new Size(1100, 500));
+        view.Arrange(new Rect(0, 0, 1100, 500));
+        view.UpdateLayout();
+        var rows = FindAll<TextBlock>(view).Where(t => t.Text is "Spiel-Tool" or "Lexware buchhalter" or "Such-Toolbar").ToList();
+        Assert.Equal(3, rows.Count);
+        var page = FindAll<ScrollViewer>(view).First();
+        Assert.True(page.ScrollableHeight > 0);
+        page.ScrollToEnd();
+        view.UpdateLayout();
+        foreach (var row in rows) Assert.True(row.ActualHeight > 0);
+        var last = rows.Single(t => t.Text == "Such-Toolbar");   // sorted by name: the last row
+        var y = last.TransformToAncestor(page).Transform(new Point(0, 0)).Y;
+        Assert.InRange(y, 0, page.ViewportHeight);
+    }
+
     static void AssertAppsSection(FrameworkElement view)
     {
         var texts = FindAll<TextBlock>(view).Select(t => t.Text).ToList();
