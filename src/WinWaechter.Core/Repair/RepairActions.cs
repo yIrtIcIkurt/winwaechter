@@ -52,10 +52,29 @@ public sealed partial class RepairActions(
                 FileLog.Info("sfc: " + sfc.StdOut.Replace("\0", "").Trim());
                 var (ok, message) = SfcResult(text);
                 if (dism.Exit != 0)
-                    return new ActionOutcome(false, $"DISM ist fehlgeschlagen (Code {dism.Exit}). sfc wurde trotzdem ausgeführt. {message}".Trim());
+                    return DismFailed(dism.Exit, message);
                 return new ActionOutcome(ok, message);
             })
         { SkipGate = true, LockKey = "repair", Stamp = true };
+
+    /// <summary>
+    /// The component store could not be repaired because Windows Update had no repair files (0x800F0915 content missing,
+    /// 0x800F081F source not found, 0x800F0906 download failed). Repeating the repair does not help; Windows' own
+    /// „Jetzt neu installieren“ (keeps files and programs) does.
+    /// </summary>
+    public static bool IsRepairContentMissing(int dismExit) =>
+        unchecked((uint)dismExit) is 0x800F0915 or 0x800F081F or 0x800F0906;
+
+    static ActionOutcome DismFailed(int exit, string sfcMessage)
+    {
+        var code = $"0x{unchecked((uint)exit):X8}";
+        if (IsRepairContentMissing(exit))
+            return new ActionOutcome(false,
+                $"Windows konnte die Ersatzdateien für die Reparatur nicht laden ({code}). sfc wurde trotzdem ausgeführt: {sfcMessage} "
+                + "Abhilfe: Windows über „Jetzt neu installieren“ reparieren; Dateien und Programme bleiben dabei erhalten.",
+                SystemLinks.Recovery);
+        return new ActionOutcome(false, $"DISM ist fehlgeschlagen ({code}). sfc wurde trotzdem ausgeführt: {sfcMessage}");
+    }
 
     (bool Ok, string Message) SfcResult(string text)
     {
@@ -286,6 +305,14 @@ public sealed partial class RepairActions(
 /// <summary>Quick read-only checks that decide which repair is recommended.</summary>
 public sealed class RepairChecks(IProcessRunner run, string windowsDir)
 {
+    /// <summary>
+    /// The system-file repair is recommended while DISM says „repairable“ – but not again within 30 days after a run that
+    /// ended without repair files (it would fail the same way; the row then offers „Jetzt neu installieren“ instead).
+    /// </summary>
+    public static bool RecommendSystemFiles(bool? repairable, ActionStamp? last, DateTimeOffset now) =>
+        repairable == true
+        && !(last is { Success: false, Link: SystemLinks.Recovery } && now - last.At < TimeSpan.FromDays(30));
+
     /// <summary>true = DISM says the component store is repairable; false = no corruption; null = unknown.</summary>
     public async Task<bool?> ComponentStoreRepairableAsync(CancellationToken ct)
     {

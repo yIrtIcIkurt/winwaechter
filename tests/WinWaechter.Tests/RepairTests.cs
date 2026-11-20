@@ -82,7 +82,8 @@ public class RepairTests
             exe.EndsWith("sfc.exe") ? "Windows Resource Protection did not find any integrity violations." : "Fehler: 87", ""));
         var r = await Actions().SystemFiles().RunAsync(null, CancellationToken.None);
         Assert.Equal(2, _run.Calls.Count);
-        Assert.StartsWith("DISM ist fehlgeschlagen (Code 87). sfc wurde trotzdem ausgeführt.", r.Message);
+        Assert.Equal("DISM ist fehlgeschlagen (0x00000057). sfc wurde trotzdem ausgeführt: Keine Fehler gefunden.", r.Message);
+        Assert.Null(r.Link);   // only missing repair files point to „Jetzt neu installieren“
     }
 
     string Dist => Path.Combine(Win, "SoftwareDistribution");

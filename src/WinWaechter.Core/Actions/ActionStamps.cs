@@ -3,8 +3,8 @@ using WinWaechter.Core.Logging;
 
 namespace WinWaechter.Core.Actions;
 
-/// <summary>When an action last ran and how it ended (shown as „Zuletzt: …“).</summary>
-public sealed record ActionStamp(string Id, DateTimeOffset At, bool Success, string Summary);
+/// <summary>When an action last ran and how it ended (shown as „Zuletzt: …“). Link: the way out the outcome offered.</summary>
+public sealed record ActionStamp(string Id, DateTimeOffset At, bool Success, string Summary, string? Link = null);
 
 /// <summary>
 /// Keeps the last outcome per action id in a small JSON file (the log is purged after 7 days).

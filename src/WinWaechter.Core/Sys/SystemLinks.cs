@@ -14,12 +14,14 @@ public static class SystemLinks
         AdvancedGraphics = "ms-settings:display-advancedgraphics",
         StoragePolicies = "ms-settings:storagepolicies",
         PowerSleep = "ms-settings:powersleep",
+        // System > Wiederherstellung: „Probleme mit Windows Update beheben – Jetzt neu installieren“ (keeps files and programs)
+        Recovery = "ms-settings:recovery",
         // Store page of the App Installer (brings winget)
         AppInstallerStore = "ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1";
 
     public static IReadOnlySet<string> Allowed { get; } = new HashSet<string>(
         [AppsFeatures, WindowsUpdate, RemoteDesktop, DeviceEncryption, DefenderThreat, DefenderAppBrowser,
-            VisualEffects, AdvancedGraphics, StoragePolicies, PowerSleep, AppInstallerStore],
+            VisualEffects, AdvancedGraphics, StoragePolicies, PowerSleep, Recovery, AppInstallerStore],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Exact match against <see cref="Allowed"/> (case-insensitive, no trimming).</summary>

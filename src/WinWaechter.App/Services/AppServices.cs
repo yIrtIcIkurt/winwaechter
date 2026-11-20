@@ -268,7 +268,7 @@ public sealed class AppServices : IDisposable
         var repairActions = new RepairActions(runner, sc, new WinRepairFiles(), new RegistryNetworkConfig(reg),
             () => RestorePointGate.EnsureAsync(restore.TryCreate, "Reparatur", dialogs), ender, windowsDir, localAppData, DateTime.Today);
         var repairChecks = new RepairChecks(runner, windowsDir);
-        var repair = new RepairViewModel(repairActions, repairChecks, actions, stamps, canChange, systemDrive, ownAccount);
+        var repair = new RepairViewModel(repairActions, repairChecks, actions, stamps, canChange, systemDrive, ownAccount, shell);
         // Gerät: battery, disks and drives (WMI/CIM off the UI thread)
         var battery = new WmiBatteryInfo(() => power.HasBattery, runner, windowsDir, Path.GetTempPath());
         var volumes = new WinVolumeInfo(repairChecks, new WinDiskErrorEvents(), systemDrive);
@@ -315,7 +315,8 @@ public sealed class AppServices : IDisposable
         async Task<IReadOnlyList<ActionSuggestion>> RepairSuggestions(CancellationToken ct)
         {
             var list = new List<ActionSuggestion>();
-            if (await repairChecks.ComponentStoreRepairableAsync(ct) == true)
+            // not again right after a run that had no repair files (the Reparatur page then offers „Jetzt neu installieren“)
+            if (RepairChecks.RecommendSystemFiles(await repairChecks.ComponentStoreRepairableAsync(ct), stamps.Get("repair-sfc"), DateTimeOffset.Now))
                 list.Add(new ActionSuggestion("repair-sfc", "Systemdateien reparieren", "Windows meldet beschädigte Systemdateien.",
                     repairActions.SystemFiles()));
             if (await repairChecks.IsDirtyAsync(systemDrive, ct) == true)

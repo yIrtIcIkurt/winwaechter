@@ -22,9 +22,9 @@ public sealed class RepairViewModelTests : IDisposable
     RepairActions Actions() => new(_run, new FakeServiceControl(), new FakeRepairFiles(), new FakeNetworkConfig(),
         () => Task.FromResult(true), new FakeProcessEnder(), @"C:\Windows", @"C:\Users\u\AppData\Local", new DateTime(2026, 11, 14));
 
-    RepairViewModel Vm(bool canChange = true, bool ownAccount = true) =>
+    RepairViewModel Vm(bool canChange = true, bool ownAccount = true, ISystemShell? shell = null) =>
         new(Actions(), new RepairChecks(_run, @"C:\Windows"), new ActionRunner(_dialogs, new ChangeGate(), locks: _locks, stamps: Stamps),
-            Stamps, canChange, 'C', ownAccount);
+            Stamps, canChange, 'C', ownAccount, shell);
 
     [Fact]
     public async Task Rows_show_last_run_from_stamps_or_never()
@@ -88,18 +88,71 @@ public sealed class RepairViewModelTests : IDisposable
         _run.Calls.Clear();
         await sfc.RunCommand.ExecuteAsync(null);
         Assert.Single(_run.Calls);
-        Assert.Equal("Abgebrochen.", sfc.ResultText);
+        Assert.EndsWith("– Abgebrochen.", sfc.LastRun);
+        Assert.Null(sfc.ResultText);
     }
 
+    // checklist 0.6.0: the result stood twice under the row („Zuletzt: … – X“ and X again)
     [Fact]
-    public async Task Run_records_result_and_last_run()
+    public async Task Run_shows_its_result_once_in_the_last_run_line()
     {
         var vm = Vm();
         await vm.LoadCommand.ExecuteAsync(null);
         var dns = vm.Rows.Single(r => r.Id == "repair-dns");
         await dns.RunCommand.ExecuteAsync(null);
-        Assert.Equal("Der DNS-Cache wurde geleert.", dns.ResultText);
         Assert.StartsWith("Zuletzt: ", dns.LastRun);
+        Assert.EndsWith("– Der DNS-Cache wurde geleert.", dns.LastRun);
+        Assert.Null(dns.ResultText);
+    }
+
+    const int RepairContentMissing = unchecked((int)0x800F0915);
+
+    // checklist 0.6.0: „DISM ist fehlgeschlagen (Code -2146498283)“ said nothing; now plain text and the way out
+    [Fact]
+    public async Task Dism_without_repair_files_says_so_and_offers_reinstall_through_windows()
+    {
+        var shell = new LinkShell();
+        var vm = Vm(shell: shell);
+        await vm.LoadCommand.ExecuteAsync(null);
+        var sfc = vm.Rows.Single(r => r.Id == "repair-sfc");
+        _run.Handler = (exe, _) => Task.FromResult(exe.EndsWith("dism.exe")
+            ? (RepairContentMissing, "", "")
+            : (0, "Der Windows-Ressourcenschutz hat keine Integritätsverletzungen gefunden.", ""));
+
+        await sfc.RunCommand.ExecuteAsync(null);
+
+        Assert.Contains("Ersatzdateien", sfc.LastRun);
+        Assert.Contains("0x800F0915", sfc.LastRun);
+        Assert.DoesNotContain("-2146498283", sfc.LastRun);
+        Assert.Contains("Keine Fehler gefunden.", sfc.LastRun);
+        Assert.True(sfc.ShowLink);
+        await sfc.LinkCommand.ExecuteAsync(null);
+        Assert.Equal([Core.Sys.SystemLinks.Recovery], shell.Links);
+    }
+
+    [Fact]
+    public async Task System_files_are_not_recommended_again_right_after_a_run_without_repair_files()
+    {
+        _run.Handler = (exe, _) => Task.FromResult((0, exe.EndsWith("dism.exe") ? "Der Komponentenspeicher kann repariert werden." : "", ""));
+        Stamps.Set(new ActionStamp("repair-sfc", DateTimeOffset.Now.AddDays(-1), false, "Windows konnte die Ersatzdateien nicht laden.",
+            Core.Sys.SystemLinks.Recovery));
+        var vm = Vm(shell: new LinkShell());
+        await vm.LoadCommand.ExecuteAsync(null);
+        var sfc = vm.Rows.Single(r => r.Id == "repair-sfc");
+        Assert.False(sfc.IsRecommended);
+        Assert.True(sfc.ShowLink);   // the way out stays under the row
+
+        // a month later Windows Update may have the files: recommended again
+        Stamps.Set(new ActionStamp("repair-sfc", DateTimeOffset.Now.AddDays(-31), false, "x", Core.Sys.SystemLinks.Recovery));
+        await vm.LoadCommand.ExecuteAsync(null);
+        Assert.True(vm.Rows.Single(r => r.Id == "repair-sfc").IsRecommended);
+    }
+
+    sealed class LinkShell : ISystemShell
+    {
+        public List<string> Links { get; } = [];
+        public void OpenFolder(string path) { }
+        public void OpenLink(string uri) => Links.Add(uri);
     }
 
     [Fact]

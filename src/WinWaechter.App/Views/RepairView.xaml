@@ -41,7 +41,13 @@
                                             <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" TextWrapping="Wrap"
                                                        MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" Text="{Binding When}" />
                                             <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding Facts}" />
-                                            <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding LastRun}" TextWrapping="Wrap" />
+                                            <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding LastRun}" TextWrapping="Wrap"
+                                                       MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" />
+                                            <!-- the way out the last run offered (e.g. no repair files: Windows' own „Jetzt neu installieren“) -->
+                                            <Button Margin="-8,4,0,0" HorizontalAlignment="Left" Style="{StaticResource Button.Quiet}"
+                                                    Content="{Binding LinkText}" Command="{Binding LinkCommand}"
+                                                    AutomationProperties.Name="{Binding LinkText}"
+                                                    Visibility="{Binding ShowLink, Converter={StaticResource Vis}}" />
                                             <StackPanel Margin="0,6,0,0" Visibility="{Binding ProgressText, Converter={StaticResource Vis}}">
                                                 <ProgressBar Style="{StaticResource Scale}" IsIndeterminate="True" MaxWidth="{StaticResource ProseWidth}"
                                                              HorizontalAlignment="Left" Width="320" />

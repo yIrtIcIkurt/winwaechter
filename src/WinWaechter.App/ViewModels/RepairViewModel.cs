@@ -6,6 +6,7 @@ using WinWaechter.App.Services;
 using WinWaechter.Core.Actions;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Repair;
+using WinWaechter.Core.Sys;
 
 namespace WinWaechter.App.ViewModels;
 
@@ -65,6 +66,24 @@ public sealed partial class RepairRowViewModel : ObservableObject
     [ObservableProperty]
     private bool _showFix;
 
+    /// <summary>The way out the last run offered (e.g. Einstellungen → Wiederherstellung); kept with its stamp.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowLink))]
+    [NotifyCanExecuteChangedFor(nameof(LinkCommand))]
+    private string? _link;
+
+    public bool ShowLink => Link is not null && _owner.CanOpenLinks;
+    public string LinkText => "„Jetzt neu installieren“ in den Einstellungen öffnen";
+
+    bool CanOpenLink() => ShowLink;
+
+    [RelayCommand(CanExecute = nameof(CanOpenLink))]
+    Task LinkAsync()
+    {
+        _owner.OpenLink(Link);
+        return Task.CompletedTask;
+    }
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunCommand), nameof(FixCommand), nameof(CancelCommand))]
     [NotifyPropertyChangedFor(nameof(ShowCancel))]
@@ -107,9 +126,10 @@ public sealed partial class RepairViewModel : ObservableObject
     readonly ActionStampStore _stamps;
     readonly char _systemDrive;
     readonly bool _ownAccount;
+    readonly ISystemShell? _shell;
 
     public RepairViewModel(RepairActions actions, RepairChecks checks, ActionRunner runner, ActionStampStore stamps, bool canChange,
-        char systemDrive, bool ownAccount = true)
+        char systemDrive, bool ownAccount = true, ISystemShell? shell = null)
     {
         _actions = actions;
         _checks = checks;
@@ -118,6 +138,7 @@ public sealed partial class RepairViewModel : ObservableObject
         CanChange = canChange;
         _systemDrive = systemDrive;
         _ownAccount = ownAccount;
+        _shell = shell;
         foreach (var key in new[] { ActivityLock.Repair, ActivityLock.Disk })
             if (runner.Lock(key) is { } l) l.PropertyChanged += (_, _) => RefreshRows();
     }
@@ -173,7 +194,7 @@ public sealed partial class RepairViewModel : ObservableObject
             // quick read-only checks decide what is recommended (seconds; no lock needed)
             var repairable = await Task.Run(() => _checks.ComponentStoreRepairableAsync(CancellationToken.None));
             var dirty = await Task.Run(() => _checks.IsDirtyAsync(_systemDrive, CancellationToken.None));
-            Recommend("repair-sfc", repairable == true);
+            Recommend("repair-sfc", RepairChecks.RecommendSystemFiles(repairable, _stamps.Get("repair-sfc"), DateTimeOffset.Now));
             Recommend("repair-chkdsk-scan", dirty == true);
         }
         catch (Exception ex)
@@ -198,8 +219,17 @@ public sealed partial class RepairViewModel : ObservableObject
 
     void UpdateLastRun(RepairRowViewModel r)
     {
-        if (_stamps.Get(r.Id) is { } s)
-            r.LastRun = $"Zuletzt: {s.At.ToLocalTime().ToString("dd.MM.yyyy HH:mm", De)} – {s.Summary}";
+        if (_stamps.Get(r.Id) is not { } s) return;
+        r.LastRun = $"Zuletzt: {s.At.ToLocalTime().ToString("dd.MM.yyyy HH:mm", De)} – {s.Summary}";
+        r.Link = SystemLinks.IsAllowed(s.Link) ? s.Link : null;
+    }
+
+    internal bool CanOpenLinks => _shell is not null;
+
+    internal void OpenLink(string? link)
+    {
+        if (_shell is not null && SystemLinks.IsAllowed(link)) _shell.OpenLink(link!);
+        else FileLog.Warn($"Link nicht erlaubt: {link}");
     }
 
     internal string? LockTextFor(RepairRowViewModel r)
@@ -250,8 +280,10 @@ public sealed partial class RepairViewModel : ObservableObject
         {
             var outcome = await _runner.RunAsync(this, run, new Progress<string>(t => row.ProgressText = t), row.Cancellation.Token);
             if (outcome is null) return null;
-            row.ResultText = outcome.Message;
             UpdateLastRun(row);
+            // the row's own action stands in „Zuletzt: …“ already; only another one (the restart fix) needs its own line
+            var inLastRun = action.Stamp && action.Id == row.Id && _stamps.Get(row.Id)?.Summary == outcome.Message;
+            row.ResultText = inLastRun ? null : outcome.Message;
             return outcome;
         }
         finally

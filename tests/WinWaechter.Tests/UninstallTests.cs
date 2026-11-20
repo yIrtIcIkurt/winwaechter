@@ -366,10 +366,11 @@ public sealed class UninstallTests : IDisposable
                      SystemLinks.DeviceEncryption, SystemLinks.DefenderThreat, SystemLinks.DefenderAppBrowser,
                      "ms-settings:easeofaccess-visualeffects", "ms-settings:display-advancedgraphics",
                      "ms-settings:storagepolicies", "ms-settings:powersleep",
+                     "ms-settings:recovery",   // Windows über „Jetzt neu installieren“ reparieren, 0.6
                      "ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1",   // App-Installer (winget), 0.6
                  })
             Assert.True(SystemLinks.IsAllowed(u));
-        Assert.Equal(11, SystemLinks.Allowed.Count);
+        Assert.Equal(12, SystemLinks.Allowed.Count);
         // the elevated process never hands a web address to the shell (the browser could start elevated)
         Assert.All(SystemLinks.Allowed, u =>
             Assert.True(u.StartsWith("ms-settings:", StringComparison.Ordinal) || u.StartsWith("windowsdefender:", StringComparison.Ordinal)

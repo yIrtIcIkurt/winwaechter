@@ -74,7 +74,7 @@ public sealed class ActionRunner(IDialogService dialogs, ChangeGate gate, Defend
             }
             else ran = await gate.RunAsync(owner, Run);
             if (!ran) return new ActionOutcome(false, ChangeGate.BusyHint);
-            if (a.Stamp) stamps?.Set(new ActionStamp(a.Id, DateTimeOffset.Now, outcome.Success, outcome.Message));
+            if (a.Stamp) stamps?.Set(new ActionStamp(a.Id, DateTimeOffset.Now, outcome.Success, outcome.Message, outcome.Link));
             return outcome;
         }
         finally
