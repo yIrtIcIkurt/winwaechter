@@ -119,10 +119,20 @@ Aus der Checkliste, vor dem Release behoben (Wunsch Nutzer, gebaut 2026-11-20 in
 - [x] winget 0x80073D28 bei ChatGPT (MSIX `OpenAI.Codex`, 2026-11-20): AppX-Protokoll „Zum Installieren des Paketdienstes sind Administratorrechte erforderlich“ — die neue Fassung bringt einen Paketdienst mit, der Lauf als Benutzer reicht nicht. Prüfen, wie WinWächter MSIX-Pakete startet (UserProcessRunner); bei 0x80073D28 erhöht wiederholen, sonst Klartext
 - [x] Wiederherstellungspunkt scheiterte mit 0x80070422 (Dienst deaktiviert): Ursache finden (Computerschutz/Richtlinie?), verständliche Meldung samt Behebung — vermutete Ursache: Schutz nur für C: aus (`RPSessionInterval`=1 täuschte „an“); jetzt Prüfung pro Laufwerk, Rückfrage nennt den Grund. Geräteprüfung 2026-11-20: Computerschutz zeigt „Eingeschaltet“ (RPSessionInterval inzwischen 1; bei 0.5.0 war er 0, also am 15.11. vermutlich noch aus und seither eingeschaltet), der Update-Lauf um 21:53 lief ohne Rückfrage zum Wiederherstellungspunkt. ChatGPT-Update per erhöhter Wiederholung geklappt, Virtual Desktop zeigt den Klartext. Nachgebessert: alte Reparatur-Einträge von vor der Behebung („Code -2146498283“, ohne Link) werden wie neue gelesen
 - [x] Protokoll: gesperrte Temp-Dateien beim Aufräumen nicht je Datei als WARN mit Stacktrace, sondern eine Zusammenfassung
+- [x] Reparatur-Seite mit dem neuen Installer nachgeprüft (2026-11-20): kein „Empfohlen“, Klartext 0x800F0915, Knopf „Jetzt neu installieren“
+- [x] Lizenz: MIT (Entscheidung Nutzer 2026-11-20), `LICENSE` im Repo und als `LICENSE.txt` im Programmordner; README mit Datenschutz-Satz und „Code signing policy“
 
 - [ ] Vor dem Release: `rules/rules.json` hat sich geändert (`rulesVersion` 4, `updateBlock`) → `rules.json.sig` neu signieren (`build-release.ps1`); Release erst nach Freigabe
 
 Bekannt, offen: Der Testprozess stürzte in vollen Testläufen manchmal ab (Zugriffsverletzung in coreclr bzw. Fail-Fast in ucrtbase), immer während des Tests mit 1200 echten Dateiverschiebungen, wenn gleichzeitig der echte PDH-Messtest lief. Beide laufen jetzt allein (eigene Testsammlung), seither stabil. Die native Ursache ist nicht gefunden; dafür braucht es einen Absturz-Dump und einen Debugger.
+
+## Code-Signatur (Entscheidung Nutzer 2026-11-20)
+Anlass: Auf einem anderen Rechner blockierte Windows `WinWaechter.App.exe` nach dem Setup („ShellExecuteEx schlug fehl; Code 4551. Eine Anwendungssteuerungsrichtlinie hat diese Datei blockiert“), vermutlich die intelligente App-Steuerung. App und Setup sind nicht Authenticode-signiert. Weg: kostenlose Open-Source-Signatur der SignPath Foundation (Herausgeber im Zertifikat ist dann „SignPath Foundation“). 0.6.0 erscheint noch unsigniert.
+- [x] OSI-Lizenz (MIT), Datenschutz-Satz und „Code signing policy“ im README
+- [ ] Nutzer: Zwei-Faktor-Anmeldung bei GitHub einschalten
+- [ ] Nutzer: Antrag auf signpath.org/apply stellen (Angaben bereitet Claude vor)
+- [ ] GitHub-Actions-Ablauf auf GitHub-Runnern: Tests, Publish, Programmdateien signieren lassen, Setup bauen, Setup signieren lassen; Prüfsummen und `rules.json.sig` signiert weiter der lokale Schlüssel (bleibt aus GitHub heraus)
+- [ ] Nach der Zusage: SignPath-Projekt einrichten (Zwei-Faktor auch dort), README-Satz „Free code signing provided by SignPath.io, certificate by SignPath Foundation“ auf Startseite und Release-Seiten, erste signierte Version auf einem Rechner mit eingeschalteter App-Steuerung prüfen
 
 ## Danach
 Mehrsprachigkeit Deutsch, Englisch, Türkisch (App, Regeltexte, Installer), früher für 0.5.0 geplant (Entscheidung Nutzer 2026-11-10). Startsprache wie Windows, sonst Englisch; umschaltbar in den Einstellungen. Türkische Texte vom Nutzer gegenlesen lassen.
