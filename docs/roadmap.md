@@ -131,7 +131,9 @@ Anlass: Auf einem anderen Rechner blockierte Windows `WinWaechter.App.exe` nach 
 - [x] OSI-Lizenz (MIT), Datenschutz-Satz und „Code signing policy“ im README
 - [ ] Nutzer: Zwei-Faktor-Anmeldung bei GitHub einschalten
 - [ ] Nutzer: Antrag auf signpath.org/apply stellen (Angaben bereitet Claude vor)
-- [ ] GitHub-Actions-Ablauf auf GitHub-Runnern: Tests, Publish, Programmdateien signieren lassen, Setup bauen, Setup signieren lassen; Prüfsummen und `rules.json.sig` signiert weiter der lokale Schlüssel (bleibt aus GitHub heraus)
+- [x] GitHub-Actions-Ablauf auf GitHub-Runnern (`.github/workflows/build.yml`, windows-2025): Tests, Publish, bei Tag `v*` Programmdateien signieren lassen, Setup bauen, Setup signieren lassen; Prüfsummen und `rules.json.sig` signiert weiter der lokale Schlüssel über `release-ci.ps1` (bleibt aus GitHub heraus). Artefakt-Konfigurationen für SignPath in `.signpath/artifact-configurations/` (`app`, `setup`). Gebaut 2026-11-20, lokal nur Syntax geprüft
+- [ ] Ersten Lauf auf GitHub ansehen (braucht Push des Branches, nur mit Freigabe): Tests auf dem GitHub-Rechner grün, Setup-Artefakt lädt und installiert
+- [ ] Risiko: `Microsoft.Win32.TaskScheduler.dll` (NuGet, MIT) ist nicht signiert und wird nicht mitsigniert (nicht aus eigenem Quellcode gebaut). Die App-Steuerung prüft auch DLLs; falls sie die wöchentliche Prüfung blockiert, Aufgabenplanung ohne diese Bibliothek ansprechen
 - [ ] Nach der Zusage: SignPath-Projekt einrichten (Zwei-Faktor auch dort), README-Satz „Free code signing provided by SignPath.io, certificate by SignPath Foundation“ auf Startseite und Release-Seiten, erste signierte Version auf einem Rechner mit eingeschalteter App-Steuerung prüfen
 
 ## Danach

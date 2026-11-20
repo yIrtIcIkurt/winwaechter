@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath artifact configuration "setup" (copy into the SignPath project; the workflow uses slug "setup").
+     The GitHub artifact is a zip with the Inno Setup installer, built from the already signed app files. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="WinWaechter-Setup-${version}.exe" product-name="WinWächter" product-version="${version}" company-name="Tahsin Yilmaz">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

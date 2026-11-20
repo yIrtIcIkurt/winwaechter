@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath artifact configuration "app" (copy into the SignPath project; the workflow uses slug "app").
+     The GitHub artifact is the publish folder as a zip. Only WinWächter's own binaries are signed;
+     the .NET runtime files come signed by Microsoft. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file-set product-name="WinWächter" file-version="${version}.0" company-name="Tahsin Yilmaz">
+      <include path="WinWaechter.App.exe" />
+      <include path="WinWaechter.App.dll" />
+      <include path="WinWaechter.Core.dll" />
+      <include path="WinWaechter.Notify.exe" />
+      <include path="WinWaechter.Notify.dll" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
+  </zip-file>
+</artifact-configuration>

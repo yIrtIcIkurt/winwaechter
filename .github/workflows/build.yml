@@ -1,0 +1,140 @@
+# Builds WinWächter on GitHub: tests, publish, installer.
+# Tags v*: the app files and the setup are Authenticode-signed through SignPath (free OSS signing,
+# certificate by SignPath Foundation) as soon as the repository variable SIGNPATH_ORGANIZATION_ID
+# and the secret SIGNPATH_API_TOKEN exist. Every signing request waits for a manual approval in SignPath.
+# The update checksums (SHA256SUMS.sig) are NOT made here: the private update key stays on the
+# maintainer's computer (release-ci.ps1 downloads this run's setup and signs them there).
+name: Build
+
+on:
+  push:
+    branches: [main, 'feature/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  build:
+    # SignPath (OSS): every job leading up to a signing request must run on a GitHub-hosted runner
+    runs-on: windows-2025
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SIGN: ${{ startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        run: |
+          $v = @(([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version | Where-Object { $_ })[0]
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version '$v' in Directory.Build.props ist ungültig." }
+          if ('${{ github.ref_type }}' -eq 'tag' -and '${{ github.ref_name }}' -ne "v$v") {
+            throw "Tag ${{ github.ref_name }} passt nicht zur Version $v in Directory.Build.props."
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Tests
+        run: |
+          dotnet test WinWaechter.sln -c Release
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Publish
+        run: |
+          foreach ($p in 'src/WinWaechter.App', 'src/WinWaechter.Notify') {
+            dotnet publish $p -c Release -r win-x64 --self-contained -p:PublishSingleFile=false -o publish/app
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          if (-not (Test-Path publish/app/WinWaechter.Notify.exe)) { throw 'WinWaechter.Notify.exe fehlt im Publish-Ordner.' }
+
+      - name: Upload unsigned app files
+        id: upload-app
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-unsigned
+          path: publish/app/
+          retention-days: 3
+
+      - name: Sign app files (SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'winwaechter' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.upload-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: publish/app-signed
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+
+      - name: Installer
+        run: |
+          $src = if ($env:SIGN -eq 'true') { 'publish/app-signed' } else { 'publish/app' }
+          if ($env:SIGN -eq 'true') {
+            foreach ($f in 'WinWaechter.App.exe', 'WinWaechter.Notify.exe') {
+              $s = Get-AuthenticodeSignature (Join-Path $src $f)
+              if ($s.Status -ne 'Valid') { throw "$f ist nicht gültig signiert: $($s.StatusMessage)" }
+            }
+          }
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source }
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" "/DSourceDir=$((Resolve-Path $src).Path)" installer/winwaechter.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Upload unsigned setup
+        id: upload-setup
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-unsigned
+          path: dist/WinWaechter-Setup-${{ steps.version.outputs.version }}.exe
+          retention-days: 3
+
+      - name: Sign setup (SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'winwaechter' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: setup
+          github-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: dist/signed
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+
+      - name: Pick setup
+        id: setup
+        run: |
+          $name = 'WinWaechter-Setup-${{ steps.version.outputs.version }}.exe'
+          $path = if ($env:SIGN -eq 'true') { "dist/signed/$name" } else { "dist/$name" }
+          if ($env:SIGN -eq 'true') {
+            $s = Get-AuthenticodeSignature $path
+            if ($s.Status -ne 'Valid') { throw "Das Setup ist nicht gültig signiert: $($s.StatusMessage)" }
+          }
+          "path=$path" >> $env:GITHUB_OUTPUT
+
+      - name: Upload setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: WinWaechter-Setup-${{ steps.version.outputs.version }}
+          path: ${{ steps.setup.outputs.path }}
+          retention-days: 30

@@ -50,6 +50,8 @@ dotnet test
 
 `build-release.ps1` führt die Tests aus, veröffentlicht die App, baut das Setup (Inno Setup 6) und signiert die Prüfsummen. Dafür ist der private Signaturschlüssel nötig; ohne ihn lässt sich mit `dotnet test` und `dotnet build` trotzdem alles prüfen und bauen.
 
+Jeder Push baut WinWächter außerdem auf GitHub (`.github/workflows/build.yml`: Tests, Publish, Setup als Artefakt). Bei einem Versions-Tag `vx.y.z` lässt der Ablauf die Programmdateien und das Setup über SignPath signieren, sobald das eingerichtet ist (Konfigurationen in `.signpath/`). Die Update-Prüfsummen signiert danach `release-ci.ps1` auf dem Rechner des Autors; der private Schlüssel liegt nie auf GitHub.
+
 ## Lizenz
 
 [MIT](LICENSE) – © 2026 Tahsin Yilmaz
