@@ -91,7 +91,7 @@ Offen, nur mit Zustimmung des Nutzers:
 
 Bekannt, nicht behoben: Eine abgelehnte Wiederholung erscheint im Protokoll als Fehler mit dem Titel „Erneut versuchen fehlgeschlagen“ (nur Wortwahl).
 
-## 0.6.0 (gebaut, unveröffentlicht, Stand 2026-11-14)
+## 0.6.0 (gebaut, unveröffentlicht, Stand 2026-11-20)
 Design `docs/superpowers/specs/2026-11-14-winwaechter-0.6-design.md`, Plan `docs/superpowers/plans/2026-11-14-winwaechter-0.6.md`, Branch `feature/v0.6`. Nutzer-Entscheidung 2026-11-14: Die automatische Wartung prüft und meldet nur, sie ändert nichts. Inhalt siehe CHANGELOG: Programm-Updates (winget), Gerät, Reparatur, automatische Prüfung, Speicherplatz-Karte, winget-Nutzungsdaten.
 
 Gesamtprüfung (unabhängiger Prüfer) mit „With fixes“: zwei kritische Funde (winget-Ausgabe im Fenster falsch dekodiert; Speicherplatz hätte Ordner mit Lexware-Daten oder ganze Bibliotheksordner verschieben können) und acht wichtige Funde behoben, je mit Test. Alle Entscheidungen und zurückgestellten Kleinigkeiten: `docs/superpowers/plans/2026-11-14-winwaechter-0.6-ledger.md`. 1278 Tests, fünfmal hintereinander grün.
@@ -99,14 +99,27 @@ Gesamtprüfung (unabhängiger Prüfer) mit „With fixes“: zwei kritische Fund
 Nur lesende Prüfungen auf dem Rechner des Nutzers (nicht erhöht): `winget upgrade` liest sich vollständig (31 Zeilen = Fußzeile, nur 4 Spalten bei `--source winget`); SSD „2650 Micron 1024GB“ Healthy, Akku-Vollkapazität lesbar; Scan von C: 75 s für 1,8 Mio. Dateien; die Defrag-Statistik `Dfrg\Statistics\Volume{…}\LastRunTime` ist lesbar.
 
 Offen, nur mit Zustimmung des Nutzers, nichts davon hat der Umsetzer allein gemacht:
-- [ ] 1. Den 0.6.0-Build installieren (vorher die laufende App schließen)
-- [ ] 2. Programme: Update-Liste entspricht `winget upgrade` ohne die Dell-Pakete (und ohne etwaige Treiber-Pakete aus `updateBlock`), Namen mit Umlauten und „…“ korrekt (nach dem UTF-8-Fix nur im echten Fenster prüfbar); 7-Zip über WinWächter aktualisieren
-- [ ] 3. Gerät: Akku (≈42,8 Wh voll) und SSD-Werte plausibel
-- [ ] 4. Reparatur: „DNS-Cache leeren“ und „Datenträger prüfen“ (`/scan`); andere Reparaturen nur auf Wunsch
+- [x] 1. Den 0.6.0-Build installieren (vorher die laufende App schließen)
+- [x] 2. Programme: Update-Liste entspricht `winget upgrade` ohne die Dell-Pakete (und ohne etwaige Treiber-Pakete aus `updateBlock`), Namen mit Umlauten und „…“ korrekt (nach dem UTF-8-Fix nur im echten Fenster prüfbar); 7-Zip über WinWächter aktualisieren — 27 = 29 − 2 Dell; 7-Zip 26.00→26.06; Lauf 2026-11-16: 24 aktualisiert, 1 fehlgeschlagen (VirtualDesktop.Streamer, 0x8A15008E); Lauf 2026-11-20: 6 aktualisiert, 2 fehlgeschlagen (ChatGPT 0x80073D28, VirtualDesktop.Streamer 0x8A15008E)
+- [x] 3. Gerät: Akku (≈42,8 Wh voll) und SSD-Werte plausibel — 47,3/63,1 Wh, 25 % Verschleiß, 279 Zyklen; SSD 0 %, 52 °C
+- [x] 4. Reparatur: „DNS-Cache leeren“ und „Datenträger prüfen“ (`/scan`); andere Reparaturen nur auf Wunsch — beide ok; „Empfohlen“ bei Systemdateien war echt (DISM: reparierbar); Lauf: 1197 von 1198 repariert, Rest `smbdirect.sys` 26100.1301 ohne Quelle (0x800F0915), sfc ohne Fehler
 - [ ] 5. Automatische Prüfung einschalten, die Aufgabe einmal in der Aufgabenplanung mit „Ausführen“ starten, Meldung erscheint, „Ansehen“ öffnet „Rechner in Ordnung bringen“ (mit UAC); danach ausschalten → Aufgabe ist weg
 - [ ] 6. Speicherplatz-Karte von C: lädt; eine Testdatei in Downloads in die Ablage verschieben und im Verlauf zurückholen
 - [ ] 7. winget-Nutzungsdaten abschalten und zurücknehmen; die `settings.json` von winget behält ihre Kommentare
 - [ ] 8. Neue Seiten hell/dunkel, 150 %, Tastatur ansehen
+- [ ] 9. Neuen Build (mit den Behebungen unten) installieren und nachprüfen: Stand pro Zeile bei einem Update-Lauf, ChatGPT-Update, Reparatur-Zeile „Systemdateien“ (Knopf „Jetzt neu installieren“, kein „Empfohlen“), Seite „Sicherheit“ → Computerschutz
+
+Aus der Checkliste, vor dem Release behoben (Wunsch Nutzer, gebaut 2026-11-20 in 7 Commits, je mit Test; 1305 Tests grün). Ohne eigenen Test: Zeilenstand auf „Leistung“ (nur Verdrahtung, Grundlage getestet) und die Protokoll-Zusammenfassung (globales FileLog). Die Computerschutz-Prüfung pro Laufwerk ist nur mit Fake-Registry getestet (`SPP\Clients` ist ohne Administrator nicht lesbar). 0x8A15008E-Pakete werden weiter vorausgewählt, scheitern aber mit Klartext.
+- [x] Stapel-Listen zeigen den Stand je Zeile (wartet / läuft mit Balken / ✓ fertig / ✗ fehlgeschlagen mit Grund): Programm-Updates, Vorinstallierte Apps entfernen, „Rechner in Ordnung bringen“, Optimieren/Datenschutz beim Anwenden mehrerer Einstellungen
+- [x] Programme: die untere Liste der installierten Programme lädt nach einem Update-Lauf neu (zeigte 7-Zip weiter mit 26.00)
+- [x] Reparatur: das Ergebnis steht doppelt unter der Zeile („Zuletzt: … – X“ und darunter nochmal X)
+- [x] Reparatur: DISM-Fehler verständlich statt „Code -2146498283“ (0x800F0915/0x800F081F/0x800F0906 = Reparaturdateien nicht ladbar) mit Knopf zu Einstellungen → Wiederherstellung („Jetzt neu installieren“, `ms-settings:recovery`)
+- [x] Reparatur: „Empfohlen“ nicht erneut zeigen, wenn der letzte Lauf genau daran scheiterte (sonst Dauerempfehlung, die nicht hilft) — bestätigt 2026-11-20: nach Neuladen weiter „Empfohlen“; gilt auch für die wöchentliche Prüfung und „Rechner in Ordnung bringen“ (Vorschlag `repair-sfc`). Die doppelte Ergebniszeile erscheint nur direkt nach dem Lauf
+- [x] winget 0x8A15008E (UPDATE_INSTALL_TECHNOLOGY_MISMATCH) in Klartext: „Das Update nutzt eine andere Installationsart; bitte im Programm selbst aktualisieren“, solche Pakete künftig nicht vorauswählen
+- [x] winget 0x80073D28 bei ChatGPT (MSIX `OpenAI.Codex`, 2026-11-20): AppX-Protokoll „Zum Installieren des Paketdienstes sind Administratorrechte erforderlich“ — die neue Fassung bringt einen Paketdienst mit, der Lauf als Benutzer reicht nicht. Prüfen, wie WinWächter MSIX-Pakete startet (UserProcessRunner); bei 0x80073D28 erhöht wiederholen, sonst Klartext
+- [x] Wiederherstellungspunkt scheiterte mit 0x80070422 (Dienst deaktiviert): Ursache finden (Computerschutz/Richtlinie?), verständliche Meldung samt Behebung — vermutete Ursache: Schutz nur für C: aus (`RPSessionInterval`=1 täuschte „an“); jetzt Prüfung pro Laufwerk, Rückfrage nennt den Grund. Auf dem echten Rechner zu bestätigen: Seite „Sicherheit“ zeigt Computerschutz „Ausgeschaltet“ mit „Einschalten“
+- [x] Protokoll: gesperrte Temp-Dateien beim Aufräumen nicht je Datei als WARN mit Stacktrace, sondern eine Zusammenfassung
+
 - [ ] Vor dem Release: `rules/rules.json` hat sich geändert (`rulesVersion` 4, `updateBlock`) → `rules.json.sig` neu signieren (`build-release.ps1`); Release erst nach Freigabe
 
 Bekannt, offen: Der Testprozess stürzte in vollen Testläufen manchmal ab (Zugriffsverletzung in coreclr bzw. Fail-Fast in ucrtbase), immer während des Tests mit 1200 echten Dateiverschiebungen, wenn gleichzeitig der echte PDH-Messtest lief. Beide laufen jetzt allein (eigene Testsammlung), seither stabil. Die native Ursache ist nicht gefunden; dafür braucht es einen Absturz-Dump und einen Debugger.
