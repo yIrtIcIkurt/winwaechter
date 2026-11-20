@@ -219,7 +219,7 @@ public sealed partial class RepairViewModel : ObservableObject
 
     void UpdateLastRun(RepairRowViewModel r)
     {
-        if (_stamps.Get(r.Id) is not { } s) return;
+        if (RepairChecks.Upgrade(_stamps.Get(r.Id)) is not { } s) return;
         r.LastRun = $"Zuletzt: {s.At.ToLocalTime().ToString("dd.MM.yyyy HH:mm", De)} – {s.Summary}";
         r.Link = SystemLinks.IsAllowed(s.Link) ? s.Link : null;
     }

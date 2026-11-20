@@ -65,7 +65,7 @@ public sealed partial class RepairActions(
     public static bool IsRepairContentMissing(int dismExit) =>
         unchecked((uint)dismExit) is 0x800F0915 or 0x800F081F or 0x800F0906;
 
-    static ActionOutcome DismFailed(int exit, string sfcMessage)
+    public static ActionOutcome DismFailed(int exit, string sfcMessage)
     {
         var code = $"0x{unchecked((uint)exit):X8}";
         if (IsRepairContentMissing(exit))
@@ -311,7 +311,23 @@ public sealed class RepairChecks(IProcessRunner run, string windowsDir)
     /// </summary>
     public static bool RecommendSystemFiles(bool? repairable, ActionStamp? last, DateTimeOffset now) =>
         repairable == true
-        && !(last is { Success: false, Link: SystemLinks.Recovery } && now - last.At < TimeSpan.FromDays(30));
+        && !(Upgrade(last) is { Success: false, Link: SystemLinks.Recovery } l && now - l.At < TimeSpan.FromDays(30));
+
+    static readonly System.Text.RegularExpressions.Regex OldDismText =
+        new(@"^DISM ist fehlgeschlagen \(Code (-?\d+)\)\. sfc wurde trotzdem ausgeführt\. ?(.*)$", System.Text.RegularExpressions.RegexOptions.Singleline);
+
+    /// <summary>
+    /// A stamp written before 0.6.0's fix („DISM ist fehlgeschlagen (Code -2146498283) …“, no link) reads like a new one:
+    /// plain text and, for missing repair files, the way out. Anything else stays as it is.
+    /// </summary>
+    public static ActionStamp? Upgrade(ActionStamp? s)
+    {
+        if (s is null || s.Link is not null) return s;
+        var m = OldDismText.Match(s.Summary);
+        if (!m.Success || !int.TryParse(m.Groups[1].Value, out var exit)) return s;
+        var o = RepairActions.DismFailed(exit, m.Groups[2].Value.Trim());
+        return s with { Summary = o.Message, Link = o.Link };
+    }
 
     /// <summary>true = DISM says the component store is repairable; false = no corruption; null = unknown.</summary>
     public async Task<bool?> ComponentStoreRepairableAsync(CancellationToken ct)

@@ -148,6 +148,23 @@ public sealed class RepairViewModelTests : IDisposable
         Assert.True(vm.Rows.Single(r => r.Id == "repair-sfc").IsRecommended);
     }
 
+    // device test 2026-11-20: a run from before the fix kept its old text and no link – it must count the same
+    [Fact]
+    public async Task An_older_run_without_repair_files_counts_the_same_and_shows_plain_text()
+    {
+        _run.Handler = (exe, _) => Task.FromResult((0, exe.EndsWith("dism.exe") ? "Der Komponentenspeicher kann repariert werden." : "", ""));
+        Stamps.Set(new ActionStamp("repair-sfc", DateTimeOffset.Now.AddDays(-5), false,
+            "DISM ist fehlgeschlagen (Code -2146498283). sfc wurde trotzdem ausgeführt. Keine Fehler gefunden."));
+        var vm = Vm(shell: new LinkShell());
+        await vm.LoadCommand.ExecuteAsync(null);
+        var sfc = vm.Rows.Single(r => r.Id == "repair-sfc");
+        Assert.False(sfc.IsRecommended);
+        Assert.True(sfc.ShowLink);
+        Assert.Contains("Ersatzdateien", sfc.LastRun);
+        Assert.Contains("0x800F0915", sfc.LastRun);
+        Assert.DoesNotContain("-2146498283", sfc.LastRun);
+    }
+
     sealed class LinkShell : ISystemShell
     {
         public List<string> Links { get; } = [];
