@@ -26,7 +26,7 @@ public sealed class WingetUpdateService(IWingetClient client, UpdateFilter filte
     /// false = nothing runs. Cancelling stops between packages, never inside a running setup.
     /// </summary>
     public SystemAction InstallAction(IReadOnlyList<WingetPackage> selected, Func<Task<bool>> ensureRestorePoint,
-        Func<IReadOnlyList<UpdateResult>, Task> onDone)
+        Func<IReadOnlyList<UpdateResult>, Task> onDone, IProgress<ItemProgress>? items = null)
     {
         // one entry per id; the user-scope entry wins (it must run in the user's context)
         var packages = selected.GroupBy(p => p.Id, StringComparer.OrdinalIgnoreCase)
@@ -35,7 +35,7 @@ public sealed class WingetUpdateService(IWingetClient client, UpdateFilter filte
                       + "Schließen Sie die betroffenen Programme vorher; manche Installationen starten sie neu oder verlangen einen Neustart. "
                       + "Mit dem Klick nehmen Sie die Lizenzbedingungen der Updates an.";
         return new SystemAction(ActionId, "Programme aktualisieren", "Aktualisieren", confirm, true,
-            (progress, ct) => RunAsync(packages, ensureRestorePoint, onDone, progress, ct),
+            (progress, ct) => RunAsync(packages, ensureRestorePoint, onDone, progress, items, ct),
             packages.Select(p => $"{p.Name}: {p.Installed} → {p.Available}").ToList())
         {
             SkipGate = true,
@@ -45,20 +45,32 @@ public sealed class WingetUpdateService(IWingetClient client, UpdateFilter filte
     }
 
     async Task<ActionOutcome> RunAsync(IReadOnlyList<WingetPackage> packages, Func<Task<bool>> ensureRestorePoint,
-        Func<IReadOnlyList<UpdateResult>, Task> onDone, IProgress<string>? progress, CancellationToken ct)
+        Func<IReadOnlyList<UpdateResult>, Task> onDone, IProgress<string>? progress, IProgress<ItemProgress>? items, CancellationToken ct)
     {
         if (!await ensureRestorePoint()) return new ActionOutcome(false, "Abgebrochen.");
         var results = new List<UpdateResult>();
         var cancelled = false;
+        void Add(UpdateResult r)
+        {
+            results.Add(r);
+            var state = r.Outcome switch
+            {
+                UpdateOutcome.Failed => ItemState.Failed,
+                UpdateOutcome.Skipped => ItemState.Skipped,
+                _ => ItemState.Done,
+            };
+            items?.Report(new ItemProgress(r.Package, state, r.Text));
+        }
         for (var i = 0; i < packages.Count; i++)
         {
             if (ct.IsCancellationRequested) { cancelled = true; break; }
             var p = packages[i];
             progress?.Report($"Paket {i + 1} von {packages.Count}: {p.Name} …");
+            items?.Report(new ItemProgress(p, ItemState.Running));
             // the protection check again, right before the start
             if (filter.Split([p]).Hidden.Count > 0)
             {
-                results.Add(new UpdateResult(p, UpdateOutcome.Skipped, 0, "Geschützt, ausgelassen."));
+                Add(new UpdateResult(p, UpdateOutcome.Skipped, 0, "Geschützt, ausgelassen."));
                 continue;
             }
             int code;
@@ -69,12 +81,12 @@ public sealed class WingetUpdateService(IWingetClient client, UpdateFilter filte
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 FileLog.Error($"winget {p.Id} konnte nicht gestartet werden", ex);
-                results.Add(new UpdateResult(p, UpdateOutcome.Failed, -1, "Konnte nicht gestartet werden: " + ex.Message));
+                Add(new UpdateResult(p, UpdateOutcome.Failed, -1, "Konnte nicht gestartet werden: " + ex.Message));
                 continue;
             }
             var (outcome, text) = WingetExitCodes.Map(code);
             FileLog.Info($"winget {p.Id} {p.Installed} -> {p.Available}: 0x{code:X8}");
-            results.Add(new UpdateResult(p, outcome, code, text));
+            Add(new UpdateResult(p, outcome, code, text));
         }
         await onDone(results).ConfigureAwait(false);
 

@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Model;
@@ -166,6 +167,30 @@ public sealed class BuildingBlocksTests : IDisposable
         // a kind without retry data cannot be retried
         Assert.Null(go.Session.Records[1].RetryBefore);
         Assert.False(OptimizerEngine.CanRetry(go.Session.Records[1]));
+    }
+
+    sealed class SyncProgress<T> : IProgress<T>
+    {
+        public List<T> Items { get; } = [];
+        public void Report(T value) { lock (Items) Items.Add(value); }
+    }
+
+    [Fact]
+    public async Task Apply_reports_each_finding_running_then_done_or_failed()
+    {
+        var applied = new List<string>();
+        Finding[] three = [F(new StepChange("a", false, applied)), F(new StepChange("b", true, applied)), F(new StepChange("c", false, applied))];
+        var items = new SyncProgress<ItemProgress>();
+
+        await Engine().ApplyAsync("T", three, null, CancellationToken.None, continueOnError: true, items: items);
+
+        Assert.Equal(
+        [
+            (three[0], ItemState.Running), (three[0], ItemState.Done),
+            (three[1], ItemState.Running), (three[1], ItemState.Failed),
+            (three[2], ItemState.Running), (three[2], ItemState.Done),
+        ], items.Items.Select(i => ((Finding)i.Item, i.State)));
+        Assert.Contains("boom", items.Items.Single(i => i.State == ItemState.Failed).Text);
     }
 
     [Fact]

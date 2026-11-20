@@ -1,3 +1,4 @@
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Journal;
 using WinWaechter.Core.Logging;
@@ -59,14 +60,16 @@ public sealed class OptimizerEngine
 
     /// <summary>
     /// Applies the selected changes in a new session. A failure stops the run, unless continueOnError:
-    /// then the failed change is journalled Failed and the rest still runs.
+    /// then the failed change is journalled Failed and the rest still runs. items: Running, then Done or Failed
+    /// per finding (the Finding is the item), so a list can show where each line stands.
     /// </summary>
     public Task<ApplyResult> ApplyAsync(string title, IReadOnlyList<Finding> selected,
-        IProgress<string>? p, CancellationToken ct, bool continueOnError = false) =>
+        IProgress<string>? p, CancellationToken ct, bool continueOnError = false, IProgress<ItemProgress>? items = null) =>
         Task.Run(() =>
         {
             ct.ThrowIfCancellationRequested();   // before any restore point or session exists
-            return Apply(title, selected.Select(f => f.Change).OfType<IChange>().ToList(), p, ct, continueOnError);
+            var withChange = selected.Where(f => f.Change is not null).ToList();
+            return Apply(title, withChange.Select(f => f.Change!).ToList(), p, ct, continueOnError, items, withChange);
         }, CancellationToken.None);
 
     /// <summary>A Failed record that carries retry data (IChange.RetryData).</summary>
@@ -109,8 +112,13 @@ public sealed class OptimizerEngine
     }
 
     ApplyResult Apply(string title, IReadOnlyList<IChange> changes, IProgress<string>? p, CancellationToken ct,
-        bool continueOnError)
+        bool continueOnError, IProgress<ItemProgress>? items = null, IReadOnlyList<object>? keys = null)
     {
+        void Item(int i, ItemState s, string? text = null)
+        {
+            if (items is not null && keys is not null && i < keys.Count) items.Report(new ItemProgress(keys[i], s, text));
+        }
+
         p?.Report("Wiederherstellungspunkt wird erstellt …");
         var rp = _restorePoint(title);
         var session = _store.Create(title);
@@ -121,6 +129,7 @@ public sealed class OptimizerEngine
             if (ct.IsCancellationRequested) break;
             var change = changes[i];
             p?.Report($"({i + 1}/{changes.Count}) {change.Description}");
+            Item(i, ItemState.Running);
             var id = Guid.NewGuid().ToString("N");
             // journal first (with the paths the change will write), so a crash mid-change leaves a trace
             var pending = change.Plan(session.Context) with { Id = id, Status = ChangeStatus.Pending, At = DateTimeOffset.Now };
@@ -130,6 +139,7 @@ public sealed class OptimizerEngine
                 var done = change.Apply(session.Context);
                 session.Upsert(done with { Id = id, Status = ChangeStatus.Applied, Error = null });
                 applied++;
+                Item(i, ItemState.Done);
             }
             catch (Exception ex)
             {
@@ -142,6 +152,7 @@ public sealed class OptimizerEngine
                     RetryBefore = retry?.Before, RetryAfter = retry?.After,
                 });
                 failed++;
+                Item(i, ItemState.Failed, ex.Message);
                 if (!continueOnError) break;
             }
         }

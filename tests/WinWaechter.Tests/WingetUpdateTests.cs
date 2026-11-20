@@ -61,6 +61,32 @@ public class WingetUpdateTests
         Assert.Equal("Fehlgeschlagen (Code 0x12345678), Details im Protokoll.", WingetExitCodes.Map(0x12345678).Text);
     }
 
+    sealed class SyncProgress<T> : IProgress<T>
+    {
+        public List<T> Items { get; } = [];
+        public void Report(T value) { lock (Items) Items.Add(value); }
+    }
+
+    [Fact]
+    public async Task Each_package_reports_running_then_done_failed_or_skipped()
+    {
+        var winget = new FakeWinget { UpgradeHandler = p => p.Id == "Beispiel.B" ? unchecked((int)0x8A150101) : 0 };
+        var items = new SyncProgress<Core.Actions.ItemProgress>();
+        var a = Service(winget).InstallAction([P("A", "Beispiel.A"), P("B", "Beispiel.B"), P("Dell Optimizer", "Dell.Optimizer")],
+            () => Task.FromResult(true), _ => Task.CompletedTask, items);
+
+        await a.RunAsync(null, CancellationToken.None);
+
+        Assert.Equal(
+        [
+            ("Beispiel.A", Core.Actions.ItemState.Running), ("Beispiel.A", Core.Actions.ItemState.Done),
+            ("Beispiel.B", Core.Actions.ItemState.Running), ("Beispiel.B", Core.Actions.ItemState.Failed),
+            ("Dell.Optimizer", Core.Actions.ItemState.Running), ("Dell.Optimizer", Core.Actions.ItemState.Skipped),
+        ], items.Items.Select(i => (((WingetPackage)i.Item).Id, i.State)));
+        Assert.Equal("Das Programm läuft gerade. Schließen Sie es und versuchen Sie es erneut.",
+            items.Items.Single(i => i.State == Core.Actions.ItemState.Failed).Text);
+    }
+
     [Fact]
     public async Task Cancel_stops_after_current_package()
     {
