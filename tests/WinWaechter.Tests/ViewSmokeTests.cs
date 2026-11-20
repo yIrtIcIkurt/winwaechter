@@ -493,10 +493,17 @@ public sealed class ViewSmokeTests : IDisposable
     static void AssertUpdatesBox(FrameworkElement view, ProgramsViewModel vm)
     {
         var texts = FindAll<TextBlock>(view).Where(Shown).Select(t => t.Text).ToList();
-        Assert.Contains("Updates verfügbar (1)", texts);
+        Assert.Contains("Updates verfügbar (2)", texts);   // the finished one no longer counts
         Assert.Contains("26.00 → 26.06", texts);
         Assert.DoesNotContain("Dell Optimizer", texts);
-        AssertShown(view, "Ausgewählte aktualisieren (1)", vm.Updates!.UpdateSelectedCommand);
+        AssertShown(view, "Ausgewählte aktualisieren (2)", vm.Updates!.UpdateSelectedCommand);
+        // each line shows its own state; the reason of the failed one stands under its title
+        Assert.Contains("Läuft …", texts);
+        Assert.Contains("✗ Fehlgeschlagen", texts);
+        Assert.Contains("Das Programm läuft gerade.", texts);
+        Assert.Contains("✓ Fertig", texts);
+        Assert.DoesNotContain("Aktualisiert.", texts);   // a done line needs no reason
+        Assert.Contains(FindAll<ProgressBar>(view), p => p.IsIndeterminate && Shown(p) && AutomationProperties.GetName(p) == "Läuft");
         Assert.Contains(FindAll<Expander>(view), e => e.Header as string == "1 Programme bewusst ausgelassen (geschützt)" && Shown(e));
     }
 
@@ -631,6 +638,8 @@ public sealed class ViewSmokeTests : IDisposable
             List = new(Core.Updates.WingetListStatus.Ok,
             [
                 new("7-Zip 26.00 (x64)", "7zip.7zip", "26.00", "26.06", false, false),
+                new("Notepad++", "Notepad++.Notepad++", "8.9.6", "8.9.9", false, false),
+                new("Opera", "Opera.Opera", "140.0", "140.1", false, false),
                 new("Dell Optimizer", "Dell.Optimizer", "6.3.2.0", "6.3.3.0", false, false),
             ], null),
         };
@@ -638,6 +647,10 @@ public sealed class ViewSmokeTests : IDisposable
             new Core.Updates.WingetUpdateService(winget, new Core.Updates.UpdateFilter(RuleSet.Default, () => []), _ => new RestorePointResult(true, "")),
             new ActionRunner(new YesDialogs(), gate, locks: ActivityLock.CreateDefaults()), new YesDialogs(), new Shell(), true, () => Task.FromResult(true));
         updates.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        // batch-run states per line: running (bar), failed (reason below), done (chip)
+        updates.Rows[0].SetState(Core.Actions.ItemState.Running);
+        updates.Rows[1].SetState(Core.Actions.ItemState.Failed, "Das Programm läuft gerade.");
+        updates.Rows[2].SetState(Core.Actions.ItemState.Done, "Aktualisiert.");
         var vm = new ProgramsViewModel(actions, engine, new YesDialogs(), new Shell(), canChange: true, gate,
             () => new BloatAppScanner(pkgs, RuleSet.Default).Scan()) { Updates = updates };
         vm.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();

@@ -1,5 +1,6 @@
 using WinWaechter.App.Services;
 using WinWaechter.App.ViewModels;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Optimizer;
 using WinWaechter.Core.Rules;
 using WinWaechter.Core.Sys;
@@ -115,7 +116,7 @@ public class UpdatesViewModelTests
     }
 
     [Fact]
-    public async Task After_install_list_is_reloaded_and_result_text_set()
+    public async Task After_install_rows_keep_their_state_until_the_next_search()
     {
         _winget.List = new(WingetListStatus.Ok, [P("7-Zip", "7zip.7zip"), P("Notepad++", "Notepad++.Notepad++")], null);
         var vm = Vm();
@@ -124,8 +125,58 @@ public class UpdatesViewModelTests
         await vm.UpdateSelectedCommand.ExecuteAsync(null);
         Assert.Equal(["7zip.7zip"], _winget.Upgraded.Select(p => p.Id));
         Assert.Equal("1 aktualisiert, 0 fehlgeschlagen", vm.ResultText);
-        Assert.Equal(2, _winget.ListCalls.Count);
         Assert.True(Assert.Single(_dialogs.Confirms).Final);
+
+        // the finished row stays visible (not reloaded away), unselected and not selectable again
+        Assert.Single(_winget.ListCalls);
+        Assert.Equal([ItemState.Done, ItemState.None], vm.Rows.Select(r => r.State));
+        Assert.False(vm.Rows[0].IsSelected);
+        Assert.False(vm.Rows[0].CanSelect);
+        Assert.Equal("Updates verfügbar (1)", vm.HeaderText);
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.All(vm.Rows, r => Assert.Equal(ItemState.None, r.State));
+    }
+
+    [Fact]
+    public async Task During_a_run_each_row_shows_waiting_running_done_or_failed()
+    {
+        _winget.List = new(WingetListStatus.Ok, [P("A", "Beispiel.A"), P("B", "Beispiel.B"), P("C", "Beispiel.C")], null);
+        var vm = Vm();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var seen = new List<ItemState[]>();
+        _winget.UpgradeHandler = p =>
+        {
+            seen.Add(vm.Rows.Select(r => r.State).ToArray());
+            return p.Id == "Beispiel.B" ? unchecked((int)0x8A150101) : 0;
+        };
+
+        await vm.UpdateSelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal([ItemState.Running, ItemState.Waiting, ItemState.Waiting], seen[0]);
+        Assert.Equal([ItemState.Done, ItemState.Running, ItemState.Waiting], seen[1]);
+        Assert.Equal([ItemState.Done, ItemState.Failed, ItemState.Running], seen[2]);
+        Assert.Equal([ItemState.Done, ItemState.Failed, ItemState.Done], vm.Rows.Select(r => r.State));
+        Assert.Equal("Das Programm läuft gerade. Schließen Sie es und versuchen Sie es erneut.", vm.Rows[1].StateText);
+        Assert.True(vm.Rows[1].ShowStateText);
+        Assert.True(vm.Rows[1].CanSelect);   // a failed one can be tried again
+    }
+
+    [Fact]
+    public async Task Rows_left_out_by_cancel_say_not_run_and_the_installed_list_is_told()
+    {
+        _winget.List = new(WingetListStatus.Ok, [P("7-Zip", "7zip.7zip"), P("Notepad++", "Notepad++.Notepad++")], null);
+        var vm = Vm();
+        var told = 0;
+        vm.Installed += () => told++;
+        await vm.RefreshCommand.ExecuteAsync(null);
+        _winget.UpgradeHandler = _ => { vm.CancelCommand.Execute(null); return 0; };
+
+        await vm.UpdateSelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal([ItemState.Done, ItemState.Skipped], vm.Rows.Select(r => r.State));
+        Assert.Equal("Nicht ausgeführt.", vm.Rows[1].StateText);
+        Assert.Equal(1, told);
     }
 
     // review: „Abbrechen“ stops after the running package

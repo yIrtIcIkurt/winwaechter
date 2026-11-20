@@ -3,14 +3,16 @@ using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Sys;
 using WinWaechter.Core.Updates;
 
 namespace WinWaechter.App.ViewModels;
 
-/// <summary>One available update: name, „alt → neu“, selection and the result of the last run.</summary>
-public sealed partial class UpdateRowViewModel : ObservableObject
+/// <summary>One available update: name, „alt → neu“, selection and its state in the current run.
+/// A finished one stays visible (✓ Fertig) until the next search and cannot be selected again.</summary>
+public sealed partial class UpdateRowViewModel : ItemRowBase
 {
     readonly Action _changed;
 
@@ -19,6 +21,12 @@ public sealed partial class UpdateRowViewModel : ObservableObject
         Package = p;
         _changed = changed;
         _isSelected = !p.UnknownVersion;
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(State)) return;
+            if (IsDone) IsSelected = false;
+            OnPropertyChanged(nameof(CanSelect));
+        };
     }
 
     public WingetPackage Package { get; }
@@ -26,12 +34,10 @@ public sealed partial class UpdateRowViewModel : ObservableObject
     public string Versions => $"{Package.Installed} → {Package.Available}";
     public bool UnknownVersion => Package.UnknownVersion;
     public string? Note => UnknownVersion ? "Installierte Version unbekannt" : null;
+    public bool CanSelect => !IsDone;
 
     [ObservableProperty]
     private bool _isSelected;
-
-    [ObservableProperty]
-    private string? _resultText;
 
     partial void OnIsSelectedChanged(bool value) => _changed();
 }
@@ -94,7 +100,17 @@ public sealed partial class UpdatesViewModel : ObservableObject
     public bool ShowMissing => Status == WingetListStatus.Missing;
     public bool ShowSourceAgreement => Status == WingetListStatus.NeedsSourceAgreement;
     public bool ShowFailed => Status == WingetListStatus.Failed;
-    public string HeaderText => Rows.Count == 0 ? "Alle Programme sind aktuell" : $"Updates verfügbar ({Rows.Count})";
+    public string HeaderText
+    {
+        get
+        {
+            var open = Rows.Count(r => !r.IsDone);
+            return open == 0 ? "Alle Programme sind aktuell" : $"Updates verfügbar ({open})";
+        }
+    }
+
+    /// <summary>After a run that updated something: the list of installed programs reads again (versions changed).</summary>
+    public event Action? Installed;
     public string UpdateSelectedText => $"Ausgewählte aktualisieren ({SelectedCount})";
     public string? HiddenText => Hidden.Count == 0 ? null : $"{Hidden.Count} Programme bewusst ausgelassen (geschützt)";
     public string LockedHint => !CanChange ? AppEnvironment.AdminNotice : _lock?.IsRunning == true ? _lock.BusyText : "";
@@ -125,7 +141,7 @@ public sealed partial class UpdatesViewModel : ObservableObject
     [RelayCommand]
     void SelectAll()
     {
-        foreach (var r in Rows) r.IsSelected = true;
+        foreach (var r in Rows.Where(r => r.CanSelect)) r.IsSelected = true;
     }
 
     async Task LoadAsync(bool acceptSourceAgreements)
@@ -166,7 +182,7 @@ public sealed partial class UpdatesViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanUpdateSelected))]
     Task UpdateSelectedAsync() => InstallAsync(Rows.Where(r => r.IsSelected).ToList());
 
-    bool CanUpdateOne(UpdateRowViewModel? row) => CanInstall && row is not null;
+    bool CanUpdateOne(UpdateRowViewModel? row) => CanInstall && row is { CanSelect: true };
 
     [RelayCommand(CanExecute = nameof(CanUpdateOne))]
     Task UpdateOneAsync(UpdateRowViewModel? row) => row is null ? Task.CompletedTask : InstallAsync([row]);
@@ -174,29 +190,41 @@ public sealed partial class UpdatesViewModel : ObservableObject
     async Task InstallAsync(IReadOnlyList<UpdateRowViewModel> rows)
     {
         if (rows.Count == 0 || !CanInstall) return;
-        var byId = rows.ToDictionary(r => r.Package.Id, StringComparer.OrdinalIgnoreCase);
-        var action = _service.InstallAction(rows.Select(r => r.Package).ToList(), _ensureRestorePoint, results =>
+        // a package can appear twice (machine and user scope); the run reports the one it installs, by id
+        var byId = rows.GroupBy(r => r.Package.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        var items = new UiProgress<ItemProgress>(i =>
         {
-            foreach (var r in results)
-                if (byId.TryGetValue(r.Package.Id, out var row)) row.ResultText = r.Text;
-            return Task.CompletedTask;
+            if (i.Item is WingetPackage p && byId.TryGetValue(p.Id, out var hit))
+                foreach (var row in hit) row.SetState(i.State, i.Text);
         });
+        var action = _service.InstallAction(rows.Select(r => r.Package).ToList(), _ensureRestorePoint, _ => Task.CompletedTask, items);
         _cts = new CancellationTokenSource();
         IsBusy = true;
+        var ran = false;
         try
         {
+            ItemRows.Begin(rows);
             var outcome = await _runner.RunAsync(this, action, new Progress<string>(t => ProgressText = t), _cts.Token);
             if (outcome is null) return;
+            ran = true;
             ResultText = outcome.Message;
         }
         finally
         {
+            // declined or not started: back to no state; otherwise the lines that never got their turn say so
+            if (ran) ItemRows.Finish(rows);
+            else foreach (var r in rows) r.SetState(ItemState.None);
             ProgressText = null;
             IsBusy = false;
             _cts.Dispose();
             _cts = null;
+            UpdateSelection();
+            OnPropertyChanged(nameof(HeaderText));
+            UpdateOneCommand.NotifyCanExecuteChanged();
         }
-        await LoadAsync(false);
+        // the rows stay with their state until „Neu suchen“; the installed programs below read again
+        if (rows.Any(r => r.IsDone)) Installed?.Invoke();
     }
 
     CancellationTokenSource? _cts;

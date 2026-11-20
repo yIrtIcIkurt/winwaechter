@@ -151,7 +151,21 @@ public sealed partial class ProgramsViewModel : ObservableObject
     public string AdminNotice => AppEnvironment.AdminNotice;
 
     /// <summary>„Updates verfügbar“ (winget) above the apps; null when the page runs without it.</summary>
-    public UpdatesViewModel? Updates { get; init; }
+    public UpdatesViewModel? Updates
+    {
+        get => _updates;
+        init
+        {
+            _updates = value;
+            // updated programs have new versions: the list below reads again
+            if (value is not null) value.Installed += async () =>
+            {
+                if (RefreshCommand.CanExecute(null)) await RefreshCommand.ExecuteAsync(null);
+            };
+        }
+    }
+
+    readonly UpdatesViewModel? _updates;
     public bool ShowUpdates => Updates is not null;
 
     /// <summary>Shown while another page holds the change gate.</summary>

@@ -1,6 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
+                    xmlns:vm="clr-namespace:WinWaechter.App.ViewModels"
+                    xmlns:act="clr-namespace:WinWaechter.Core.Actions;assembly=WinWaechter.Core">
     <!-- Control styles. Colours only via DynamicResource so the theme can switch live. -->
 
     <!-- ===== Focus ===== -->
@@ -740,5 +741,56 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- ===== Batch runs: each line shows its own state (vm:ItemRowBase) ===== -->
+    <!-- the line that runs right now stands out -->
+    <Style x:Key="RowDivider.Item" TargetType="Border" BasedOn="{StaticResource RowDivider}">
+        <Setter Property="Background" Value="Transparent" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                <Setter Property="Background" Value="{DynamicResource AccentSoft}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- right column: „Wartet“, a running bar with „Läuft …“, „✓ Fertig“, „✗ Fehlgeschlagen“ or „Ausgelassen“ -->
+    <DataTemplate x:Key="ItemStateView">
+        <Grid HorizontalAlignment="Right" VerticalAlignment="Center">
+            <StackPanel x:Name="Running" Orientation="Horizontal" Visibility="Collapsed">
+                <ProgressBar Width="56" Height="4" VerticalAlignment="Center" IsIndeterminate="True" Foreground="{DynamicResource Accent}"
+                             Background="{DynamicResource Line}" BorderThickness="0" AutomationProperties.Name="Läuft" />
+                <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="{StaticResource SizeSmall}" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Accent}" Text="Läuft …" />
+            </StackPanel>
+            <ContentControl x:Name="Chip" Style="{StaticResource Chip}" Tag="{Binding StateTone}" Content="{Binding StateLabel}"
+                            Visibility="Collapsed" />
+        </Grid>
+        <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                <Setter TargetName="Running" Property="Visibility" Value="Visible" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding ShowChip}" Value="True">
+                <Setter TargetName="Chip" Property="Visibility" Value="Visible" />
+            </DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
+
+    <!-- under the title: the reason of a failed or left-out line -->
+    <Style x:Key="ItemReason" TargetType="TextBlock" BasedOn="{StaticResource Text.Small}">
+        <Setter Property="Margin" Value="0,2,0,0" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Text" Value="{Binding StateText}" />
+        <Setter Property="Foreground" Value="{DynamicResource Watch}" />
+        <Setter Property="Visibility" Value="Collapsed" />
+        <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ShowStateText}" Value="True">
+                <Setter Property="Visibility" Value="Visible" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding State}" Value="{x:Static act:ItemState.Failed}">
+                <Setter Property="Foreground" Value="{DynamicResource Alarm}" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
 </ResourceDictionary>

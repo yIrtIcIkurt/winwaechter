@@ -118,7 +118,7 @@
                             <ItemsControl ItemsSource="{Binding Rows}" Focusable="False" Margin="0,0,0,-1">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:UpdateRowViewModel}">
-                                        <Border Style="{StaticResource RowDivider}" Padding="16,10,16,10">
+                                        <Border Style="{StaticResource RowDivider.Item}" Padding="16,10,16,10">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
@@ -126,18 +126,22 @@
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
                                                 <CheckBox VerticalAlignment="Center" Margin="0,0,14,0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                          AutomationProperties.Name="{Binding Name}" />
+                                                          IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding Name}" />
                                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                     <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                                     <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Typography.NumeralAlignment="Tabular"
                                                                Text="{Binding Versions}" />
                                                     <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Foreground="{DynamicResource Watch}"
                                                                Text="{Binding Note}" Visibility="{Binding Note, Converter={StaticResource Vis}}" />
-                                                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding ResultText}"
-                                                               Visibility="{Binding ResultText, Converter={StaticResource Vis}}" />
+                                                    <TextBlock Style="{StaticResource ItemReason}" />
                                                 </StackPanel>
+                                                <!-- during and after a run the line's state replaces the button -->
+                                                <ContentControl Grid.Column="2" Margin="16,0,0,0" Focusable="False" Content="{Binding}"
+                                                                ContentTemplate="{StaticResource ItemStateView}"
+                                                                Visibility="{Binding ShowStateView, Converter={StaticResource Vis}}" />
                                                 <Button Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center" Style="{StaticResource Button.Quiet}"
                                                         Content="Aktualisieren" AutomationProperties.Name="{Binding Name, StringFormat={}{0} aktualisieren}"
+                                                        Visibility="{Binding ShowStateView, Converter={StaticResource Vis}, ConverterParameter=not}"
                                                         Command="{Binding DataContext.UpdateOneCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                         CommandParameter="{Binding}" />
                                             </Grid>

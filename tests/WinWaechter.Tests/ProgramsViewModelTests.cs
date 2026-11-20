@@ -983,4 +983,27 @@ public sealed class ProgramsViewModelTests : IDisposable
         Assert.True(locked.ShowUninstallUnwanted);
         Assert.False(locked.UninstallUnwantedCommand.CanExecute(null));
     }
+
+    // checklist 0.6.0: after updating 7-Zip the list below still showed 26.00 until „Neu laden“
+    [Fact]
+    public async Task Installed_programs_read_again_after_an_update_run()
+    {
+        var winget = new FakeWinget
+        {
+            List = new(Core.Updates.WingetListStatus.Ok, [new Core.Updates.WingetPackage("7-Zip", "7zip.7zip", "26.00", "26.06", false, false)], null),
+        };
+        var dialogs = new RecordingDialogs();
+        var updates = new UpdatesViewModel(
+            new Core.Updates.WingetUpdateService(winget, new Core.Updates.UpdateFilter(RuleSet.Default, () => []), _ => new RestorePointResult(true, "")),
+            new ActionRunner(dialogs, _gate, locks: ActivityLock.CreateDefaults()), dialogs, _shell, true, () => Task.FromResult(true));
+        _actions.Programs = [P("7-Zip 26.00")];
+        var vm = new ProgramsViewModel(_actions, _engine, dialogs, _shell, true, _gate) { Updates = updates };
+        await vm.RefreshCommand.ExecuteAsync(null);
+        await updates.RefreshCommand.ExecuteAsync(null);
+        var reads = _actions.ReadCount;
+
+        await updates.UpdateSelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(reads + 1, _actions.ReadCount);
+    }
 }
