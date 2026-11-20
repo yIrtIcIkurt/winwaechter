@@ -132,8 +132,9 @@ Anlass: Auf einem anderen Rechner blockierte Windows `WinWaechter.App.exe` nach 
 - [ ] Nutzer: Zwei-Faktor-Anmeldung bei GitHub einschalten
 - [ ] Nutzer: Antrag auf signpath.org/apply stellen (Angaben bereitet Claude vor)
 - [x] GitHub-Actions-Ablauf auf GitHub-Runnern (`.github/workflows/build.yml`, windows-2025): Tests, Publish, bei Tag `v*` Programmdateien signieren lassen, Setup bauen, Setup signieren lassen; Prüfsummen und `rules.json.sig` signiert weiter der lokale Schlüssel über `release-ci.ps1` (bleibt aus GitHub heraus). Artefakt-Konfigurationen für SignPath in `.signpath/artifact-configurations/` (`app`, `setup`). Gebaut 2026-11-20, lokal nur Syntax geprüft
-- [ ] Ersten Lauf auf GitHub ansehen (braucht Push des Branches, nur mit Freigabe): Tests auf dem GitHub-Rechner grün, Setup-Artefakt lädt und installiert
-- [ ] Risiko: `Microsoft.Win32.TaskScheduler.dll` (NuGet, MIT) ist nicht signiert und wird nicht mitsigniert (nicht aus eigenem Quellcode gebaut). Die App-Steuerung prüft auch DLLs; falls sie die wöchentliche Prüfung blockiert, Aufgabenplanung ohne diese Bibliothek ansprechen
+- [ ] GitHub-Lauf grün, Setup-Artefakt lädt und installiert (Branch `feature/v0.6` ist seit 2026-11-20 auf GitHub, Freigabe Nutzer)
+- [x] Risiko beseitigt (2026-11-21, Entscheidung Claude nach Rückfrage; Nutzer will keine Funktion verlieren): `Microsoft.Win32.TaskScheduler.dll` (NuGet, unsigniert) entfernt; `WinTaskStore` spricht die Aufgabenplanung jetzt über Windows' eigene COM-Schnittstelle (`Schedule.Service`) an. Echttest: Anlegen/Aus/Ein/Export/Neu-Registrieren/Löschen einer Testaufgabe; `List()` liefert dieselben 194 Aufgaben wie `Get-ScheduledTask`
+- [x] Erster GitHub-Lauf 2026-11-20: 2 von 1306 Tests scheiterten nur am GitHub-Rechner (UTC-Zeitzone; Windows Server ohne Diagnostics-Performance-Protokoll) → Tests maschinenunabhängig gemacht; Nullability-Warnung des neueren SDK behoben
 - [ ] Nach der Zusage: SignPath-Projekt einrichten (Zwei-Faktor auch dort), README-Satz „Free code signing provided by SignPath.io, certificate by SignPath Foundation“ auf Startseite und Release-Seiten, erste signierte Version auf einem Rechner mit eingeschalteter App-Steuerung prüfen
 
 ## Danach

@@ -96,6 +96,8 @@ public class BootReportTests
     {
         try { _ = new WinBootEventSource().Read(DateTime.UtcNow.AddDays(-30)); }
         catch (UnauthorizedAccessException) { }
+        // Windows Server (GitHub runner) has no Diagnostics-Performance log; Load shows „nicht lesbar“ then
+        catch (System.Diagnostics.Eventing.Reader.EventLogNotFoundException) { }
     }
 
     [Fact]

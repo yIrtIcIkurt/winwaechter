@@ -29,7 +29,9 @@ public sealed class RepairViewModelTests : IDisposable
     [Fact]
     public async Task Rows_show_last_run_from_stamps_or_never()
     {
-        Stamps.Set(new ActionStamp("repair-dns", new DateTimeOffset(2026, 11, 10, 8, 30, 0, TimeSpan.FromHours(1)), true, "Der DNS-Cache wurde geleert."));
+        // local time on any machine (the GitHub runner runs in UTC)
+        var at = new DateTime(2026, 11, 10, 8, 30, 0);
+        Stamps.Set(new ActionStamp("repair-dns", new DateTimeOffset(at, TimeZoneInfo.Local.GetUtcOffset(at)), true, "Der DNS-Cache wurde geleert."));
         var vm = Vm();
         await vm.LoadCommand.ExecuteAsync(null);
         Assert.Equal(8, vm.Rows.Count);

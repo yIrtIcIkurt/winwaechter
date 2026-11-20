@@ -155,6 +155,62 @@ public sealed class SysSmokeTests : IDisposable
         Assert.Equal(first.Path, store.Get(first.Path)!.Path);
         Assert.Contains("<Task", store.ExportXml(first.Path));
         Assert.Null(store.Get(@"\WinWaechter-does-not-exist"));
+        Assert.Null(store.Get(@"\WinWaechter-no-folder\nothing"));
+        // the system's own tasks (hidden ones included) are seen in subfolders
+        Assert.Contains(all, t => t.Path.StartsWith(@"\Microsoft\Windows\", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(all, t => t.ActionExe is not null);
+    }
+
+    // Windows' own Task Scheduler interface instead of the unsigned TaskScheduler library:
+    // a task of the current user in the root folder, registered, switched off and on, exported, deleted.
+    [Fact]
+    public void Tasks_round_trip_through_the_real_task_scheduler()
+    {
+        var store = new WinTaskStore();
+        var path = $@"\WinWaechter-Test-{Guid.NewGuid():N}";
+        var sid = WindowsIdentity.GetCurrent().User!.Value;
+        var xml = $"""
+            <?xml version="1.0" encoding="UTF-16"?>
+            <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+              <RegistrationInfo><Author>WinWaechter.Tests</Author></RegistrationInfo>
+              <Triggers><TimeTrigger><StartBoundary>2099-01-01T03:00:00</StartBoundary><Enabled>true</Enabled></TimeTrigger></Triggers>
+              <Principals><Principal id="Author"><UserId>{sid}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+              <Settings><Hidden>true</Hidden><Enabled>true</Enabled></Settings>
+              <Actions Context="Author"><Exec><Command>C:\Windows\System32\cmd.exe</Command><Arguments>/c exit 0</Arguments></Exec></Actions>
+            </Task>
+            """;
+        try
+        {
+            store.RegisterXml(path, xml);
+            var t = store.Get(path);
+            Assert.NotNull(t);
+            Assert.Equal(path, t.Path);
+            Assert.Equal(path.TrimStart('\\'), t.Name);
+            Assert.True(t.Enabled);
+            Assert.True(t.Hidden);
+            Assert.Equal(@"C:\Windows\System32\cmd.exe", t.ActionExe);
+            Assert.Equal("/c exit 0", t.ActionArgs);
+            Assert.Equal("WinWaechter.Tests", t.Author);
+            Assert.Contains(store.List(), x => x.Path == path);
+
+            store.SetEnabled(path, false);
+            Assert.False(store.Get(path)!.Enabled);
+            store.SetEnabled(path, true);
+            Assert.True(store.Get(path)!.Enabled);
+
+            var exported = store.ExportXml(path);
+            Assert.Contains("cmd.exe", exported);
+            store.RegisterXml(path, exported);   // re-registering its own export (undo path) works
+            Assert.NotNull(store.Get(path));
+
+            store.Delete(path);
+            Assert.Null(store.Get(path));
+            store.Delete(path);   // a missing task is fine
+        }
+        finally
+        {
+            try { store.Delete(path); } catch { }
+        }
     }
 
     [Fact]

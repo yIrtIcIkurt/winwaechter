@@ -1,98 +1,142 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
-using Microsoft.Win32.TaskScheduler;
 using WinWaechter.Core.Logging;
 
 namespace WinWaechter.Core.Sys;
 
-/// <summary>Windows Task Scheduler via the TaskScheduler library. Paths look like "\Folder\Name".</summary>
+/// <summary>
+/// Windows Task Scheduler through its own COM interface ("Schedule.Service", taskschd.dll, signed by Microsoft).
+/// No third-party library: an unsigned DLL could be blocked by Smart App Control. Paths look like "\Folder\Name".
+/// </summary>
 public sealed class WinTaskStore : ITaskStore
 {
-    static TaskService Service => TaskService.Instance;
+    const int EnumHidden = 1;          // TASK_ENUM_HIDDEN
+    const int CreateOrUpdate = 6;      // TASK_CREATE_OR_UPDATE
+    const int ActionExec = 0;          // TASK_ACTION_EXEC
+
+    static dynamic Connect()
+    {
+        var type = Type.GetTypeFromProgID("Schedule.Service", throwOnError: true)!;
+        dynamic service = Activator.CreateInstance(type)!;
+        service.Connect();
+        return service;
+    }
 
     public IReadOnlyList<TaskInfo> List()
     {
         var list = new List<TaskInfo>();
-        Walk(Service.RootFolder, list);
+        var service = Connect();
+        Walk(service.GetFolder(@"\"), list);
         return list;
     }
 
     public TaskInfo? Get(string path)
     {
-        using var t = Service.GetTask(path);
+        var t = TryFind(Connect(), path);
         return t is null ? null : ToInfo(t);
     }
 
-    public string ExportXml(string path)
-    {
-        using var t = Find(path);
-        return t.Xml;
-    }
+    public string ExportXml(string path) => (string)Find(Connect(), path).Xml;
 
     public void SetEnabled(string path, bool enabled)
     {
-        using var t = Find(path);
-        t.Enabled = enabled; // persisted immediately by the library
+        var t = Find(Connect(), path);
+        t.Enabled = enabled; // IRegisteredTask::put_Enabled is persisted immediately
     }
 
     // Registers with the principal stored in the XML (same user/logon type as before).
     public void RegisterXml(string path, string xml)
     {
-        var cut = path.LastIndexOf('\\');
-        var folderPath = cut <= 0 ? @"\" : path[..cut];
-        var name = path[(cut + 1)..];
-
-        using var folder = Service.GetFolder(folderPath) ?? Service.RootFolder.CreateFolder(folderPath.TrimStart('\\'));
-        using var td = Service.NewTask();
-        td.XmlText = xml;
-        using var _ = folder.RegisterTaskDefinition(name, td);
+        var (folderPath, name) = Split(path);
+        var service = Connect();
+        var folder = TryFolder(service, folderPath) ?? service.GetFolder(@"\").CreateFolder(folderPath.TrimStart('\\'), null);
+        var def = service.NewTask(0);
+        def.XmlText = xml;
+        var principal = def.Principal;
+        var user = NullIfEmpty((string?)principal.UserId) ?? NullIfEmpty((string?)principal.GroupId);
+        folder.RegisterTaskDefinition(name, def, CreateOrUpdate, user, null, (int)principal.LogonType, null);
     }
 
     public void Delete(string path)
     {
-        var cut = path.LastIndexOf('\\');
-        var folderPath = cut <= 0 ? @"\" : path[..cut];
-        using (var t = Service.GetTask(path))
-            if (t is null) return;
-        using var folder = Service.GetFolder(folderPath);
-        folder?.DeleteTask(path[(cut + 1)..], exceptionOnNotExists: false);
+        var service = Connect();
+        if (TryFind(service, path) is null) return;
+        var (folderPath, name) = Split(path);
+        var folder = TryFolder(service, folderPath);
+        if (folder is not null) folder.DeleteTask(name, 0);
     }
 
-    static Microsoft.Win32.TaskScheduler.Task Find(string path) =>
-        Service.GetTask(path) ?? throw new InvalidOperationException($"Aufgabe {path} nicht gefunden.");
+    static (string Folder, string Name) Split(string path)
+    {
+        var cut = path.LastIndexOf('\\');
+        return (cut <= 0 ? @"\" : path[..cut], path[(cut + 1)..]);
+    }
+
+    static dynamic Find(dynamic service, string path) =>
+        TryFind(service, path) ?? throw new InvalidOperationException($"Aufgabe {path} nicht gefunden.");
+
+    static dynamic? TryFind(dynamic service, string path)
+    {
+        try { return service.GetFolder(@"\").GetTask(path); }
+        catch (Exception ex) when (IsNotFound(ex)) { return null; }
+    }
+
+    static dynamic? TryFolder(dynamic service, string path)
+    {
+        try { return service.GetFolder(path); }
+        catch (Exception ex) when (IsNotFound(ex)) { return null; }
+    }
 
     // Recursive; folders or tasks we may not read are skipped.
-    static void Walk(TaskFolder folder, List<TaskInfo> list)
+    static void Walk(dynamic folder, List<TaskInfo> list)
     {
         try
         {
-            foreach (var t in folder.Tasks)
+            var tasks = folder.GetTasks(EnumHidden);
+            int count = tasks.Count;
+            for (var i = 1; i <= count; i++)   // COM collections are 1-based
             {
-                using (t)
-                {
-                    try { list.Add(ToInfo(t)); }
-                    catch (Exception ex) when (IsAccessProblem(ex)) { }
-                }
+                try { list.Add(ToInfo(tasks.Item(i))); }
+                catch (Exception ex) when (IsAccessProblem(ex)) { }
             }
-            foreach (var sub in folder.SubFolders)
-            {
-                using (sub) Walk(sub, list);
-            }
+            var subs = folder.GetFolders(0);
+            int subCount = subs.Count;
+            for (var i = 1; i <= subCount; i++) Walk(subs.Item(i), list);
         }
         catch (Exception ex) when (IsAccessProblem(ex))
         {
-            FileLog.Warn($"Aufgabenordner übersprungen: {folder.Path}", ex);
+            string? at = null;
+            try { at = (string)folder.Path; } catch { }
+            FileLog.Warn($"Aufgabenordner übersprungen: {at}", Unwrap(ex));
         }
     }
 
-    static bool IsAccessProblem(Exception ex) =>
-        ex is UnauthorizedAccessException or COMException or FileNotFoundException;
-
-    static TaskInfo ToInfo(Microsoft.Win32.TaskScheduler.Task t)
+    static TaskInfo ToInfo(dynamic t)
     {
         var def = t.Definition;
-        var exec = def.Actions.OfType<ExecAction>().FirstOrDefault();
-        return new TaskInfo(t.Path, t.Name, t.Enabled, def.Settings.Hidden,
-            exec?.Path, string.IsNullOrEmpty(exec?.Arguments) ? null : exec.Arguments,
-            def.RegistrationInfo.Author, string.IsNullOrWhiteSpace(def.Principal.UserId) ? null : def.Principal.UserId);
+        string? exe = null, args = null;
+        var actions = def.Actions;
+        int count = actions.Count;
+        for (var i = 1; i <= count; i++)
+        {
+            var a = actions.Item(i);
+            if ((int)a.Type != ActionExec) continue;
+            exe = (string?)a.Path;
+            args = NullIfEmpty((string?)a.Arguments);
+            break;
+        }
+        return new TaskInfo((string)t.Path, (string)t.Name, (bool)t.Enabled, (bool)def.Settings.Hidden,
+            exe, args, NullIfEmpty((string?)def.RegistrationInfo.Author), NullIfEmpty((string?)def.Principal.UserId));
     }
+
+    static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    static Exception Unwrap(Exception ex) => ex is TargetInvocationException { InnerException: { } inner } ? inner : ex;
+
+    static bool IsNotFound(Exception ex) =>
+        Unwrap(ex) is FileNotFoundException or DirectoryNotFoundException
+            or COMException { HResult: unchecked((int)0x80070002) or unchecked((int)0x80070003) };
+
+    static bool IsAccessProblem(Exception ex) =>
+        Unwrap(ex) is UnauthorizedAccessException or COMException or FileNotFoundException or DirectoryNotFoundException;
 }

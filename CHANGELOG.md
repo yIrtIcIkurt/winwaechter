@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.6.0
+- Aufgabenplanung ohne fremde Bibliothek: WinWächter liest und schaltet geplante Aufgaben jetzt über die Schnittstelle, die Windows selbst mitbringt. So bleibt keine unsignierte fremde DLL im Programm, die die intelligente App-Steuerung blockieren könnte.
+- WinWächter wird auf GitHub gebaut und getestet; ab der ersten Version nach der Zusage von SignPath sind Programm und Setup digital signiert.
 - WinWächter ist jetzt Open Source unter der MIT-Lizenz (`LICENSE`, im Programmordner als `LICENSE.txt`). Das README beschreibt alle Seiten, sagt genau, wann die App eine Verbindung aufbaut, und enthält die Richtlinie zur Code-Signatur.
 - Programm-Updates: Die Programme-Seite zeigt oben „Updates verfügbar“ mit neuen Versionen über winget, den Paketmanager von Windows. Einzeln oder „Ausgewählte aktualisieren“; vorher legt WinWächter einen Wiederherstellungspunkt an (ein Punkt vom selben Tag reicht). Dell, Lexware, Haufe und Treiber-Pakete (Intel, NVIDIA, AMD, Realtek) werden nie aktualisiert, Microsoft-Laufzeitumgebungen schon. Ein Update lässt sich nicht im Verlauf zurücknehmen; das steht in der Bestätigung. Je Programm erscheint ein klares Ergebnis (aktualisiert, war schon aktuell, Neustart nötig, Programm läuft gerade …). Fehlt winget, führt ein Knopf zum App-Installer im Store.
 - Datenschutz: Neue Zeile „winget-Nutzungsdaten abschalten“. Die Einstellungsdatei von winget behält dabei ihre Kommentare; im Verlauf rückgängig zu machen.

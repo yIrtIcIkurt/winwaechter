@@ -323,7 +323,7 @@ public sealed partial class ImproveViewModel : ObservableObject
         var sessions = new List<ApplyResult>();
         var progress = new Progress<string>(s => ProgressText = s);
         // each line of the list shows its own state; an improvement with several changes is one line
-        var rowOf = AllItems.ToDictionary(r => r.Item, ReferenceEqualityComparer.Instance);
+        var rowOf = AllItems.ToDictionary<ImprovementItemViewModel, object>(r => r.Item, ReferenceEqualityComparer.Instance);
         var steps = new[] { first, rest }.Select(items => items.SelectMany(i => i.Changes.Select(c => (Finding: Finding(c), Item: i))).ToList()).ToList();
         var lineRows = selected.Select(i => rowOf.TryGetValue(i, out var r) ? r : null).OfType<ImprovementItemViewModel>().ToList();
         var items = ItemRows.Start(steps.SelectMany(s => s)
