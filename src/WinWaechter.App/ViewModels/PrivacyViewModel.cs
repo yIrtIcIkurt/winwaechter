@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
 using WinWaechter.Core.Optimizer;
@@ -13,7 +14,7 @@ using WinWaechter.Core.Updates;
 namespace WinWaechter.App.ViewModels;
 
 /// <summary>One privacy setting: checkbox „ausschalten“, title, explanation, state chip.</summary>
-public sealed partial class PrivacyRowViewModel : ObservableObject
+public sealed partial class PrivacyRowViewModel : ItemRowBase
 {
     readonly Action? _selectionChanged;
 
@@ -167,7 +168,8 @@ public sealed partial class PrivacyViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanApply))]
     private async Task ApplyAsync(CancellationToken ct)
     {
-        var changes = Rows.Where(r => r.IsSelected && r.CanSelect).SelectMany(r => r.Row.Changes).ToList();
+        var selectedRows = Rows.Where(r => r.IsSelected && r.CanSelect).ToList();
+        var changes = selectedRows.SelectMany(r => r.Row.Changes).ToList();
         if (changes.Count == 0) return;
         var question = changes.Count == 1
             ? "Dieser Wert wird gesetzt. Vorher legt WinWächter eine Sicherung an; im Verlauf lässt sich die Änderung rückgängig machen."
@@ -175,23 +177,28 @@ public sealed partial class PrivacyViewModel : ObservableObject
         if (!_dialogs.Confirm("Datenschutz-Einstellungen ändern", question, "Anwenden",
                 changes.Select(c => c.Description).ToList())) return;
 
-        var ran = await _gate.RunAsync(this, () => RunApplyAsync(changes, ct));
+        var ran = await _gate.RunAsync(this, () => RunApplyAsync(selectedRows, ct));
         if (!ran) { LastSummary = ChangeGate.BusyHint; return; }
         // show the current state again (applied rows now read „Aus“)
         await RefreshCommand.ExecuteAsync(null);
     }
 
-    async Task RunApplyAsync(List<RegValueChange> changes, CancellationToken ct)
+    async Task RunApplyAsync(List<PrivacyRowViewModel> rows, CancellationToken ct)
     {
         IsBusy = true;
         ProgressText = "Sicherung wird vorbereitet …";
+        // one line per setting, which can stand for several values
+        var entries = rows.SelectMany(r => r.Row.Changes.Select(c => (Finding: new Finding($"privacy|{c.Target}", FindingArea.Einstellung,
+            c.Description, c.Target, [], Rating.Info, true, c), Row: r))).ToList();
+        var changes = entries.Select(l => l.Finding.Change!).ToList();
         try
         {
-            var findings = changes
-                .Select(c => new Finding($"privacy|{c.Target}", FindingArea.Einstellung, c.Description, c.Target, [], Rating.Info, true, c))
-                .ToList();
+            var findings = entries.Select(l => l.Finding).ToList();
             var progress = new Progress<string>(s => ProgressText = s);
-            var result = await _engine.ApplyAsync("Datenschutz", findings, progress, ct);
+            var items = ItemRows.Start(entries.Select(l => ((object)l.Finding, (ItemRowBase)l.Row)));
+            ApplyResult result;
+            try { result = await _engine.ApplyAsync("Datenschutz", findings, progress, ct, items: items); }
+            finally { ItemRows.Finish(rows); }
 
             var notDone = changes.Count - result.Applied - result.Failed;
             var lines = new List<string>

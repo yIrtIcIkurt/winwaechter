@@ -152,6 +152,22 @@ public sealed class ImproveViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Each_improvement_line_shows_its_state_and_a_failed_change_marks_its_line()
+    {
+        var vm = Vm(Scan([I("a", ImprovementArea.DatenschutzWerbung, C("a1"), C("a2", fail: "Zugriff verweigert")),
+            I("b", ImprovementArea.Leistung, C("b"))]));
+        await vm.CheckCommand.ExecuteAsync(null);
+        var lines = vm.Groups.SelectMany(g => g.Items).ToDictionary(i => i.Item.Id);
+
+        await vm.ImproveCommand.ExecuteAsync(null);
+
+        // the lines of that run (the list is checked again afterwards and gets new lines)
+        Assert.Equal(Core.Actions.ItemState.Failed, lines["a"].RunState);
+        Assert.Contains("Zugriff verweigert", lines["a"].RunText);
+        Assert.Equal(Core.Actions.ItemState.Done, lines["b"].RunState);
+    }
+
+    [Fact]
     public async Task First_step_error_still_runs_the_main_session()
     {
         var vm = Vm(Scan([Sysprotect(), I("a", ImprovementArea.Aufraeumen, C("a"))]),

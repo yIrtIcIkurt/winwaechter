@@ -763,14 +763,14 @@
                 <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="{StaticResource SizeSmall}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Accent}" Text="Läuft …" />
             </StackPanel>
-            <ContentControl x:Name="Chip" Style="{StaticResource Chip}" Tag="{Binding StateTone}" Content="{Binding StateLabel}"
+            <ContentControl x:Name="Chip" Style="{StaticResource Chip}" Tag="{Binding RunTone}" Content="{Binding RunLabel}"
                             Visibility="Collapsed" />
         </Grid>
         <DataTemplate.Triggers>
             <DataTrigger Binding="{Binding IsRunning}" Value="True">
                 <Setter TargetName="Running" Property="Visibility" Value="Visible" />
             </DataTrigger>
-            <DataTrigger Binding="{Binding ShowChip}" Value="True">
+            <DataTrigger Binding="{Binding ShowRunChip}" Value="True">
                 <Setter TargetName="Chip" Property="Visibility" Value="Visible" />
             </DataTrigger>
         </DataTemplate.Triggers>
@@ -780,15 +780,15 @@
     <Style x:Key="ItemReason" TargetType="TextBlock" BasedOn="{StaticResource Text.Small}">
         <Setter Property="Margin" Value="0,2,0,0" />
         <Setter Property="TextWrapping" Value="Wrap" />
-        <Setter Property="Text" Value="{Binding StateText}" />
+        <Setter Property="Text" Value="{Binding RunText}" />
         <Setter Property="Foreground" Value="{DynamicResource Watch}" />
         <Setter Property="Visibility" Value="Collapsed" />
         <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
         <Style.Triggers>
-            <DataTrigger Binding="{Binding ShowStateText}" Value="True">
+            <DataTrigger Binding="{Binding ShowRunText}" Value="True">
                 <Setter Property="Visibility" Value="Visible" />
             </DataTrigger>
-            <DataTrigger Binding="{Binding State}" Value="{x:Static act:ItemState.Failed}">
+            <DataTrigger Binding="{Binding RunState}" Value="{x:Static act:ItemState.Failed}">
                 <Setter Property="Foreground" Value="{DynamicResource Alarm}" />
             </DataTrigger>
         </Style.Triggers>

@@ -107,7 +107,7 @@ public sealed partial class ConsumerViewModel : ObservableObject
 }
 
 /// <summary>One row of the Leistung page: current state, a choice, and what differs.</summary>
-public sealed partial class PerfSettingViewModel : ObservableObject
+public sealed partial class PerfSettingViewModel : ItemRowBase
 {
     readonly Action? _changed;
     readonly Action? _switch;
@@ -676,6 +676,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
         if (pending.Count == 0) return;
 
         List<IChange> changes;
+        var rowOfChange = new List<PerfSettingViewModel>();
         var lines = new List<string>();
         try
         {
@@ -687,6 +688,7 @@ public sealed partial class PerformanceViewModel : ObservableObject
                 foreach (var c in _changesFor(r.Setting, r.Chosen))
                 {
                     changes.Add(c);
+                    rowOfChange.Add(r);
                     lines.Add(ChangeText.ConfirmLine(c) + note);
                 }
             }
@@ -716,7 +718,9 @@ public sealed partial class PerformanceViewModel : ObservableObject
         var findings = changes
             .Select(c => new Finding($"perf|{c.Target}", FindingArea.Einstellung, c.Description, c.Target, [], Rating.Info, true, c))
             .ToList();
-        var ran = await _gate.RunAsync(this, () => RunApplyAsync(findings, needsRestart, ct));
+        // each setting line shows its state during the run (a setting can bring several changes)
+        var ran = await _gate.RunAsync(this, () => RunApplyAsync(findings, needsRestart, ct,
+            findings.Select((f, i) => ((object)f, (ItemRowBase)rowOfChange[i])).ToList()));
         if (!ran) { LastSummary = ChangeGate.BusyHint; return; }
         await RefreshCommand.ExecuteAsync(null);
     }
@@ -733,14 +737,18 @@ public sealed partial class PerformanceViewModel : ObservableObject
         await RefreshCommand.ExecuteAsync(null);
     }
 
-    async Task RunApplyAsync(List<Finding> findings, bool needsRestart, CancellationToken ct)
+    async Task RunApplyAsync(List<Finding> findings, bool needsRestart, CancellationToken ct,
+        IReadOnlyList<(object Item, ItemRowBase Row)>? rowLines = null)
     {
         IsBusy = true;
         ProgressText = "Sicherung wird vorbereitet …";
         try
         {
             var progress = new Progress<string>(s => ProgressText = s);
-            var result = await _engine.ApplyAsync("Leistung", findings, progress, ct);
+            var items = rowLines is null ? null : ItemRows.Start(rowLines);
+            ApplyResult result;
+            try { result = await _engine.ApplyAsync("Leistung", findings, progress, ct, items: items); }
+            finally { if (rowLines is not null) ItemRows.Finish(rowLines.Select(l => l.Row).Distinct()); }
 
             var notDone = findings.Count - result.Applied - result.Failed;
             var lines = new List<string>

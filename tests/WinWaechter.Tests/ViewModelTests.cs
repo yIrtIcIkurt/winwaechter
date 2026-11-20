@@ -59,6 +59,27 @@ public sealed class ViewModelTests : IDisposable
         return new OptimizeViewModel(engine, dialogs ?? new YesDialogs(), canChange: true, _gate);
     }
 
+    sealed class InformHook(Action onInform) : IDialogService
+    {
+        public bool Confirm(string title, string message, string confirmText, IReadOnlyList<string>? items = null, bool final = false) => true;
+        public void Inform(string title, string message, IReadOnlyList<string>? items = null) => onInform();
+    }
+
+    [Fact]
+    public async Task Applied_lines_show_done_until_the_summary_is_closed()
+    {
+        OptimizeViewModel? vm = null;
+        var atSummary = new List<(string, ItemState)>();
+        vm = Vm([F("a", true), F("b", true)], dialogs: new InformHook(() =>
+            atSummary.AddRange(vm!.AllItems.Select(i => (i.Title, i.RunState)))));
+        await vm.ScanCommand.ExecuteAsync(null);
+
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.Equal([("a", ItemState.Done), ("b", ItemState.Done)], atSummary);
+        Assert.Empty(vm.AllItems);   // removed once the summary was read
+    }
+
     [Fact]
     public async Task Apply_count_reflects_selection()
     {

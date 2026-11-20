@@ -834,6 +834,25 @@ public sealed class ProgramsViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Removing_apps_shows_each_line_running_then_done()
+    {
+        App("Microsoft.BingNews", inImage: true);
+        App("Microsoft.Copilot", inImage: true);
+        var vm = AppsVm(new RecordingDialogs());
+        await vm.RefreshCommand.ExecuteAsync(null);
+        foreach (var a in vm.Apps) a.IsSelected = true;
+        var rows = vm.Apps.ToList();
+        var seen = new List<Core.Actions.ItemState[]>();
+        _pkgs.AfterRemove = _ => seen.Add(rows.Select(r => r.RunState).ToArray());
+
+        await vm.RemoveAppsCommand.ExecuteAsync(null);
+
+        Assert.Equal([Core.Actions.ItemState.Running, Core.Actions.ItemState.Waiting], seen[0]);
+        Assert.Equal([Core.Actions.ItemState.Done, Core.Actions.ItemState.Running], seen[1]);
+        Assert.Equal([Core.Actions.ItemState.Done, Core.Actions.ItemState.Done], rows.Select(r => r.RunState));
+    }
+
+    [Fact]
     public async Task Remove_declined_removes_nothing()
     {
         App("Microsoft.BingNews");

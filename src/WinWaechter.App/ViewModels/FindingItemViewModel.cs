@@ -5,7 +5,7 @@ using WinWaechter.Core.Model;
 namespace WinWaechter.App.ViewModels;
 
 /// <summary>One finding row: checkbox, title, location, rating chip and reasons.</summary>
-public sealed partial class FindingItemViewModel : ObservableObject
+public sealed partial class FindingItemViewModel : ItemRowBase
 {
     readonly Action? _selectionChanged;
 

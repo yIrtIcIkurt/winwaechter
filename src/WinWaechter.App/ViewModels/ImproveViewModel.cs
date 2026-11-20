@@ -13,7 +13,7 @@ using WinWaechter.Core.Sys;
 namespace WinWaechter.App.ViewModels;
 
 /// <summary>One recommended improvement: what, one sentence why (plus its note), a checkbox – preselected unless the item says otherwise.</summary>
-public sealed partial class ImprovementItemViewModel : ObservableObject
+public sealed partial class ImprovementItemViewModel : ItemRowBase
 {
     readonly Action _selectionChanged;
 
@@ -322,21 +322,29 @@ public sealed partial class ImproveViewModel : ObservableObject
         var tally = new Tally();
         var sessions = new List<ApplyResult>();
         var progress = new Progress<string>(s => ProgressText = s);
+        // each line of the list shows its own state; an improvement with several changes is one line
+        var rowOf = AllItems.ToDictionary(r => r.Item, ReferenceEqualityComparer.Instance);
+        var steps = new[] { first, rest }.Select(items => items.SelectMany(i => i.Changes.Select(c => (Finding: Finding(c), Item: i))).ToList()).ToList();
+        var lineRows = selected.Select(i => rowOf.TryGetValue(i, out var r) ? r : null).OfType<ImprovementItemViewModel>().ToList();
+        var items = ItemRows.Start(steps.SelectMany(s => s)
+            .Where(p => rowOf.ContainsKey(p.Item)).Select(p => ((object)p.Finding, (ItemRowBase)rowOf[p.Item])));
 
-        async Task StepAsync(string title, List<Improvement> items, bool continueOnError)
+        async Task StepAsync(string title, List<Improvement> stepItems, List<(Finding Finding, Improvement Item)> findings, bool continueOnError)
         {
-            if (items.Count == 0) return;
+            if (stepItems.Count == 0) return;
             try
             {
-                var r = await _engine.ApplyAsync(title, Findings(items.SelectMany(i => i.Changes)), progress, ct, continueOnError);
+                var r = await _engine.ApplyAsync(title, findings.Select(f => f.Finding).ToList(), progress, ct, continueOnError, items);
                 sessions.Add(r);
-                tally.Add(items, r.Session.Records);
+                tally.Add(stepItems, r.Session.Records);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 FileLog.Error($"{title} fehlgeschlagen", ex);
-                tally.Skipped += items.Count;
+                tally.Skipped += stepItems.Count;
                 tally.Reasons.Add($"{title}: {ex.Message}");
+                foreach (var i in stepItems)
+                    if (rowOf.TryGetValue(i, out var row)) row.SetState(Core.Actions.ItemState.Failed, ex.Message);
             }
         }
 
@@ -344,8 +352,8 @@ public sealed partial class ImproveViewModel : ObservableObject
         {
             // Computerschutz first, so the restore point of the main session already works;
             // the main session runs even when this step fails
-            await StepAsync(FirstStepTitle, first, continueOnError: false);
-            await StepAsync(SessionTitle, rest, continueOnError: true);
+            await StepAsync(FirstStepTitle, first, steps[0], continueOnError: false);
+            await StepAsync(SessionTitle, rest, steps[1], continueOnError: true);
         }
         catch (OperationCanceledException)
         {
@@ -353,6 +361,7 @@ public sealed partial class ImproveViewModel : ObservableObject
         }
         finally
         {
+            ItemRows.Finish(lineRows);
             ProgressText = "";
             IsBusy = false;
         }
@@ -396,9 +405,8 @@ public sealed partial class ImproveViewModel : ObservableObject
         HasRunResult = run && text is not null;
     }
 
-    static List<Finding> Findings(IEnumerable<IChange> changes) =>
-        changes.Select(c => new Finding($"improve|{c.Kind}|{c.Target}", FindingArea.Einstellung, c.Description, c.Target, [],
-            Rating.Info, true, c)).ToList();
+    static Finding Finding(IChange c) =>
+        new($"improve|{c.Kind}|{c.Target}", FindingArea.Einstellung, c.Description, c.Target, [], Rating.Info, true, c);
 
     bool CanRunSuggestion(ActionSuggestion s) =>
         CanChange && !IsBusy && !_gate.IsBusy && !(s.Action.UsesDefender && _activity?.IsBusy == true);

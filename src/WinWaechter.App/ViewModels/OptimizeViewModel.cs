@@ -183,14 +183,21 @@ public sealed partial class OptimizeViewModel : ObservableObject
         try
         {
             var progress = new Progress<string>(s => ProgressText = s);
-            var result = await _engine.ApplyAsync("Optimierung", selected.Select(i => i.Finding).ToList(), progress, ct);
+            // each line shows its state; the applied ones leave the list once the summary was read
+            var items = ItemRows.Start(selected.Select(i => ((object)i.Finding, (ItemRowBase)i)));
+            ApplyResult result;
+            try
+            {
+                result = await _engine.ApplyAsync("Optimierung", selected.Select(i => i.Finding).ToList(), progress, ct, items: items);
+            }
+            finally
+            {
+                ItemRows.Finish(selected);
+            }
 
             // the engine applies in order and stops at the first failure or on cancel
-            foreach (var done in selected.Take(result.Applied))
-            {
-                if (done.Finding.Change?.Kind == "shellext") shellExt++;
-                RemoveItem(done);
-            }
+            var applied = selected.Take(result.Applied).ToList();
+            shellExt = applied.Count(d => d.Finding.Change?.Kind == "shellext");
             var notDone = selected.Count - result.Applied - result.Failed;
             var lines = new List<string>
             {
@@ -217,10 +224,13 @@ public sealed partial class OptimizeViewModel : ObservableObject
                 LastSummary = $"Zuletzt: {result.Applied} angewendet.";
             }
             _dialogs.Inform("Zusammenfassung", message, lines);
+            // a failed line keeps its reason, a line that did not run says so, until the next run or scan
+            foreach (var done in applied) RemoveItem(done);
             ChangesApplied?.Invoke(this, EventArgs.Empty);
         }
         catch (OperationCanceledException)
         {
+            foreach (var i in selected) i.SetState(ItemState.None);
             LastSummary = "Anwenden abgebrochen, bevor etwas geändert wurde.";
         }
         catch (Exception ex)

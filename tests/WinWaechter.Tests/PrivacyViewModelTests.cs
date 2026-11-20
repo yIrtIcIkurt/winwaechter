@@ -144,6 +144,23 @@ public sealed class PrivacyViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_setting_with_four_values_is_one_line_that_ends_done()
+    {
+        var values = Setting("vorschlaege").Values;
+        _reg.Seed(values[0].Hive, values[0].Key, values[0].Name, 1, RegistryValueKind.DWord);
+        var vm = Vm();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var line = Row(vm, "vorschlaege");
+        line.IsSelected = true;
+
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        // the line of that run (the page reads the state again afterwards and gets new lines)
+        Assert.Equal(Core.Actions.ItemState.Done, line.RunState);
+        Assert.Equal("Aus", Row(vm, "vorschlaege").StateText);   // its own state chip is untouched by the run state
+    }
+
+    [Fact]
     public async Task Undo_session_restores_privacy_values()
     {
         var (_, session) = await ApplyVorschlaege(new bool[1]);

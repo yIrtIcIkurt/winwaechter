@@ -230,11 +230,12 @@
                                         <ItemsControl ItemsSource="{Binding Items}" Focusable="False">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Border Style="{StaticResource RowDivider}" Padding="16,10,16,12">
+                                                    <Border Style="{StaticResource RowDivider.Item}" Padding="16,10,16,12">
                                                         <Grid>
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="Auto" />
                                                                 <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
                                                             <CheckBox VerticalAlignment="Top" Margin="0,1,14,0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                                                       IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding Title}" />
@@ -242,7 +243,11 @@
                                                                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                                                 <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" MaxWidth="{StaticResource ProseWidth}"
                                                                            HorizontalAlignment="Left" Text="{Binding Why}" />
+                                                                <TextBlock Style="{StaticResource ItemReason}" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" />
                                                             </StackPanel>
+                                                            <ContentControl Grid.Column="2" Margin="16,0,0,0" Focusable="False" Content="{Binding}"
+                                                                            ContentTemplate="{StaticResource ItemStateView}"
+                                                                            Visibility="{Binding ShowRunState, Converter={StaticResource Vis}}" />
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>

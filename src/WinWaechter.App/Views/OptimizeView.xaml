@@ -75,7 +75,7 @@
                                     <ItemsControl ItemsSource="{Binding Items}" Focusable="False" Margin="0,0,0,-1">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Style="{StaticResource RowDivider}" Padding="16,12,16,12">
+                                                <Border Style="{StaticResource RowDivider.Item}" Padding="16,12,16,12">
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto" />
@@ -89,6 +89,7 @@
                                                             <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Path}" Text="{Binding Location}" />
                                                             <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding ChangeText}"
                                                                        Visibility="{Binding ChangeText, Converter={StaticResource Vis}}" />
+                                                            <TextBlock Style="{StaticResource ItemReason}" />
                                                             <Expander Margin="0,6,0,0" Style="{StaticResource Reasons}" Header="{Binding ReasonSummary}">
                                                                 <ItemsControl ItemsSource="{Binding Reasons}" ItemTemplate="{StaticResource ReasonLine}" Focusable="False" />
                                                             </Expander>
@@ -101,7 +102,11 @@
                                                         </StackPanel>
                                                         <StackPanel Grid.Column="2" Margin="16,0,0,0" HorizontalAlignment="Right">
                                                             <ContentControl Style="{StaticResource Chip}" Tag="{Binding RatingTone}" Content="{Binding RatingText}"
-                                                                            HorizontalAlignment="Right" />
+                                                                            HorizontalAlignment="Right"
+                                                                            Visibility="{Binding ShowRunState, Converter={StaticResource Vis}, ConverterParameter=not}" />
+                                                            <ContentControl Focusable="False" HorizontalAlignment="Right" Content="{Binding}"
+                                                                            ContentTemplate="{StaticResource ItemStateView}"
+                                                                            Visibility="{Binding ShowRunState, Converter={StaticResource Vis}}" />
                                                             <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Small}" HorizontalAlignment="Right"
                                                                        Typography.NumeralAlignment="Tabular" Text="{Binding SizeText}"
                                                                        Visibility="{Binding SizeText, Converter={StaticResource Vis}}" />

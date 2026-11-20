@@ -23,7 +23,7 @@ public sealed partial class UpdateRowViewModel : ItemRowBase
         _isSelected = !p.UnknownVersion;
         PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName != nameof(State)) return;
+            if (e.PropertyName != nameof(RunState)) return;
             if (IsDone) IsSelected = false;
             OnPropertyChanged(nameof(CanSelect));
         };
@@ -109,8 +109,8 @@ public sealed partial class UpdatesViewModel : ObservableObject
         }
     }
 
-    /// <summary>After a run that updated something: the list of installed programs reads again (versions changed).</summary>
-    public event Action? Installed;
+    /// <summary>After a run that updated something: the list of installed programs reads again (versions changed); awaited.</summary>
+    public Func<Task>? AfterInstall { get; set; }
     public string UpdateSelectedText => $"Ausgewählte aktualisieren ({SelectedCount})";
     public string? HiddenText => Hidden.Count == 0 ? null : $"{Hidden.Count} Programme bewusst ausgelassen (geschützt)";
     public string LockedHint => !CanChange ? AppEnvironment.AdminNotice : _lock?.IsRunning == true ? _lock.BusyText : "";
@@ -224,7 +224,7 @@ public sealed partial class UpdatesViewModel : ObservableObject
             UpdateOneCommand.NotifyCanExecuteChanged();
         }
         // the rows stay with their state until „Neu suchen“; the installed programs below read again
-        if (rows.Any(r => r.IsDone)) Installed?.Invoke();
+        if (rows.Any(r => r.IsDone) && AfterInstall is { } after) await after();
     }
 
     CancellationTokenSource? _cts;

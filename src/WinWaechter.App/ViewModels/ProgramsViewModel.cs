@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinWaechter.App.Services;
+using WinWaechter.Core.Actions;
 using WinWaechter.Core.Changes;
 using WinWaechter.Core.Logging;
 using WinWaechter.Core.Model;
@@ -61,7 +62,7 @@ public sealed partial class ProgramItemViewModel : ObservableObject
 }
 
 /// <summary>One removable preinstalled app: title, recommendation and what the Verlauf can do afterwards.</summary>
-public sealed partial class BloatAppItemViewModel : ObservableObject
+public sealed partial class BloatAppItemViewModel : ItemRowBase
 {
     readonly Action? _changed;
 
@@ -71,11 +72,17 @@ public sealed partial class BloatAppItemViewModel : ObservableObject
         CanSelect = canSelect;
         _changed = changed;
         UndoText = row.Change.UndoLimit is null ? "Rückgängig im Verlauf" : UndoLimits.StoreOnly;
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(RunState)) OnPropertyChanged(nameof(ShowRecommended));
+        };
     }
 
     public BloatAppRow Row { get; }
     public string Title => Row.Rule.Title;
     public bool IsRecommended => Row.Rule.Recommended;
+    /// <summary>The „Empfohlen“ chip gives way to the line's state during a run.</summary>
+    public bool ShowRecommended => IsRecommended && !ShowRunState;
     public bool CanSelect { get; }
     public string UndoText { get; }
 
@@ -158,10 +165,8 @@ public sealed partial class ProgramsViewModel : ObservableObject
         {
             _updates = value;
             // updated programs have new versions: the list below reads again
-            if (value is not null) value.Installed += async () =>
-            {
-                if (RefreshCommand.CanExecute(null)) await RefreshCommand.ExecuteAsync(null);
-            };
+            if (value is not null) value.AfterInstall = () =>
+                RefreshCommand.CanExecute(null) ? RefreshCommand.ExecuteAsync(null) : Task.CompletedTask;
         }
     }
 
@@ -298,11 +303,16 @@ public sealed partial class ProgramsViewModel : ObservableObject
                 selected.Select(a => ChangeText.ConfirmLine(a.Row.Change)).ToList()))
             return;
 
-        var findings = selected.Select(a => new Finding($"app|{a.Row.Package.FamilyName}", FindingArea.Einstellung,
-            a.Row.Change.Description, a.Row.Package.FamilyName, [], Rating.Info, false, a.Row.Change)).ToList();
+        var lines = selected.Select(a => (Finding: new Finding($"app|{a.Row.Package.FamilyName}", FindingArea.Einstellung,
+            a.Row.Change.Description, a.Row.Package.FamilyName, [], Rating.Info, false, a.Row.Change), Row: a)).ToList();
+        var findings = lines.Select(l => l.Finding).ToList();
         var ran = await _gate.RunAsync(this, async () =>
         {
-            if (await ApplyAsync("Vorinstallierte Apps entfernen", findings) is null) return;
+            // each app line shows its state during the run; the summary follows, then the list reads again
+            var result = await ApplyAsync("Vorinstallierte Apps entfernen", findings,
+                ItemRows.Start(lines.Select(l => ((object)l.Finding, (ItemRowBase)l.Row))));
+            ItemRows.Finish(selected);
+            if (result is null) return;
             await ReloadAsync();
         });
         if (!ran) LastSummary = ChangeGate.BusyHint;
@@ -753,14 +763,14 @@ public sealed partial class ProgramsViewModel : ObservableObject
     }
 
     // applies through the engine (journal, history), shows the summary; null when it failed before any change
-    async Task<ApplyResult?> ApplyAsync(string title, IReadOnlyList<Finding> findings)
+    async Task<ApplyResult?> ApplyAsync(string title, IReadOnlyList<Finding> findings, IProgress<ItemProgress>? items = null)
     {
         IsBusy = true;
         ProgressText = "Sicherung wird vorbereitet …";
         try
         {
             var progress = new Progress<string>(s => ProgressText = s);
-            var result = await _engine.ApplyAsync(title, findings, progress, CancellationToken.None);
+            var result = await _engine.ApplyAsync(title, findings, progress, CancellationToken.None, items: items);
 
             var notDone = findings.Count - result.Applied - result.Failed;
             var lines = new List<string> { $"Angewendet: {result.Applied}", $"Fehlgeschlagen: {result.Failed}" };

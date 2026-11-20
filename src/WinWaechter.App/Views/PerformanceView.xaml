@@ -5,7 +5,7 @@
     <UserControl.Resources>
         <!-- one setting: title with chips, explanation, hint, link; the choice on the right (one control type for all rows) -->
         <DataTemplate x:Key="PerfRow" DataType="{x:Type vm:PerfSettingViewModel}">
-            <Border Style="{StaticResource RowDivider}" Padding="16,12,16,12">
+            <Border Style="{StaticResource RowDivider.Item}" Padding="16,12,16,12">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -39,12 +39,19 @@
                                 Content="In den Windows-Einstellungen öffnen" Command="{Binding OpenLinkCommand}"
                                 AutomationProperties.Name="{Binding Title, StringFormat={}{0}: in den Windows-Einstellungen öffnen}"
                                 Visibility="{Binding Link, Converter={StaticResource Vis}}" />
+                        <TextBlock Style="{StaticResource ItemReason}" MaxWidth="{StaticResource ProseWidth}" HorizontalAlignment="Left" />
                     </StackPanel>
-                    <ComboBox Grid.Column="1" Margin="16,0,0,0" MinWidth="200" VerticalAlignment="Top"
-                              ItemsSource="{Binding Options}" DisplayMemberPath="Label" SelectedValuePath="Value"
-                              SelectedValue="{Binding Chosen, Mode=TwoWay}" IsEnabled="{Binding CanChange}"
-                              AutomationProperties.Name="{Binding Title}"
-                              Visibility="{Binding Setting.Available, Converter={StaticResource Vis}}" />
+                    <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Top">
+                        <ComboBox MinWidth="200"
+                                  ItemsSource="{Binding Options}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                  SelectedValue="{Binding Chosen, Mode=TwoWay}" IsEnabled="{Binding CanChange}"
+                                  AutomationProperties.Name="{Binding Title}"
+                                  Visibility="{Binding Setting.Available, Converter={StaticResource Vis}}" />
+                        <!-- during and after a run: the line's state under its choice -->
+                        <ContentControl Margin="0,6,0,0" Focusable="False" HorizontalAlignment="Right" Content="{Binding}"
+                                        ContentTemplate="{StaticResource ItemStateView}"
+                                        Visibility="{Binding ShowRunState, Converter={StaticResource Vis}}" />
+                    </StackPanel>
                 </Grid>
             </Border>
         </DataTemplate>

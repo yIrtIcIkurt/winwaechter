@@ -138,10 +138,10 @@
                                                 <!-- during and after a run the line's state replaces the button -->
                                                 <ContentControl Grid.Column="2" Margin="16,0,0,0" Focusable="False" Content="{Binding}"
                                                                 ContentTemplate="{StaticResource ItemStateView}"
-                                                                Visibility="{Binding ShowStateView, Converter={StaticResource Vis}}" />
+                                                                Visibility="{Binding ShowRunState, Converter={StaticResource Vis}}" />
                                                 <Button Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center" Style="{StaticResource Button.Quiet}"
                                                         Content="Aktualisieren" AutomationProperties.Name="{Binding Name, StringFormat={}{0} aktualisieren}"
-                                                        Visibility="{Binding ShowStateView, Converter={StaticResource Vis}, ConverterParameter=not}"
+                                                        Visibility="{Binding ShowRunState, Converter={StaticResource Vis}, ConverterParameter=not}"
                                                         Command="{Binding DataContext.UpdateOneCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                         CommandParameter="{Binding}" />
                                             </Grid>
@@ -185,7 +185,7 @@
                                 <ItemsControl ItemsSource="{Binding Apps}" Focusable="False" Margin="0,0,0,-1">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="{x:Type vm:BloatAppItemViewModel}">
-                                            <Border Style="{StaticResource RowDivider}" Padding="16,10,16,10">
+                                            <Border Style="{StaticResource RowDivider.Item}" Padding="16,10,16,10">
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="Auto" />
@@ -197,10 +197,14 @@
                                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                         <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                                         <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Small}" Text="{Binding UndoText}" />
+                                                        <TextBlock Style="{StaticResource ItemReason}" />
                                                     </StackPanel>
-                                                    <ContentControl Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center" Style="{StaticResource Chip}"
-                                                                    Tag="{x:Static vm:Tone.Good}" Content="Empfohlen"
-                                                                    Visibility="{Binding IsRecommended, Converter={StaticResource Vis}}" />
+                                                    <Grid Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center">
+                                                        <ContentControl Style="{StaticResource Chip}" Tag="{x:Static vm:Tone.Good}" Content="Empfohlen"
+                                                                        Visibility="{Binding ShowRecommended, Converter={StaticResource Vis}}" />
+                                                        <ContentControl Focusable="False" Content="{Binding}" ContentTemplate="{StaticResource ItemStateView}"
+                                                                        Visibility="{Binding ShowRunState, Converter={StaticResource Vis}}" />
+                                                    </Grid>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>

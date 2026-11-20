@@ -129,13 +129,13 @@ public class UpdatesViewModelTests
 
         // the finished row stays visible (not reloaded away), unselected and not selectable again
         Assert.Single(_winget.ListCalls);
-        Assert.Equal([ItemState.Done, ItemState.None], vm.Rows.Select(r => r.State));
+        Assert.Equal([ItemState.Done, ItemState.None], vm.Rows.Select(r => r.RunState));
         Assert.False(vm.Rows[0].IsSelected);
         Assert.False(vm.Rows[0].CanSelect);
         Assert.Equal("Updates verfügbar (1)", vm.HeaderText);
 
         await vm.RefreshCommand.ExecuteAsync(null);
-        Assert.All(vm.Rows, r => Assert.Equal(ItemState.None, r.State));
+        Assert.All(vm.Rows, r => Assert.Equal(ItemState.None, r.RunState));
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class UpdatesViewModelTests
         var seen = new List<ItemState[]>();
         _winget.UpgradeHandler = p =>
         {
-            seen.Add(vm.Rows.Select(r => r.State).ToArray());
+            seen.Add(vm.Rows.Select(r => r.RunState).ToArray());
             return p.Id == "Beispiel.B" ? unchecked((int)0x8A150101) : 0;
         };
 
@@ -156,9 +156,9 @@ public class UpdatesViewModelTests
         Assert.Equal([ItemState.Running, ItemState.Waiting, ItemState.Waiting], seen[0]);
         Assert.Equal([ItemState.Done, ItemState.Running, ItemState.Waiting], seen[1]);
         Assert.Equal([ItemState.Done, ItemState.Failed, ItemState.Running], seen[2]);
-        Assert.Equal([ItemState.Done, ItemState.Failed, ItemState.Done], vm.Rows.Select(r => r.State));
-        Assert.Equal("Das Programm läuft gerade. Schließen Sie es und versuchen Sie es erneut.", vm.Rows[1].StateText);
-        Assert.True(vm.Rows[1].ShowStateText);
+        Assert.Equal([ItemState.Done, ItemState.Failed, ItemState.Done], vm.Rows.Select(r => r.RunState));
+        Assert.Equal("Das Programm läuft gerade. Schließen Sie es und versuchen Sie es erneut.", vm.Rows[1].RunText);
+        Assert.True(vm.Rows[1].ShowRunText);
         Assert.True(vm.Rows[1].CanSelect);   // a failed one can be tried again
     }
 
@@ -168,14 +168,14 @@ public class UpdatesViewModelTests
         _winget.List = new(WingetListStatus.Ok, [P("7-Zip", "7zip.7zip"), P("Notepad++", "Notepad++.Notepad++")], null);
         var vm = Vm();
         var told = 0;
-        vm.Installed += () => told++;
+        vm.AfterInstall = () => { told++; return Task.CompletedTask; };
         await vm.RefreshCommand.ExecuteAsync(null);
         _winget.UpgradeHandler = _ => { vm.CancelCommand.Execute(null); return 0; };
 
         await vm.UpdateSelectedCommand.ExecuteAsync(null);
 
-        Assert.Equal([ItemState.Done, ItemState.Skipped], vm.Rows.Select(r => r.State));
-        Assert.Equal("Nicht ausgeführt.", vm.Rows[1].StateText);
+        Assert.Equal([ItemState.Done, ItemState.Skipped], vm.Rows.Select(r => r.RunState));
+        Assert.Equal("Nicht ausgeführt.", vm.Rows[1].RunText);
         Assert.Equal(1, told);
     }
 
