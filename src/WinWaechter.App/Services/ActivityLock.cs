@@ -52,7 +52,9 @@ public static class RestorePointGate
         // WMI off the UI thread; the question comes back on the caller's (UI) context
         var r = await Task.Run(() => create(title));
         if (r.Created || r.RecentExists) return true;
-        return dialogs.Ask(title, "Es konnte kein Wiederherstellungspunkt angelegt werden. Trotzdem fortfahren?",
+        // Computerschutz off: say so and where to switch it on
+        var why = r.ProtectionOff ? " " + r.Message : "";
+        return dialogs.Ask(title, $"Es konnte kein Wiederherstellungspunkt angelegt werden.{why} Trotzdem fortfahren?",
             "Trotzdem fortfahren", "Abbrechen");
     }
 }

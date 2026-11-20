@@ -125,6 +125,21 @@ public class BuildingBlocks06Tests
         Assert.False(ok);
         Assert.Single(dialogs.Asks);
         Assert.Contains("Trotzdem fortfahren?", dialogs.Asks[0].Message);
+        Assert.DoesNotContain("kaputt", dialogs.Asks[0].Message);
+    }
+
+    [Fact]
+    public async Task Restore_point_refused_by_switched_off_protection_names_the_way_to_switch_it_on()
+    {
+        var dialogs = new RecordingDialogs { AskAnswer = true };
+        var ok = await RestorePointGate.EnsureAsync(
+            _ => new RestorePointResult(false, "Der Computerschutz ist für das Systemlaufwerk ausgeschaltet. Auf der Seite „Sicherheit“ …")
+            {
+                ProtectionOff = true,
+            }, "Test", dialogs);
+        Assert.True(ok);
+        Assert.Contains("Computerschutz ist für das Systemlaufwerk ausgeschaltet", dialogs.Asks[0].Message);
+        Assert.EndsWith("Trotzdem fortfahren?", dialogs.Asks[0].Message);
     }
 
     [Fact]

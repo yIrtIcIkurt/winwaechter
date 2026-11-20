@@ -34,6 +34,39 @@ public sealed class SystemProtectionTests : IDisposable
         new("id", "sysprotect", $"Computerschutz {drive}", "x",
             new() { ["drive"] = drive, ["services"] = services }, new(), ChangeStatus.Applied, DateTimeOffset.Now);
 
+    const string ConfigKey = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore";
+    const string SppClients = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SPP\Clients";
+    const string SystemRestoreClient = "{09F7EDC5-294E-4180-AF6A-FB0E6A0E9513}";
+
+    // checklist 0.6.0: RPSessionInterval said „on“, yet the restore point failed with 0x80070422 – protection was off for C: only
+    [Theory]
+    [InlineData(new[] { @"\\?\Volume{1111}\:(D%3A)" }, false)]
+    [InlineData(new[] { @"\\?\Volume{2222}\:(C%3A)", @"\\?\Volume{1111}\:(D%3A)" }, true)]
+    public void Protection_is_read_per_drive_from_the_protected_volumes(string[] volumes, bool expected)
+    {
+        _reg.Seed(Hive.LocalMachine, ConfigKey, "RPSessionInterval", 1, RegistryValueKind.DWord);
+        _reg.Seed(Hive.LocalMachine, SppClients, SystemRestoreClient, volumes, RegistryValueKind.MultiString);
+        Assert.Equal(expected, new WinSystemRestoreConfig(_reg).IsEnabled(@"C:\"));
+    }
+
+    [Fact]
+    public void Without_the_volume_list_the_machine_wide_switch_decides()
+    {
+        _reg.Seed(Hive.LocalMachine, ConfigKey, "RPSessionInterval", 1, RegistryValueKind.DWord);
+        Assert.True(new WinSystemRestoreConfig(_reg).IsEnabled(@"C:\"));
+        _reg.Seed(Hive.LocalMachine, ConfigKey, "RPSessionInterval", 0, RegistryValueKind.DWord);
+        Assert.False(new WinSystemRestoreConfig(_reg).IsEnabled(@"C:\"));
+    }
+
+    [Fact]
+    public void Restore_point_refused_because_protection_is_off_says_so()
+    {
+        var text = RestorePointService.MessageFor(new System.Runtime.InteropServices.COMException("x", unchecked((int)0x80070422)));
+        Assert.Contains("Computerschutz", text);
+        Assert.Contains("ausgeschaltet", text);
+        Assert.Contains("Sicherheit", text);
+    }
+
     [Fact]
     public void Disabled_service_is_set_to_manual_and_protection_enabled()
     {

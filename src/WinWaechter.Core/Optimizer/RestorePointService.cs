@@ -4,7 +4,11 @@ using WinWaechter.Core.Logging;
 namespace WinWaechter.Core.Optimizer;
 
 /// <summary>RecentExists: no new point because Windows keeps one per 24 hours and one is younger (RecentAt).</summary>
-public sealed record RestorePointResult(bool Created, string Message, bool RecentExists = false, DateTimeOffset? RecentAt = null);
+public sealed record RestorePointResult(bool Created, string Message, bool RecentExists = false, DateTimeOffset? RecentAt = null)
+{
+    /// <summary>Windows refused because the Computerschutz of the system drive is off (the Sicherheit page switches it on).</summary>
+    public bool ProtectionOff { get; init; }
+}
 
 // Creates a Windows restore point via WMI. Never throws.
 public sealed class RestorePointService
@@ -40,9 +44,16 @@ public sealed class RestorePointService
         catch (Exception ex)
         {
             FileLog.Warn("Wiederherstellungspunkt fehlgeschlagen", ex);
-            return new RestorePointResult(false, NotCreated);
+            return new RestorePointResult(false, MessageFor(ex)) { ProtectionOff = ex.HResult == ServiceDisabled };
         }
     }
+
+    const int ServiceDisabled = unchecked((int)0x80070422);   // ERROR_SERVICE_DISABLED: protection of the system drive is off
+
+    /// <summary>Plain text for a refused restore point; Windows answers 0x80070422 when the system drive is not protected.</summary>
+    public static string MessageFor(Exception ex) => ex.HResult == ServiceDisabled
+        ? "Der Computerschutz ist für das Systemlaufwerk ausgeschaltet. Auf der Seite „Sicherheit“ lässt er sich mit einem Klick einschalten."
+        : NotCreated;
 
     static HashSet<uint> Sequences(ManagementScope scope)
     {

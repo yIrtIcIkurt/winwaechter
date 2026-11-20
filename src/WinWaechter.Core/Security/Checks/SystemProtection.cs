@@ -21,14 +21,26 @@ public interface ISystemRestoreConfig
 public sealed class WinSystemRestoreConfig(IRegistry reg) : ISystemRestoreConfig
 {
     const string ConfigKey = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore";
+    const string SppClients = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SPP\Clients";
+    const string SystemRestoreClient = "{09F7EDC5-294E-4180-AF6A-FB0E6A0E9513}";
 
-    // RPSessionInterval is machine-wide: 1 = on, 0 = off; anything else (or missing) cannot be told.
-    public bool? IsEnabled(string drive) => reg.Get(Hive.LocalMachine, ConfigKey, "RPSessionInterval") switch
+    /// <summary>
+    /// RPSessionInterval is machine-wide (1 = on, 0 = off). Whether this drive is protected stands in the list of protected
+    /// volumes („\\?\Volume{…}\:(C%3A)“): with the list, a drive missing from it is off even when the switch says on.
+    /// </summary>
+    public bool? IsEnabled(string drive)
     {
-        1 => true,
-        0 => false,
-        _ => null,
-    };
+        var machine = reg.Get(Hive.LocalMachine, ConfigKey, "RPSessionInterval") switch
+        {
+            1 => true,
+            0 => (bool?)false,
+            _ => null,
+        };
+        if (machine == false || string.IsNullOrEmpty(drive)) return machine;
+        if (reg.Get(Hive.LocalMachine, SppClients, SystemRestoreClient) is not string[] volumes) return machine;
+        var mark = $"({char.ToUpperInvariant(drive[0])}%3A)";
+        return volumes.Any(v => v.Contains(mark, StringComparison.OrdinalIgnoreCase));
+    }
 
     public void Enable(string drive)
     {
