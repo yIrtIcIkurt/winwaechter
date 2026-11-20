@@ -20,12 +20,16 @@ public interface IWingetClient
     Task<int> UpgradeAsync(WingetPackage p, Action<string>? onLine, CancellationToken ct);
 }
 
-/// <summary>winget.exe with fixed arguments (source „winget“ only). wingetPath null = winget missing.</summary>
-public sealed class WingetClient(IProcessRunner runner, IUserProcessRunner userRunner, string? wingetPath, string userTempDir)
-    : IWingetClient
+/// <summary>winget.exe with fixed arguments (source „winget“ only). wingetPath null = winget missing.
+/// elevatedIsUser: the elevated app runs as the signed-in user (same account), so an elevated retry still installs for that user.</summary>
+public sealed class WingetClient(IProcessRunner runner, IUserProcessRunner userRunner, string? wingetPath, string userTempDir,
+    bool elevatedIsUser = false) : IWingetClient
 {
     internal const int NoPackagesFound = unchecked((int)0x8A150014);
     internal const int SourceAgreementsNotAccepted = unchecked((int)0x8A150046);
+
+    /// <summary>ERROR_INSTALL_PACKAGE_SERVICE...: the MSIX brings a package service, which only an administrator may register.</summary>
+    internal const int PackageServiceNeedsAdmin = unchecked((int)0x80073D28);
 
     const string ListArgs = "upgrade --source winget --include-unknown --disable-interactivity";
 
@@ -93,6 +97,12 @@ public sealed class WingetClient(IProcessRunner runner, IUserProcessRunner userR
             var code = await userRunner.RunAsUserAsync(wingetPath, $"{args} --log \"{log}\"", ct).ConfigureAwait(false);
             if (onLine is not null && File.Exists(log))
                 foreach (var line in ProcessRunner.SplitLines(await File.ReadAllTextAsync(log, ct).ConfigureAwait(false))) onLine(line);
+            // a new version that brings a package service needs admin rights; elevated is still the same user here
+            if (code == PackageServiceNeedsAdmin && elevatedIsUser)
+            {
+                onLine?.Invoke("Braucht Administratorrechte, wird mit Administratorrechten wiederholt.");
+                return (await runner.RunAsync(wingetPath, args, onLine, Utf8, ct).ConfigureAwait(false)).Exit;
+            }
             return code;
         }
         finally

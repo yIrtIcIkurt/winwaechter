@@ -245,6 +245,47 @@ public class WingetTableTests
         finally { Directory.Delete(temp, true); }
     }
 
+    const int NeedsAdminForPackageService = unchecked((int)0x80073D28);
+
+    [Fact]
+    public async Task User_package_that_needs_admin_rights_is_retried_elevated_when_the_app_runs_as_that_user()
+    {
+        var runner = new FakeProcessRunner();
+        var user = new FakeUserProcessRunner { Handler = (_, _) => NeedsAdminForPackageService };
+        var client = new WingetClient(runner, user, WingetPath, @"C:\Temp", elevatedIsUser: true);
+
+        var code = await client.UpgradeAsync(new WingetPackage("ChatGPT", "OpenAI.ChatGPT", "1", "2", false, true), null, CancellationToken.None);
+
+        Assert.Equal(0, code);
+        Assert.Single(user.Calls);
+        Assert.Equal("upgrade --id OpenAI.ChatGPT --exact --source winget --silent --disable-interactivity --accept-package-agreements --accept-source-agreements",
+            runner.Calls.Single().Args);
+    }
+
+    [Fact]
+    public async Task User_package_that_needs_admin_rights_is_not_retried_elevated_for_another_account()
+    {
+        var runner = new FakeProcessRunner();
+        var user = new FakeUserProcessRunner { Handler = (_, _) => NeedsAdminForPackageService };
+        var client = new WingetClient(runner, user, WingetPath, @"C:\Temp", elevatedIsUser: false);
+
+        var code = await client.UpgradeAsync(new WingetPackage("ChatGPT", "OpenAI.ChatGPT", "1", "2", false, true), null, CancellationToken.None);
+
+        Assert.Equal(NeedsAdminForPackageService, code);
+        Assert.Empty(runner.Calls);
+    }
+
+    [Theory]
+    [InlineData(unchecked((int)0x8A15008E), "andere Installationsart")]
+    [InlineData(unchecked((int)0x80073D28), "Administratorrechte")]
+    public void Exit_codes_from_the_checklist_get_plain_texts(int code, string part)
+    {
+        var (outcome, text) = WingetExitCodes.Map(code);
+        Assert.Equal(UpdateOutcome.Failed, outcome);
+        Assert.Contains(part, text);
+        Assert.DoesNotContain("Code 0x", text);
+    }
+
     const string WingetPath = @"C:\Users\u\AppData\Local\Microsoft\WindowsApps\winget.exe";
 
     static WingetClient Client(out FakeProcessRunner runner) => Client(out runner, out _);

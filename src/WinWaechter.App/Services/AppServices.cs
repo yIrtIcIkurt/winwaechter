@@ -224,7 +224,8 @@ public sealed class AppServices : IDisposable
         // the view model runs every read of the service (and the app scan) on the thread pool
         IReadOnlyList<BloatAppRow> BloatScan() => new BloatAppScanner(pkgs, rules).Scan();
         // „Updates verfügbar“: winget of the signed-in user (same account as the elevated app when ownAccount)
-        var winget = new WingetClient(runner, new UserProcessRunner(user.Sid), WingetClient.FindWinget(localAppData), Path.GetTempPath());
+        var winget = new WingetClient(runner, new UserProcessRunner(user.Sid), WingetClient.FindWinget(localAppData), Path.GetTempPath(),
+            elevatedIsUser: ownAccount);
         var updateService = new WingetUpdateService(winget, new UpdateFilter(rules, () => inventory.Read()), restore.TryCreate);
         var updates = new UpdatesViewModel(updateService, actions, dialogs, shell, canChange,
             () => RestorePointGate.EnsureAsync(restore.TryCreate, "Programme aktualisieren", dialogs));

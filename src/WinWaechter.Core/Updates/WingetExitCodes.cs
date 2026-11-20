@@ -28,6 +28,10 @@ public static class WingetExitCodes
         0x8A15010C => (UpdateOutcome.Failed, "Die Installation wurde abgebrochen."),
         0x8A15010F => (UpdateOutcome.Failed, "Eine Richtlinie verhindert die Installation."),
         0x8A150114 => (UpdateOutcome.Failed, "Dieses Programm lässt sich nicht über winget aktualisieren."),
+        0x8A15008E => (UpdateOutcome.Failed,                                                  // UPDATE_INSTALL_TECHNOLOGY_MISMATCH
+            "Das Update nutzt eine andere Installationsart als die installierte Fassung. Aktualisieren Sie es im Programm selbst."),
+        0x80073D28 => (UpdateOutcome.Failed,                                                  // AppX: package service needs admin
+            "Diese Fassung bringt einen Hintergrunddienst mit und braucht Administratorrechte. Aktualisieren Sie es im Programm selbst oder im Microsoft Store."),
         _ => (UpdateOutcome.Failed, $"Fehlgeschlagen (Code 0x{code:X8}), Details im Protokoll."),
     };
 }
