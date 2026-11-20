@@ -184,7 +184,7 @@ public sealed class MoveToAblageChange : IChange, IProgressUndo
         if (IsFolderKind) return ApplyFolder(ctx, id, paths);
         var root = paths["ablage"]!;
         var sidecar = paths["sidecar"]!;
-        int moved = 0, skipped = 0;
+        int moved = 0, skipped = 0, inUse = 0;
         long bytes = 0;
 
         List<FileInfo> candidates;
@@ -225,13 +225,19 @@ public sealed class MoveToAblageChange : IChange, IProgressUndo
                     moved++;
                     bytes += size;
                 }
+                catch (IOException ex) when (IsInUse(ex))
+                {
+                    skipped++;   // a running program holds it: normal for temp files, one summary line below
+                    inUse++;
+                }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
                 {
-                    skipped++;   // locked, denied or rejected path
-                    FileLog.Warn($"Übersprungen: {fi.FullName}", ex);
+                    skipped++;   // denied or rejected path
+                    FileLog.Warn($"Übersprungen: {fi.FullName} ({ex.Message})");
                 }
             }
         }
+        if (inUse > 0) FileLog.Info($"{Description}: {inUse} Dateien übersprungen, weil ein Programm sie gerade benutzt.");
 
         return new ChangeRecord(id, Kind, Target, Description,
             BeforeValues(),
@@ -243,6 +249,9 @@ public sealed class MoveToAblageChange : IChange, IProgressUndo
             },
             ChangeStatus.Applied, DateTimeOffset.Now);
     }
+
+    // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION: another process has the file open
+    static bool IsInUse(IOException ex) => (ex.HResult & 0xFFFF) is 32 or 33;
 
     // A single cache file that is gone by the time Apply runs: nothing to move, no sidecar, no Ablage folder.
     ChangeRecord VanishedFile(string id, Dictionary<string, string?> paths)
