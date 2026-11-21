@@ -473,16 +473,17 @@ public sealed class SecurityNetTests : IDisposable
     public async Task Defender_read_does_not_wait_for_security_center()
     {
         var (s, _, center, def, _, _, _) = Sources();
-        center.Block = TimeSpan.FromMilliseconds(800);
-        def.StatusDelay = TimeSpan.FromMilliseconds(800);
+        // long enough that a busy CI machine (GitHub runner: 2.2 s for the old 0.8 s + 0.8 s) still tells parallel from serial
+        center.Block = TimeSpan.FromSeconds(2);
+        def.StatusDelay = TimeSpan.FromSeconds(2);
 
         var sw = Stopwatch.StartNew();
         var items = await new SecurityCheck(s, TimeSpan.FromSeconds(5)).RunAsync(CancellationToken.None);
         sw.Stop();
 
         Assert.Equal(Light.Green, items.Single(i => i.Id == SecurityIds.Defender).Light);
-        // in parallel: about 0.8 s, not 1.6 s
-        Assert.True(sw.Elapsed < TimeSpan.FromMilliseconds(1400), sw.Elapsed.ToString());
+        // in parallel: about 2 s, not 4 s
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3.4), sw.Elapsed.ToString());
     }
 
     [Fact]
