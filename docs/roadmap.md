@@ -78,7 +78,7 @@ Offen, nur mit Zustimmung des Nutzers, nichts davon hat der Umsetzer allein gema
 - [ ] 7. Rechtsklick: einen Eintrag abschalten, „Explorer neu starten“, zurücknehmen; Windows muss die Oberfläche innerhalb von 15 s selbst zurückbringen (WinWächter startet sie nicht mehr; sonst erscheint der Hinweis auf Strg+Umschalt+Esc)
 - [ ] 8. Updates installieren nur, wenn der Nutzer es will
 - [ ] 9. Neue/geänderte Seiten hell/dunkel, 150 %, Tastatur ansehen
-- [ ] Vor dem Release: `rules/rules.json` hat sich geändert (`rulesVersion` 3, `bloatApps`, Werbe-Einträge) → `rules/rules.json.sig` muss beim Release neu signiert werden (`build-release.ps1`), vor dem Merge nach main, sonst lehnen Clients das Regel-Update ab
+- [x] Vor dem Release: `rules.json.sig` neu signiert (b2a6c84); veröffentlicht nach Freigabe des Nutzers („Ja, veröffentlichen“) — GitHub „Latest“, Prüfsumme auf GitHub = lokaler Installer
 - [ ] Vor dem Test des neuen Builds die installierte App schließen (lief beim Bauen erhöht, PID 1808)
 - [ ] Release und Veröffentlichung erst nach Freigabe des Nutzers
 
@@ -91,7 +91,7 @@ Offen, nur mit Zustimmung des Nutzers:
 
 Bekannt, nicht behoben: Eine abgelehnte Wiederholung erscheint im Protokoll als Fehler mit dem Titel „Erneut versuchen fehlgeschlagen“ (nur Wortwahl).
 
-## 0.6.0 (gebaut, unveröffentlicht, Stand 2026-11-20)
+## 0.6.0 (veröffentlicht 2026-11-21, Tag auf b2a6c84)
 Design `docs/superpowers/specs/2026-11-14-winwaechter-0.6-design.md`, Plan `docs/superpowers/plans/2026-11-14-winwaechter-0.6.md`, Branch `feature/v0.6`. Nutzer-Entscheidung 2026-11-14: Die automatische Wartung prüft und meldet nur, sie ändert nichts. Inhalt siehe CHANGELOG: Programm-Updates (winget), Gerät, Reparatur, automatische Prüfung, Speicherplatz-Karte, winget-Nutzungsdaten.
 
 Gesamtprüfung (unabhängiger Prüfer) mit „With fixes“: zwei kritische Funde (winget-Ausgabe im Fenster falsch dekodiert; Speicherplatz hätte Ordner mit Lexware-Daten oder ganze Bibliotheksordner verschieben können) und acht wichtige Funde behoben, je mit Test. Alle Entscheidungen und zurückgestellten Kleinigkeiten: `docs/superpowers/plans/2026-11-14-winwaechter-0.6-ledger.md`. 1278 Tests, fünfmal hintereinander grün.
