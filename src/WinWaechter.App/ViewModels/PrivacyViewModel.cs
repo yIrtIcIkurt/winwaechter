@@ -81,6 +81,7 @@ public sealed partial class PrivacyViewModel : ObservableObject
         gate.PropertyChanged += (_, _) =>
         {
             ApplyCommand.NotifyCanExecuteChanged();
+            TurnOffWingetCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(GateHint));
         };
     }
@@ -103,6 +104,7 @@ public sealed partial class PrivacyViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TurnOffWingetCommand))]
     private bool _isBusy;
 
     [ObservableProperty]

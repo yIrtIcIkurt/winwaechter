@@ -167,6 +167,35 @@ public sealed class WingetTelemetryTests : IDisposable
         Assert.False(vm.TurnOffWingetCommand.CanExecute(null));
     }
 
+    // device test 2026-11-21: „Abschalten“ stayed grey – the offer arrives while the page is still busy reading,
+    // and the button was never told when reading had finished
+    [Fact]
+    public async Task Winget_button_is_told_when_reading_has_finished()
+    {
+        var engine = new Core.Optimizer.OptimizerEngine([], new SessionStore(Path.Combine(_dir, "data")), new Core.Changes.ChangeFactory(),
+            _ => new Core.Optimizer.RestorePointResult(true, "ok"));
+        var gate = new App.Services.ChangeGate();
+        var vm = new App.ViewModels.PrivacyViewModel(_ => Task.FromResult<IReadOnlyList<Core.Privacy.PrivacyRow>>([]), engine,
+            new Fakes.RecordingDialogs(), true, gate)
+        {
+            WingetTelemetry = () => new App.ViewModels.WingetTelemetryOffer(WingetSettingsFile.Read(PathIn), new WingetTelemetryChange(PathIn)),
+        };
+        bool? lastSeen = null;
+        vm.TurnOffWingetCommand.CanExecuteChanged += (_, _) => lastSeen = vm.TurnOffWingetCommand.CanExecute(null);
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.True(lastSeen);   // what the button shows
+
+        // another page's change holds the gate: the button greys out and comes back
+        var held = new TaskCompletionSource();
+        bool? whileHeld = null;
+        var other = gate.RunAsync(new object(), async () => { whileHeld = lastSeen; await held.Task; });
+        Assert.False(whileHeld);
+        held.SetResult();
+        await other;
+        Assert.True(lastSeen);
+    }
+
     [Fact]
     public async Task Privacy_row_is_hidden_without_winget_and_locked_without_change()
     {
