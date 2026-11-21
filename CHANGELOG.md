@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.6.0
+- Oberfläche: Der dunkle Modus von Windows wird jetzt wirklich übernommen (bisher blieb WinWächter hell). In schmalen Fenstern brechen die Messwerte auf Übersicht und Leistung in Zeilen um, statt abgeschnitten zu werden. In der Navigation öffnet auch Enter die gewählte Seite.
 - Aufgabenplanung ohne fremde Bibliothek: WinWächter liest und schaltet geplante Aufgaben jetzt über die Schnittstelle, die Windows selbst mitbringt. So bleibt keine unsignierte fremde DLL im Programm, die die intelligente App-Steuerung blockieren könnte.
 - WinWächter wird auf GitHub gebaut und getestet; ab der ersten Version nach der Zusage von SignPath sind Programm und Setup digital signiert.
 - WinWächter ist jetzt Open Source unter der MIT-Lizenz (`LICENSE`, im Programmordner als `LICENSE.txt`). Das README beschreibt alle Seiten, sagt genau, wann die App eine Verbindung aufbaut, und enthält die Richtlinie zur Code-Signatur.
