@@ -95,6 +95,8 @@ public sealed class ViewSmokeTests : IDisposable
         var app = new App.App();
         app.InitializeComponent();
         Sidebar_icon_resource_exists();
+        Enter_opens_the_focused_navigation_item();
+        Readouts_wrap_instead_of_clipping();
 
         var findings = new List<Finding>
         {
@@ -272,10 +274,10 @@ public sealed class ViewSmokeTests : IDisposable
 
         foreach (var theme in new[] { "Light", "Dark" })
         {
-            app.Resources.MergedDictionaries[1] = new ResourceDictionary
-            {
-                Source = new Uri($"pack://application:,,,/WinWaechter.App;component/Theme/{theme}.xaml"),
-            };
+            // the real switch (device test 2026-11-21: dark never showed – the light palette from App.xaml stayed behind it)
+            ThemeManager.Use(app, theme == "Dark");
+            Assert.Equal(theme == "Dark" ? System.Windows.Media.Color.FromRgb(0x1A, 0x1F, 0x22) : System.Windows.Media.Color.FromRgb(0xE8, 0xEC, 0xEA), (System.Windows.Media.Color)app.FindResource("CanvasColor"));
+            Assert.Equal(3, app.Resources.MergedDictionaries.Count);
             var shellContent = new ShellWindow { DataContext = shell }.Content as FrameworkElement;
             Layout(shellContent);
             AssertSidebarIconShown(shellContent!);
@@ -660,6 +662,41 @@ public sealed class ViewSmokeTests : IDisposable
         Assert.True(vm.Items.Count == 3 && vm.UnwantedCount == 1 && vm.Pending == tool && vm.ShowLeftovers && vm.Leftovers.Count == 2
             && vm.Items.Single(i => i.Name == "Spiel-Tool").CanForceRemove && vm.Apps.Count == 2);
         return vm;
+    }
+
+    // device test 2026-11-21: in a narrow window the overview readouts were cut off („heut“, „0 rot ·“)
+    static void Readouts_wrap_instead_of_clipping()
+    {
+        (int Rows, double Narrowest) LayOut(double width, int count)
+        {
+            var panel = new ReadoutPanel { MinColumnWidth = 140, ColumnGap = 36 };
+            for (var i = 0; i < count; i++) panel.Children.Add(new Border { Height = 40 });
+            panel.Measure(new Size(width, double.PositiveInfinity));
+            panel.Arrange(new Rect(0, 0, double.IsInfinity(width) ? panel.DesiredSize.Width : width, panel.DesiredSize.Height));
+            var slots = panel.Children.Cast<UIElement>().Select(e => System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot((FrameworkElement)e)).ToList();
+            return (slots.Select(s => s.Y).Distinct().Count(), slots.Min(s => s.Width));
+        }
+        Assert.Equal((1, 1100.0 / 6 - 30), LayOut(1100, 6));   // one row, gaps shared out
+        var (rows, narrowest) = LayOut(600, 6);
+        Assert.Equal(2, rows);                                    // 3 × 2
+        Assert.True(narrowest >= 140, $"{narrowest}");
+        (rows, narrowest) = LayOut(340, 6);
+        Assert.Equal(3, rows);                                    // 2 × 3
+        Assert.True(narrowest >= 140, $"{narrowest}");
+        Assert.Equal(1, LayOut(600, 3).Rows);
+        Assert.Equal(3, LayOut(300, 3).Rows);                     // three readouts never split 2 + 1
+        Assert.Equal(1, LayOut(double.PositiveInfinity, 6).Rows);
+    }
+
+    // device test 2026-11-21: arrows move the focus in the navigation, but only Space opened the page, Enter did nothing
+    static void Enter_opens_the_focused_navigation_item()
+    {
+        var nav = new System.Windows.Controls.RadioButton { GroupName = "Nav" };
+        Assert.True(ShellWindow.OpenNavItem(nav));
+        Assert.True(nav.IsChecked);
+        Assert.False(ShellWindow.OpenNavItem(new System.Windows.Controls.RadioButton { GroupName = "Andere" }));
+        Assert.False(ShellWindow.OpenNavItem(new Button()));
+        Assert.False(ShellWindow.OpenNavItem(null));
     }
 
     // Runs inside RenderAll: only one WPF Application may exist per process, so no separate STA test.

@@ -41,12 +41,19 @@ public static class ThemeManager
         }
     }
 
+    /// <summary>Switches the palette now (also used by the view tests).</summary>
+    public static void Use(Application app, bool dark) => Apply(app, dark);
+
     static void Apply(Application app, bool dark)
     {
         if (_current is not null && dark == IsDark) return;
         var dict = new ResourceDictionary { Source = dark ? DarkUri : LightUri };
         var merged = app.Resources.MergedDictionaries;
-        var index = _current is null ? -1 : merged.IndexOf(_current);
+        // replace the palette in place (App.xaml starts with the light one): a later dictionary wins,
+        // so an extra palette next to it would leave the old colours on top
+        var index = -1;
+        for (var i = 0; i < merged.Count && index < 0; i++)
+            if (merged[i].Contains("CanvasColor")) index = i;
         if (index >= 0) merged[index] = dict; else merged.Insert(1, dict);   // after Tokens, before Controls
         _current = dict;
         IsDark = dark;

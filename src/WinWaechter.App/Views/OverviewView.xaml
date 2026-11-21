@@ -1,7 +1,8 @@
 <UserControl x:Class="WinWaechter.App.Views.OverviewView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels">
+             xmlns:vm="clr-namespace:WinWaechter.App.ViewModels"
+             xmlns:local="clr-namespace:WinWaechter.App.Views">
     <UserControl.Resources>
         <!-- a readout tile that leads into its area: looks like the plain tile, plus hover wash and focus ring -->
         <Style x:Key="Button.Tile" TargetType="Button" BasedOn="{StaticResource Button.Base}">
@@ -101,22 +102,9 @@
 
                 <!-- Readouts on a tick scale; each tile leads into its area -->
                 <Rectangle Margin="0,56,0,0" Style="{StaticResource ScaleRule}" />
-                <Grid Margin="0,18,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
+                <local:ReadoutPanel Margin="0,18,0,0" MinColumnWidth="130" LineBrush="{DynamicResource Line}">
 
-                    <Button Margin="0,0,16,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenProtectCommand}"
+                    <Button Style="{StaticResource Button.Tile}" Command="{Binding OpenProtectCommand}"
                             AutomationProperties.Name="Echtzeitschutz: Schutz öffnen">
                         <StackPanel>
                             <TextBlock Style="{StaticResource Text.Label}" Text="Echtzeitschutz" />
@@ -126,9 +114,8 @@
                             </StackPanel>
                         </StackPanel>
                     </Button>
-                    <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource Line}" />
 
-                    <Button Grid.Column="2" Margin="20,0,16,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenProtectCommand}"
+                    <Button Style="{StaticResource Button.Tile}" Command="{Binding OpenProtectCommand}"
                             AutomationProperties.Name="Signaturalter: Schutz öffnen">
                         <StackPanel>
                             <TextBlock Style="{StaticResource Text.Label}" Text="Signaturalter" />
@@ -138,9 +125,8 @@
                             </StackPanel>
                         </StackPanel>
                     </Button>
-                    <Rectangle Grid.Column="3" Width="1" Fill="{DynamicResource Line}" />
 
-                    <Button Grid.Column="4" Margin="20,0,16,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenProtectCommand}"
+                    <Button Style="{StaticResource Button.Tile}" Command="{Binding OpenProtectCommand}"
                             AutomationProperties.Name="Letzter Defender-Scan: Schutz öffnen">
                         <StackPanel>
                             <TextBlock Style="{StaticResource Text.Label}" Text="Letzter Defender-Scan" />
@@ -148,16 +134,14 @@
                                        Text="{Binding Protect.LastScanText}" />
                         </StackPanel>
                     </Button>
-                    <Rectangle Grid.Column="5" Width="1" Fill="{DynamicResource Line}" />
 
                     <!-- the open suggestions are listed below on this page -->
-                    <StackPanel Grid.Column="6" Margin="20,0,16,0">
+                    <StackPanel>
                         <TextBlock Style="{StaticResource Text.Label}" Text="Offene Vorschläge" />
                         <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding OpenSuggestionsText}" />
                     </StackPanel>
-                    <Rectangle Grid.Column="7" Width="1" Fill="{DynamicResource Line}" />
 
-                    <Button Grid.Column="8" Margin="20,0,16,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenSecurityCommand}"
+                    <Button Style="{StaticResource Button.Tile}" Command="{Binding OpenSecurityCommand}"
                             AutomationProperties.Name="Sicherheit öffnen">
                         <StackPanel>
                             <TextBlock Style="{StaticResource Text.Label}" Text="Sicherheit" />
@@ -168,16 +152,15 @@
                             </StackPanel>
                         </StackPanel>
                     </Button>
-                    <Rectangle Grid.Column="9" Width="1" Fill="{DynamicResource Line}" />
 
-                    <Button Grid.Column="10" Margin="20,0,0,0" Style="{StaticResource Button.Tile}" Command="{Binding OpenOptimizeCommand}"
+                    <Button Style="{StaticResource Button.Tile}" Command="{Binding OpenOptimizeCommand}"
                             AutomationProperties.Name="Wird frei: Optimieren öffnen">
                         <StackPanel>
                             <TextBlock Style="{StaticResource Text.Label}" Text="Wird frei" />
                             <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Readout}" Text="{Binding FreeText}" />
                         </StackPanel>
                     </Button>
-                </Grid>
+                </local:ReadoutPanel>
 
                 <TextBlock Margin="0,22,0,0" Style="{StaticResource Text.Small}" Text="{x:Static vm:OverviewViewModel.FreeNote}"
                            Visibility="{Binding Optimize.HasScanned, Converter={StaticResource Vis}}" />
