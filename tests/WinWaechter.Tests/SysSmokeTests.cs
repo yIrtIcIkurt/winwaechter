@@ -200,6 +200,8 @@ public sealed class SysSmokeTests : IDisposable
 
             var exported = store.ExportXml(path);
             Assert.Contains("cmd.exe", exported);
+            // like the old library: a task without <Date> gets the registration time (Task Scheduler's „Erstellt“)
+            Assert.Contains("<Date>", exported);
             store.RegisterXml(path, exported);   // re-registering its own export (undo path) works
             Assert.NotNull(store.Get(path));
 

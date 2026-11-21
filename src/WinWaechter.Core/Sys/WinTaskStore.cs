@@ -52,6 +52,10 @@ public sealed class WinTaskStore : ITaskStore
         var folder = TryFolder(service, folderPath) ?? service.GetFolder(@"\").CreateFolder(folderPath.TrimStart('\\'), null);
         var def = service.NewTask(0);
         def.XmlText = xml;
+        // like the old library: without <Date> Task Scheduler shows no „Erstellt“
+        var info = def.RegistrationInfo;
+        if (string.IsNullOrEmpty((string?)info.Date))
+            info.Date = DateTime.Now.ToString("yyyy-MM-dd'T'HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
         var principal = def.Principal;
         var user = NullIfEmpty((string?)principal.UserId) ?? NullIfEmpty((string?)principal.GroupId);
         folder.RegisterTaskDefinition(name, def, CreateOrUpdate, user, null, (int)principal.LogonType, null);
