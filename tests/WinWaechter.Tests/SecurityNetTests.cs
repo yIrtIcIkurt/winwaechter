@@ -104,7 +104,7 @@ public sealed class SecurityNetTests : IDisposable
         Assert.Equal(SecurityCheck.UpdateSearchTimeout, Assert.Single(wu.Calls));
 
         wu.State = new(0, null, false);
-        wu.Block = TimeSpan.FromSeconds(5);
+        wu.Block = TimeSpan.FromSeconds(10);   // far from the 1 s timeout, also on a busy CI machine (4.5 s seen)
         var sw = Stopwatch.StartNew();
         items = await new SecurityCheck(s, TimeSpan.FromSeconds(1)).RunAsync(CancellationToken.None);
         sw.Stop();
@@ -112,7 +112,7 @@ public sealed class SecurityNetTests : IDisposable
         Assert.Equal(Light.Grey, row.Light);
         Assert.Contains("Zeitüberschreitung", row.Finding);
         Assert.Equal("Windows-Updates", row.Title);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), sw.Elapsed.ToString());
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(6), sw.Elapsed.ToString());
         Assert.Equal(AllIds, items.Select(i => i.Id));
     }
 

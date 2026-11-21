@@ -401,16 +401,17 @@ public sealed class UninstallTests : IDisposable
     [Fact]
     public async Task Launcher_stops_waiting_for_children_after_the_grace_period()
     {
-        // ping runs about 5 s after cmd (the root) has ended; with a 1 s grace the launcher returns early
+        // ping runs about 10 s after cmd (the root) has ended; with a 1 s grace the launcher returns early
+        // (10 s so that a busy CI machine – 4.9 s seen – still tells „early“ from „waited for ping“)
         var sys32 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32");
         var sw = Stopwatch.StartNew();
         var outcome = await new JobUninstallLauncher(TimeSpan.FromSeconds(1)).RunAsync(new UninstallCommand(
-            Path.Combine(sys32, "cmd.exe"), "/c start \"\" /b \"%SystemRoot%\\System32\\ping.exe\" -n 6 127.0.0.1 >nul & exit 3010"));
+            Path.Combine(sys32, "cmd.exe"), "/c start \"\" /b \"%SystemRoot%\\System32\\ping.exe\" -n 11 127.0.0.1 >nul & exit 3010"));
         sw.Stop();
         Assert.Equal(3010, outcome.ExitCode);
         Assert.True(outcome.RestartRequired);
         Assert.True(outcome.ChildrenStillRunning);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(4), $"returned after {sw.Elapsed}");
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(7), $"returned after {sw.Elapsed}");
     }
 
     [Fact]
